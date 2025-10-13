@@ -366,30 +366,44 @@ bool IC_CAN::reset_emergency_stop() {
 }
 
 void IC_CAN::initialize_motor_configs() {
-    debug_print("Initializing motor configurations");
+    debug_print("Initializing motor configurations with actual motor types from project");
 
     motor_configs_.clear();
 
-    // DM motors configuration (motors 1-6)
-    motor_configs_.emplace_back(1, MotorType::DM_DAMIAO, 0x01, 0x11, 50.0, 1.0, 10.0, 5.0, -95.5, 95.5);
-    motor_configs_.emplace_back(2, MotorType::DM_DAMIAO, 0x02, 0x12, 50.0, 1.0, 10.0, 5.0, -95.5, 95.5);
-    motor_configs_.emplace_back(3, MotorType::DM_DAMIAO, 0x03, 0x13, 50.0, 1.0, 10.0, 5.0, -95.5, 95.5);
-    motor_configs_.emplace_back(4, MotorType::DM_DAMIAO, 0x04, 0x14, 50.0, 1.0, 10.0, 5.0, -95.5, 95.5);
-    motor_configs_.emplace_back(5, MotorType::DM_DAMIAO, 0x05, 0x15, 50.0, 1.0, 10.0, 5.0, -95.5, 95.5);
-    motor_configs_.emplace_back(6, MotorType::DM_DAMIAO, 0x06, 0x16, 50.0, 1.0, 10.0, 5.0, -95.5, 95.5);
+    // Actual motor configuration from project requirements:
+    // 1. DM 10010l - position_min/max: ±12.5 rad, max_velocity: 25.0 rad/s, max_torque: 200.0 Nm
+    motor_configs_.emplace_back(1, MotorType::DM_DAMIAO, 0x01, 0x01, 50.0, 1.0, 200.0, 25.0, -12.5, 12.5);
 
-    // HT motors configuration (motors 7-8)
-    motor_configs_.emplace_back(7, MotorType::HT_HIGH_TORQUE, 0x07, 0x17, 40.0, 0.8, 8.0, 4.0, -180.0, 180.0);
-    motor_configs_.emplace_back(8, MotorType::HT_HIGH_TORQUE, 0x08, 0x18, 40.0, 0.8, 8.0, 4.0, -180.0, 180.0);
+    // 2. DM 6248 - position_min/max: ±12.566 rad, max_velocity: 20.0 rad/s, max_torque: 120.0 Nm
+    motor_configs_.emplace_back(2, MotorType::DM_DAMIAO, 0x02, 0x02, 50.0, 1.0, 120.0, 20.0, -12.566, 12.566);
 
-    // Servo motor configuration (motor 9)
-    motor_configs_.emplace_back(9, MotorType::SERVO, 0x09, 0x19, 30.0, 0.5, 5.0, 3.0, -270.0, 270.0);
+    // 3. DM 6248 - position_min/max: ±12.566 rad, max_velocity: 20.0 rad/s, max_torque: 120.0 Nm
+    motor_configs_.emplace_back(3, MotorType::DM_DAMIAO, 0x03, 0x03, 50.0, 1.0, 120.0, 20.0, -12.566, 12.566);
 
-    debug_print("Created " + std::to_string(motor_configs_.size()) + " motor configurations");
+    // 4. DM 4340 - position_min/max: ±12.5 rad, max_velocity: 10.0 rad/s, max_torque: 28.0 Nm
+    motor_configs_.emplace_back(4, MotorType::DM_DAMIAO, 0x04, 0x04, 50.0, 1.0, 28.0, 10.0, -12.5, 12.5);
+
+    // 5. DM 4340 - position_min/max: ±12.5 rad, max_velocity: 10.0 rad/s, max_torque: 28.0 Nm
+    motor_configs_.emplace_back(5, MotorType::DM_DAMIAO, 0x05, 0x05, 50.0, 1.0, 28.0, 10.0, -12.5, 12.5);
+
+    // 6. DM 4310 - position_min/max: ±12.5 rad, max_velocity: 30.0 rad/s, max_torque: 10.0 Nm
+    motor_configs_.emplace_back(6, MotorType::DM_DAMIAO, 0x06, 0x06, 50.0, 1.0, 10.0, 30.0, -12.5, 12.5);
+
+    // 7. HT 4438 - TODO: implement actual HT motor, using DM for now
+    motor_configs_.emplace_back(7, MotorType::HT_HIGH_TORQUE, 0x07, 0x07, 40.0, 0.8, 18.0, 15.0, -12.5, 12.5);
+
+    // 8. HT 4438 - TODO: implement actual HT motor, using DM for now
+    motor_configs_.emplace_back(8, MotorType::HT_HIGH_TORQUE, 0x08, 0x08, 40.0, 0.8, 18.0, 15.0, -12.5, 12.5);
+
+    // 9. Servo motor - TODO: implement actual servo motor, using DM for now
+    motor_configs_.emplace_back(9, MotorType::SERVO, 0x09, 0x09, 30.0, 0.5, 5.0, 3.0, -12.5, 12.5);
+
+    debug_print("Created " + std::to_string(motor_configs_.size()) + " motor configurations with actual motor types");
+    debug_print("Motors: DM10010L(x1), DM6248(x2), DM4340(x2), DM4310(x1), HT4438(x2), Servo(x1)");
 }
 
 void IC_CAN::create_motors() {
-    debug_print("Creating motor instances");
+    debug_print("Creating motor instances with correct motor type limits");
 
     std::lock_guard<std::mutex> lock(motors_mutex_);
     motors_.clear();
@@ -401,18 +415,43 @@ void IC_CAN::create_motors() {
             case MotorType::DM_DAMIAO:
                 motor = std::make_shared<DMMotorReal>(config.motor_id, config.can_send_id, config.can_recv_id,
                                                      config.kp, config.kd, config.max_torque, debug_enabled_);
+
+                // Set correct motor type limits based on motor ID
+                if (config.motor_id == 1) {
+                    // DM 10010L
+                    std::static_pointer_cast<DMMotorReal>(motor)->set_motor_type_limits("DM10010L");
+                    debug_print("Motor 1 set to DM10010L limits: ±12.5 rad, 25 rad/s, 200 Nm");
+                } else if (config.motor_id == 2 || config.motor_id == 3) {
+                    // DM 6248
+                    std::static_pointer_cast<DMMotorReal>(motor)->set_motor_type_limits("DM6248");
+                    debug_print("Motor " + std::to_string(config.motor_id) + " set to DM6248 limits: ±12.566 rad, 20 rad/s, 120 Nm");
+                } else if (config.motor_id == 4 || config.motor_id == 5) {
+                    // DM 4340
+                    std::static_pointer_cast<DMMotorReal>(motor)->set_motor_type_limits("DM4340");
+                    debug_print("Motor " + std::to_string(config.motor_id) + " set to DM4340 limits: ±12.5 rad, 10 rad/s, 28 Nm");
+                } else if (config.motor_id == 6) {
+                    // DM 4310
+                    std::static_pointer_cast<DMMotorReal>(motor)->set_motor_type_limits("DM4310");
+                    debug_print("Motor 6 set to DM4310 limits: ±12.5 rad, 30 rad/s, 10 Nm");
+                }
                 break;
+
             case MotorType::HT_HIGH_TORQUE:
-                // TODO: Implement HT motor class
+                // TODO: Implement HT motor class when available
                 debug_print("HT motor not yet implemented, using DM motor for ID " + std::to_string(config.motor_id));
                 motor = std::make_shared<DMMotorReal>(config.motor_id, config.can_send_id, config.can_recv_id,
                                                      config.kp, config.kd, config.max_torque, debug_enabled_);
+                // Set DM4340 limits as placeholder for HT motors
+                std::static_pointer_cast<DMMotorReal>(motor)->set_motor_type_limits("DM4340");
                 break;
+
             case MotorType::SERVO:
-                // TODO: Implement servo motor class
+                // TODO: Implement servo motor class when available
                 debug_print("Servo motor not yet implemented, using DM motor for ID " + std::to_string(config.motor_id));
                 motor = std::make_shared<DMMotorReal>(config.motor_id, config.can_send_id, config.can_recv_id,
                                                      config.kp, config.kd, config.max_torque, debug_enabled_);
+                // Set DM4340 limits as placeholder for servo motor
+                std::static_pointer_cast<DMMotorReal>(motor)->set_motor_type_limits("DM4340");
                 break;
         }
 
@@ -423,7 +462,7 @@ void IC_CAN::create_motors() {
         }
     }
 
-    debug_print("Created " + std::to_string(motors_.size()) + " motor instances");
+    debug_print("Created " + std::to_string(motors_.size()) + " motor instances with correct type limits");
 }
 
 void IC_CAN::update_all_states() {

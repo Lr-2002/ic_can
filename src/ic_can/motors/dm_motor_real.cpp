@@ -28,27 +28,33 @@ DMMotorReal::DMMotorReal(int motor_id, uint32_t can_send_id, uint32_t can_recv_i
       position_(0.0), velocity_(0.0), torque_(0.0), temperature_(25.0),
       enabled_(false), debug_enabled_(debug) {
 
-    // Set default limits (these can be customized based on motor type)
-    position_limit_min_ = -95.5 * M_PI / 180.0; // Convert to radians
-    position_limit_max_ = 95.5 * M_PI / 180.0;
-    velocity_limit_max_ = 5.0; // rad/s
-    torque_limit_max_ = max_torque_;
+    // Set correct Damiao motor limits based on dm-tools SDK
+    // Default to DM4340 limits if not specified
+    position_limit_min_ = -12.5;  // Q_MAX from dm-tools SDK (radians)
+    position_limit_max_ = 12.5;
+    velocity_limit_max_ = 10.0;   // DQ_MAX from dm-tools SDK (rad/s)
+    torque_limit_max_ = 28.0;     // TAU_MAX from dm-tools SDK (Nm)
 
     command_data_.resize(8, 0); // MIT command is 8 bytes
     debug_print("DM motor created: ID=" + std::to_string(motor_id) +
                 ", SendID=0x" + std::to_string(can_send_id) +
-                ", RecvID=0x" + std::to_string(can_recv_id));
+                ", RecvID=0x" + std::to_string(can_recv_id) +
+                " (using DM4340 limits)");
 }
 
 // ========== BaseMotor Interface Implementation ==========
 
 bool DMMotorReal::enable() {
+    // Send motor enable command
+    enter_mit_mode();
     enabled_ = true;
     debug_print("Motor enabled");
     return true;
 }
 
 bool DMMotorReal::disable() {
+    // Send motor disable command
+    exit_mit_mode();
     enabled_ = false;
     debug_print("Motor disabled");
     return true;
@@ -253,6 +259,42 @@ bool DMMotorReal::process_response(const std::vector<uint8_t>& data) {
 
 // ========== Damiao Motor Specific Methods ==========
 
+void DMMotorReal::set_motor_type_limits(const std::string& motor_type) {
+    // Set correct limits based on dm-tools SDK data
+    if (motor_type == "DM10010L") {
+        position_limit_min_ = -12.5;  // Q_MAX
+        position_limit_max_ = 12.5;
+        velocity_limit_max_ = 25.0;   // DQ_MAX
+        torque_limit_max_ = 200.0;    // TAU_MAX
+        debug_print("Set DM10010L limits: ±12.5 rad, 25 rad/s, 200 Nm");
+    } else if (motor_type == "DM6248") {
+        position_limit_min_ = -12.566;
+        position_limit_max_ = 12.566;
+        velocity_limit_max_ = 20.0;
+        torque_limit_max_ = 120.0;
+        debug_print("Set DM6248 limits: ±12.566 rad, 20 rad/s, 120 Nm");
+    } else if (motor_type == "DM4340") {
+        position_limit_min_ = -12.5;
+        position_limit_max_ = 12.5;
+        velocity_limit_max_ = 10.0;
+        torque_limit_max_ = 28.0;
+        debug_print("Set DM4340 limits: ±12.5 rad, 10 rad/s, 28 Nm");
+    } else if (motor_type == "DM4310") {
+        position_limit_min_ = -12.5;
+        position_limit_max_ = 12.5;
+        velocity_limit_max_ = 30.0;
+        torque_limit_max_ = 10.0;
+        debug_print("Set DM4310 limits: ±12.5 rad, 30 rad/s, 10 Nm");
+    } else {
+        // Default to DM4340
+        position_limit_min_ = -12.5;
+        position_limit_max_ = 12.5;
+        velocity_limit_max_ = 10.0;
+        torque_limit_max_ = 28.0;
+        debug_print("Unknown motor type, using DM4340 limits: ±12.5 rad, 10 rad/s, 28 Nm");
+    }
+}
+
 void DMMotorReal::set_mit_params(double kp, double kd, double max_torque) {
     kp_ = kp;
     kd_ = kd;
@@ -264,17 +306,17 @@ void DMMotorReal::set_mit_params(double kp, double kd, double max_torque) {
 }
 
 void DMMotorReal::enter_mit_mode() {
-    // Send MIT mode entry command
-    std::vector<uint8_t> mit_cmd = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFC};
-    command_data_ = mit_cmd;
-    debug_print("Entering MIT mode");
+    // Send MIT mode entry command (Motor Enable)
+    std::vector<uint8_t> enable_cmd = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFC};
+    command_data_ = enable_cmd;
+    debug_print("Motor enable command sent");
 }
 
 void DMMotorReal::exit_mit_mode() {
-    // Send exit MIT mode command
-    std::vector<uint8_t> exit_cmd = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFD};
-    command_data_ = exit_cmd;
-    debug_print("Exiting MIT mode");
+    // Send exit MIT mode command (Motor Disable)
+    std::vector<uint8_t> disable_cmd = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFD};
+    command_data_ = disable_cmd;
+    debug_print("Motor disable command sent");
 }
 
 void DMMotorReal::set_zero_position() {
@@ -289,72 +331,78 @@ void DMMotorReal::set_zero_position() {
 std::vector<uint8_t> DMMotorReal::pack_mit_command(double position, double velocity, double torque) {
     std::vector<uint8_t> data(8, 0);
 
-    // Pack data according to Damiao MIT protocol (similar to openarm implementation)
-    // Data format: [p_des[31:16], p_des[15:0], v_des[15:0], kp[11:0], kd[11:0], tau_ff[12:0]]
+    // Use dm-tools SDK MIT command packing (from test_dm_fixed.cpp - working implementation)
+    auto float_to_uint = [](double x, double min, double max, int bits) -> uint16_t {
+        double span = max - min;
+        if (x < min) x = min;
+        if (x > max) x = max;
+        return static_cast<uint16_t>((x - min) * ((1 << bits) - 1) / span);
+    };
 
-    // Convert to fixed-point representations
-    float p_des = static_cast<float>(position);
-    float v_des = static_cast<float>(velocity);
-    float kp = static_cast<float>(kp_);
-    float kd = static_cast<float>(kd_);
-    float tau_ff = static_cast<float>(torque);
+    // Convert to uint16 with proper limits from dm-tools SDK
+    uint16_t kp_uint = float_to_uint(kp_, 0.0, 500.0, 12);
+    uint16_t kd_uint = float_to_uint(kd_, 0.0, 5.0, 12);
+    uint16_t q_uint = float_to_uint(position, -position_limit_max_, position_limit_max_, 16);
+    uint16_t dq_uint = float_to_uint(velocity, -velocity_limit_max_, velocity_limit_max_, 12);
+    uint16_t tau_uint = float_to_uint(torque, -torque_limit_max_, torque_limit_max_, 12);
 
-    // Convert to uint32 with proper bit manipulation
-    uint32_t p_int = float_to_uint32(p_des);
-    uint16_t v_int = static_cast<uint16_t>(float_to_uint32(v_des) >> 16);
-    uint16_t kp_int = static_cast<uint16_t>(float_to_uint32(kp) >> 20);
-    uint16_t kd_int = static_cast<uint16_t>(float_to_uint32(kd) >> 20);
-    uint16_t tau_int = static_cast<uint16_t>(float_to_uint32(tau_ff) >> 19);
+    // Pack according to dm-tools format (from working test_dm_fixed.cpp)
+    data[0] = (q_uint >> 8) & 0xFF;
+    data[1] = q_uint & 0xFF;
+    data[2] = dq_uint >> 4;
+    data[3] = ((dq_uint & 0xF) << 4) | ((kp_uint >> 8) & 0xF);
+    data[4] = kp_uint & 0xFF;
+    data[5] = kd_uint >> 4;
+    data[6] = ((kd_uint & 0xF) << 4) | ((tau_uint >> 8) & 0xF);
+    data[7] = tau_uint & 0xFF;
 
-    // Pack into 8-byte array
-    data[0] = static_cast<uint8_t>((p_int >> 24) & 0xFF);
-    data[1] = static_cast<uint8_t>((p_int >> 16) & 0xFF);
-    data[2] = static_cast<uint8_t>((p_int >> 8) & 0xFF);
-    data[3] = static_cast<uint8_t>(p_int & 0xFF);
-    data[4] = static_cast<uint8_t>((v_int >> 8) & 0xFF);
-    data[5] = static_cast<uint8_t>(v_int & 0xFF);
-    data[6] = static_cast<uint8_t>((kp_int & 0x0F) << 4 | (kd_int >> 8) & 0x0F);
-    data[7] = static_cast<uint8_t>(kd_int & 0xFF);
-
-    // Add torque feedforward (this is a simplified packing)
-    uint16_t tau_packed = std::min(tau_int, static_cast<uint16_t>(0x1FFF));
-    data[6] |= static_cast<uint8_t>((tau_packed >> 5) & 0xE0);
-    data[7] |= static_cast<uint8_t>((tau_packed & 0x1F) << 3);
+    if (debug_enabled_) {
+        debug_print("MIT command packed: p=" + std::to_string(position) +
+                    " (q_uint=0x" + std::to_string(q_uint) + ")" +
+                    ", v=" + std::to_string(velocity) +
+                    " (dq_uint=0x" + std::to_string(dq_uint) + ")" +
+                    ", t=" + std::to_string(torque) +
+                    " (tau_uint=0x" + std::to_string(tau_uint) + ")" +
+                    ", kp=" + std::to_string(kp_) +
+                    " (kp_uint=0x" + std::to_string(kp_uint) + ")" +
+                    ", kd=" + std::to_string(kd_) +
+                    " (kd_uint=0x" + std::to_string(kd_uint) + ")");
+    }
 
     return data;
 }
 
 void DMMotorReal::unpack_mit_response(const std::vector<uint8_t>& data) {
-    // Unpack MIT response data (similar to openarm implementation)
-    // Response format: [id, temperature[7:0], position[31:16], position[15:0], velocity[15:0], current[15:0]]
+    // Unpack MIT response using working implementation from test_dm_fixed.cpp
+    // Response format based on dm-tools SDK feedback callback
 
     if (data.size() < 6) return;
 
-    // Extract position (float)
-    uint32_t p_raw = (static_cast<uint32_t>(data[1]) << 24) |
-                     (static_cast<uint32_t>(data[2]) << 16) |
-                     (static_cast<uint32_t>(data[3]) << 8) |
-                     static_cast<uint32_t>(data[4]);
+    // Extract motor response data (same as motor_feedback_callback from test_dm_fixed.cpp)
+    uint16_t q_uint = (uint16_t(data[1]) << 8) | data[2];
+    uint16_t dq_uint = (uint16_t(data[3]) << 4) | (data[4] >> 4);
+    uint16_t tau_uint = (uint16_t(data[4] & 0xf) << 8) | data[5];
 
-    // Extract velocity (int16)
-    int16_t v_raw = (static_cast<int16_t>(data[5]) << 8) |
-                    static_cast<int16_t>(data[6]);
+    // Use the same conversion logic as the working test
+    auto uint_to_float = [](uint16_t x, float xmin, float xmax, uint8_t bits) -> float {
+        float span = xmax - xmin;
+        float data_norm = float(x) / ((1 << bits) - 1);
+        float data = data_norm * span + xmin;
+        return data;
+    };
 
-    // Extract current/torque (int16)
-    int16_t tau_raw = (static_cast<int16_t>(data[7]) << 8) |
-                      static_cast<int16_t>(data[8]);
-
-    // Convert to real values
-    position_ = uint32_to_float(p_raw);
-    velocity_ = static_cast<double>(v_raw) * 0.01; // Scale factor
-    torque_ = static_cast<double>(tau_raw) * 0.01;  // Scale factor
-    temperature_ = static_cast<double>(data[0]);  // Temperature is first byte
+    // Convert to real values using current motor limits
+    position_ = uint_to_float(q_uint, static_cast<float>(-position_limit_max_), static_cast<float>(position_limit_max_), 16);
+    velocity_ = uint_to_float(dq_uint, static_cast<float>(-velocity_limit_max_), static_cast<float>(velocity_limit_max_), 12);
+    torque_ = uint_to_float(tau_uint, static_cast<float>(-torque_limit_max_), static_cast<float>(torque_limit_max_), 12);
 
     if (debug_enabled_) {
-        debug_print("Response: p=" + std::to_string(position_) +
+        debug_print("Response unpacked: p=" + std::to_string(position_) +
+                    " (q_uint=0x" + std::to_string(q_uint) + ")" +
                     ", v=" + std::to_string(velocity_) +
+                    " (dq_uint=0x" + std::to_string(dq_uint) + ")" +
                     ", t=" + std::to_string(torque_) +
-                    ", temp=" + std::to_string(temperature_));
+                    " (tau_uint=0x" + std::to_string(tau_uint) + ")");
     }
 }
 

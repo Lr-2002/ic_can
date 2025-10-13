@@ -18,10 +18,10 @@
 #include <thread>
 #include <cstring>
 
-// 使用真实的dm-tools SDK (macOS arm64)
+// 使用真实的dm-tools SDK (Linux Ubuntu)
 #define private public
-#include "../../dm-tools/USB2FDCAN/SDK/C++/arm/include/protocol/usb_class.h"
-#include "../../dm-tools/USB2FDCAN/SDK/C++/arm/include/protocol/damiao.h"
+#include "../../dm-tools/USB2FDCAN/SDK/C++/ubuntu/include/protocol/usb_class.h"
+#include "../../dm-tools/USB2FDCAN/SDK/C++/ubuntu/include/protocol/damiao.h"
 #undef private
 
 namespace ic_can {
@@ -52,21 +52,14 @@ bool USB2CANAdapter::connect() {
 
     try {
         // 创建真实的dm-tools USB类实例
+        // 注意：usb_class构造函数会自动连接设备，不需要再调用usb_open()
         dm_usb_class_ = new usb_class(can_baud_rate_, can_fd_data_rate_, device_sn_);
         if (!dm_usb_class_) {
             error_print("Failed to create dm-tools USB class");
             return false;
         }
 
-        // 连接到设备
-        auto* usb_cls = static_cast<class usb_class*>(dm_usb_class_);
-        if (usb_cls->usb_open(device_sn_) != 0) {
-            error_print("Failed to connect to device with SN: " + device_sn_);
-            delete dm_usb_class_;
-            dm_usb_class_ = nullptr;
-            return false;
-        }
-
+        // usb_class构造函数已经自动连接了设备
         connected_ = true;
         info_print("Connected to dm-tools USB2CAN device successfully");
 
@@ -92,9 +85,10 @@ bool USB2CANAdapter::disconnect() {
     try {
         // 清理dm-tools USB类
         if (dm_usb_class_) {
-            auto* usb_cls = static_cast<class usb_class*>(dm_usb_class_);
             // Note: usb_class doesn't have explicit disconnect method in destructor
-            delete dm_usb_class_;
+            // Cast to correct type for deletion
+            auto* usb_cls = static_cast<class usb_class*>(dm_usb_class_);
+            delete usb_cls;
             dm_usb_class_ = nullptr;
         }
 
@@ -124,6 +118,7 @@ bool USB2CANAdapter::send_frame(const CANFrame& frame) {
         auto* usb_cls = static_cast<class usb_class*>(dm_usb_class_);
         std::vector<uint8_t> data_vector(frame.data.begin(), frame.data.end());
         usb_cls->fdcanFrameSend(data_vector, frame.can_id);
+        // 注意：fdcanFrameSend返回void，如果函数执行完没有异常就认为发送成功
 
         sent_frames_count_++;
         debug_print("Frame sent: ID=0x" + std::to_string(frame.can_id) +
@@ -151,9 +146,6 @@ bool USB2CANAdapter::receive_frame(CANFrame& frame, int timeout_us) {
 
     try {
         auto start_time = std::chrono::steady_clock::now();
-        uint8_t data[64];
-        uint32_t can_id;
-        uint8_t data_len;
 
         while (std::chrono::duration_cast<std::chrono::microseconds>(
                std::chrono::steady_clock::now() - start_time).count() < timeout_us) {
@@ -256,23 +248,42 @@ bool USB2CANAdapter::start_async_receive() {
     }
 
     try {
-        // 设置dm-tools SDK的回调函数
+        // 设置dm-tools SDK的回调函数 (基于工作的test_dm_fixed.cpp)
         auto* usb_cls = static_cast<class usb_class*>(dm_usb_class_);
         usb_cls->setFrameCallback([this](can_value_type& can_value) {
-            this->handle_received_frame(static_cast<DmToolsFrame>(&can_value));
+            // 直接调用用户回调，避免不必要的转换
+            {
+                std::lock_guard<std::mutex> lock(callback_mutex_);
+                if (frame_callback_) {
+                    try {
+                        // 转换为IC_CAN格式
+                        CANFrame frame;
+                        frame.can_id = can_value.head.id;
+                        frame.data.resize(can_value.head.dlc);
+                        memcpy(frame.data.data(), can_value.data, can_value.head.dlc);
+                        frame.timestamp = std::chrono::steady_clock::now();
+
+                        frame_callback_(frame);
+                        received_frames_count_++;
+                        debug_print("Frame received: ID=0x" + std::to_string(frame.can_id));
+                    } catch (const std::exception& e) {
+                        error_print("Frame callback error: " + std::string(e.what()));
+                        increment_error_count();
+                    }
+                }
+            }
         });
 
-        // 启动dm-tools的接收机制
+        // 启动dm-tools的数据捕获
         if (usb_cls->USB_CMD_START_CAP() != 0) {
             error_print("Failed to start dm-tools data capture");
             return false;
         }
 
         stop_receive_thread_ = false;
-        receive_thread_ = std::thread(&USB2CANAdapter::receive_thread_main, this);
         receive_thread_running_ = true;
 
-        debug_print("Async receive thread started");
+        debug_print("Async receive started with direct callback");
         return true;
 
     } catch (const std::exception& e) {

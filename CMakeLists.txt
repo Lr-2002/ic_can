@@ -65,7 +65,7 @@ endif()
 # 包含目录
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/dm-tools/USB2FDCAN/SDK/C++/arm/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/dm-tools/USB2FDCAN/SDK/C++/ubuntu/include
 )
 
 # 添加 libusb 头文件路径 (macOS Homebrew)
@@ -193,11 +193,16 @@ target_compile_options(ic_can_core PRIVATE -Wno-unused-parameter)
 # 添加 dm-tools SDK 头文件路径
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/dm-tools")
     target_include_directories(ic_can_core PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/dm-tools/USB2FDCAN/SDK/C++/arm/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/dm-tools/USB2FDCAN/SDK/C++/ubuntu/include
     )
 
-    # 添加 dm-tools SDK 库路径 (macOS arm64)
-    if(APPLE AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/dm-tools/USB2FDCAN/SDK/C++/arm/lib/libu2canfd.a")
+    # 添加 dm-tools SDK 库路径
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/dm-tools/USB2FDCAN/SDK/C++/ubuntu/lib/libu2canfd.a")
+        target_link_libraries(ic_can_core
+            ${CMAKE_CURRENT_SOURCE_DIR}/dm-tools/USB2FDCAN/SDK/C++/ubuntu/lib/libu2canfd.a
+        )
+        message(STATUS "Found dm-tools SDK library: ${CMAKE_CURRENT_SOURCE_DIR}/dm-tools/USB2FDCAN/SDK/C++/ubuntu/lib/libu2canfd.a")
+    elseif(APPLE AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/dm-tools/USB2FDCAN/SDK/C++/arm/lib/libu2canfd.a")
         target_link_libraries(ic_can_core
             ${CMAKE_CURRENT_SOURCE_DIR}/dm-tools/USB2FDCAN/SDK/C++/arm/lib/libu2canfd.a
         )

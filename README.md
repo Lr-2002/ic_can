@@ -134,17 +134,17 @@ controller.disable_all()
 
 The system supports 9 motors with the following configuration:
 
-| Motor ID | Motor Type | CAN ID  | Joint        | Description      |
-|----------|------------|---------|--------------|------------------|
-| 1        | DM4310     | 0x201   | Joint 1      | Shoulder         |
-| 2        | DM4310     | 0x202   | Joint 2      | Upper Arm        |
-| 3        | DM6248     | 0x203   | Joint 3      | Elbow            |
-| 4        | DM6248     | 0x204   | Joint 4      | Forearm          |
-| 5        | DM4340     | 0x205   | Joint 5      | Wrist            |
-| 6        | DM4340     | 0x206   | Joint 6      | End Effector     |
-| 7        | DM10010L   | 0x207   | Gripper M1   | Gripper Motor 1  |
-| 8        | HT_HIGH_TORQUE | 0x208 | Gripper M2   | Gripper Motor 2  |
-| 9        | SERVO      | 0x209   | Gripper Servo | Gripper Servo   |
+| Motor ID | Motor Type | CAN ID  | Joint        |
+|----------|------------|---------|--------------|
+| 1        | DM10010L     | 0x01   | Joint 1      |
+| 2        | DM6248     | 0x02   | Joint 2      |
+| 3        | DM6248     | 0x03   | Joint 3      |
+| 4        | DM4340     | 0x05   | Joint 4      |
+| 6        | DM4340     | 0x06   | Joint 5      |
+| 5        | DM4310     | 0x06   | Joint 6      |
+| 7        | HT_HIGH_TORQUE   | 0x07   | Gripper M1   |
+| 8        | HT_HIGH_TORQUE | 0x08 | Gripper M2  |
+| 9        | SERVO      | 0x09   | Gripper Servo|
 
 ## Safety Features
 
@@ -173,6 +173,7 @@ The system is designed for high-performance operation:
 The project includes comprehensive testing:
 
 ### C++ Tests
+
 ```bash
 cd build
 ./test_results/test_basic      # Basic functionality tests
@@ -182,6 +183,7 @@ cd build
 ```
 
 ### Python Tests
+
 ```bash
 python3 python/test_functionality.py  # Functional tests
 python3 python/test_performance.py    # Performance tests
@@ -232,9 +234,9 @@ This project is licensed under the Apache License 2.0. See the [LICENSE](LICENSE
 
 For support and questions:
 
-- Email: openarm@enactic.ai
-- GitHub Issues: https://github.com/your-org/ic_can/issues
-- Documentation: https://ic-can.readthedocs.io
+- Email: <openarm@enactic.ai>
+- GitHub Issues: <https://github.com/your-org/ic_can/issues>
+- Documentation: <https://ic-can.readthedocs.io>
 
 ## Acknowledgments
 
@@ -252,3 +254,4 @@ For support and questions:
 ---
 
 **Note**: This library is designed for research and development use. Production deployment requires additional validation and safety certifications.
+

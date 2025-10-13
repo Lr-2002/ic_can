@@ -99,6 +99,12 @@ public:
     void set_mit_params(double kp, double kd, double max_torque);
 
     /**
+     * @brief Set correct motor limits based on dm-tools SDK data
+     * @param motor_type Motor type string (e.g., "DM4340", "DM6248", "DM10010L")
+     */
+    void set_motor_type_limits(const std::string& motor_type);
+
+    /**
      * @brief Enter MIT control mode
      */
     void enter_mit_mode();

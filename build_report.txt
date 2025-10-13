@@ -1,0 +1,47 @@
+IC_CAN Build and Test Report
+============================
+Build Date: Mon Oct 13 10:45:01 CST 2025
+Git Commit: N/A
+Branch: N/A
+
+Build Configuration:
+- Build Type: Release
+- Tests Enabled: Yes
+- Python Bindings: Yes
+- Examples: Yes
+- Coverage: No
+- Sanitizer: No
+
+Test Results:
+- C++ Tests: true
+- Python Tests: true
+
+Build Artifacts:
+- Build Directory: build
+- Install Directory: install
+- Log File: build_test.log
+
+Performance Files:
+- C++ Performance: performance_results.csv (if generated)
+- Python Performance: performance_results.csv (if generated)
+- Performance Report: performance_report.json (if generated)
+
+Notes:
+Warnings found during build:
+2025-10-13 10:44:18,447 - __main__ - WARNING - IC_CAN native module not available: No module named 'ic_can_python'
+2025-10-13 10:44:18,448 - __main__ - WARNING - Running in simulation mode
+2025-10-13 10:44:18,448 - __main__ - WARNING - Invalid position list was accepted (may be expected in simulation)
+2025-10-13 10:44:22,690 - __main__ - WARNING - IC_CAN native module not available: No module named 'ic_can_python'
+2025-10-13 10:44:22,690 - __main__ - WARNING - Running in simulation mode
+
+Errors found during build:
+CMake Error at CMakeLists.txt:106 (install):
+CMake Error at tests/CMakeLists.txt:6:
+  Parse error.  Expected a command name, got unquoted argument with text
+-- Configuring incomplete, errors occurred!
+test_error_handling (__main__.TestIC_CANFunctionality.test_error_handling)
+Test error handling ... 2025-10-13 10:44:18,448 - __main__ - INFO - Setting up test_error_handling
+2025-10-13 10:44:18,448 - __main__ - INFO - Testing error handling...
+2025-10-13 10:44:18,448 - __main__ - INFO - Error handling test passed
+2025-10-13 10:44:18,448 - __main__ - INFO - Tearing down test_error_handling
+2025-10-13 10:44:19,072 - __main__ - INFO - Thread safety test completed. Results: 30, Errors: 0

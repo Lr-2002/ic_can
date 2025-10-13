@@ -1,0 +1,31 @@
+"""
+IC_CAN Python Bindings
+
+Python bindings for the IC_CAN robotic arm control library.
+"""
+
+from .ic_can_python import *
+
+__version__ = "@PROJECT_VERSION@"
+__author__ = "IC_CAN Team"
+__email__ = "ic_can@example.com"
+
+# Export main classes
+__all__ = [
+    'IC_CAN',
+    'ArmComponent',
+    'GripperComponent',
+    'SafetyModule',
+    'USB2CANAdapter',
+    'BaseMotor',
+    'DMMotor',
+    'CANFrame',
+    'SafetyViolation',
+    'SafetyLimits',
+    'MotorType',
+    'DMMotorType',
+    'DMControlMode',
+    'DMRegisterID',
+    'DMCommand',
+    'SafetyViolationType'
+]

@@ -1,0 +1,10 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: ic_can
+Description: IC_CAN - High Performance CAN Control Library for Robotic Arms
+Version: @PROJECT_VERSION@
+Libs: -L${libdir} -lic_can_core
+Cflags: -I${includedir}

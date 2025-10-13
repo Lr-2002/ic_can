@@ -1,0 +1,96 @@
+# Copyright 2025 IC_CAN Team
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""
+IC_CAN Python Package
+High Performance CAN Control Library for Robotic Arms
+
+This package provides Python bindings for the IC_CAN C++ library,
+enabling high-performance control of robotic arms with CAN bus communication.
+"""
+
+__version__ = "@PYTHON_MODULE_VERSION@"
+__author__ = "IC_CAN Team"
+__email__ = "openarm@enactic.ai"
+__license__ = "Apache License 2.0"
+
+# Import the compiled Python module
+try:
+    from .ic_can_python import *
+    from .core import IC_CANController
+    from .exceptions import IC_CANError, USB2CANError, MotorError, SafetyError
+
+    # Define what gets imported with 'from ic_can import *'
+    __all__ = [
+        # Core classes
+        'IC_CAN',
+        'IC_CANController',
+        'ArmComponent',
+        'GripperComponent',
+        'SafetyModule',
+
+        # Enums
+        'MotorType',
+        'DMMotorType',
+        'DMControlMode',
+        'DMRegisterID',
+        'SafetyViolationType',
+
+        # Exceptions
+        'IC_CANError',
+        'USB2CANError',
+        'MotorError',
+        'SafetyError',
+        'USB2CANException',
+
+        # Utility functions
+        'get_timestamp',
+        'motor_type_to_string',
+        'string_to_motor_type',
+        'dm_motor_type_to_string',
+        'string_to_dm_motor_type',
+
+        # Module metadata
+        '__version__',
+        '__author__',
+        '__email__',
+        '__license__'
+    ]
+
+except ImportError as e:
+    # Handle import errors gracefully
+    import warnings
+    warnings.warn(f"Failed to import IC_CAN C++ module: {e}", ImportWarning)
+
+    # Provide fallback definitions for development
+    __all__ = ['__version__', '__author__', '__email__', '__license__']
+
+# Development mode detection
+_development_mode = False
+
+def is_development_mode():
+    """Check if running in development mode"""
+    return _development_mode
+
+def get_build_info():
+    """Get build information"""
+    return {
+        'version': __version__,
+        'author': __author__,
+        'email': __email__,
+        'license': __license__,
+        'development_mode': is_development_mode(),
+        'platform': __import__('platform').system(),
+        'python_version': __import__('sys').version
+    }

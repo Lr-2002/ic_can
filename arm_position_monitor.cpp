@@ -2,21 +2,24 @@
  * @file arm_position_monitor.cpp
  * @brief Real-time 6-Joint Arm Position Monitor
  *
- * This program monitors and displays the positions of all 6 arm joints (motors 1-6)
- * in real-time using the working dm-tools SDK integration.
+ * This program monitors and displays the positions of all 6 arm joints (motors
+ * 1-6) in real-time using the working dm-tools SDK integration.
  */
 
+#include <atomic>
+#include <chrono>
 #include <cmath>
 #include <csignal>
+#include <cstddef>
+#include <cstdint>
 #include <iomanip>
+#include <ios>
 #include <iostream>
+#include <memory>
 #include <string>
+#include <thread>
 #include <unistd.h>
 #include <vector>
-#include <memory>
-#include <thread>
-#include <chrono>
-#include <atomic>
 
 // Use working dm-tools SDK directly
 #include "dm-tools/USB2FDCAN/SDK/C++/ubuntu/include/protocol/usb_class.h"
@@ -24,8 +27,10 @@
 static volatile bool g_running = true;
 
 // Arm joint positions storage
-static std::atomic<float> arm_positions[6] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
-static std::atomic<bool> position_updated[6] = {false, false, false, false, false, false};
+static std::atomic<float> arm_positions[6] = {0.0f, 0.0f, 0.0f,
+                                              0.0f, 0.0f, 0.0f};
+static std::atomic<bool> position_updated[6] = {false, false, false,
+                                                false, false, false};
 
 void signal_handler(int signal) {
   std::cout << "\n⚠️  Received signal " << signal << ", stopping monitor..."
@@ -37,8 +42,11 @@ void signal_handler(int signal) {
 void arm_feedback_callback(can_value_type &value) {
   uint32_t motor_id = value.head.id;
 
+  std::cout << "received data from callback" << motor_id << std::endl;
   // Only process arm joints (motors 1-6)
-  if (motor_id < 1 || motor_id > 6) return;
+  motor_id = motor_id - 16;
+  if (motor_id < 1 || motor_id > 6)
+    return;
 
   // Use same conversion logic as working test
   static auto uint_to_float = [](uint16_t x, float xmin, float xmax,
@@ -58,26 +66,34 @@ void arm_feedback_callback(can_value_type &value) {
   float p_max, v_max, t_max;
 
   switch (motor_id) {
-    case 1:
-      // DM 10010L
-      p_max = 12.5f; v_max = 25.0f; t_max = 200.0f;
-      break;
-    case 2:
-    case 3:
-      // DM 6248
-      p_max = 12.566f; v_max = 20.0f; t_max = 120.0f;
-      break;
-    case 4:
-    case 5:
-      // DM 4340
-      p_max = 12.5f; v_max = 10.0f; t_max = 28.0f;
-      break;
-    case 6:
-      // DM 4310
-      p_max = 12.5f; v_max = 30.0f; t_max = 10.0f;
-      break;
-    default:
-      return; // Should not happen
+  case 1:
+    // DM 10010L
+    p_max = 12.5f;
+    v_max = 25.0f;
+    t_max = 200.0f;
+    break;
+  case 2:
+  case 3:
+    // DM 6248
+    p_max = 12.566f;
+    v_max = 20.0f;
+    t_max = 120.0f;
+    break;
+  case 4:
+  case 5:
+    // DM 4340
+    p_max = 12.5f;
+    v_max = 10.0f;
+    t_max = 28.0f;
+    break;
+  case 6:
+    // DM 4310
+    p_max = 12.5f;
+    v_max = 30.0f;
+    t_max = 10.0f;
+    break;
+  default:
+    return; // Should not happen
   }
 
   // Convert to real values
@@ -90,9 +106,10 @@ void arm_feedback_callback(can_value_type &value) {
   position_updated[motor_id - 1].store(true);
 
   // Optional: Print detailed feedback (comment out for cleaner display)
-  // std::cout << "📥 Motor " << motor_id << ": p=" << std::fixed << std::setprecision(3)
-  //           << position << " rad (" << (position * 180.0 / M_PI) << "°), "
-  //           << "v=" << velocity << " rad/s, τ=" << torque << " Nm" << std::endl;
+  std::cout << "📥 Motor " << motor_id << ": p=" << std::fixed
+            << std::setprecision(3) << position << " rad ("
+            << (position * 180.0 / M_PI) << "°), "
+            << "v=" << velocity << " rad/s, τ=" << torque << " Nm" << std::endl;
 }
 
 void print_arm_positions() {
@@ -105,8 +122,10 @@ void print_arm_positions() {
   std::cout << std::endl;
 
   // Print header
-  std::cout << "Joint | Motor | Position (rad) | Position (deg) | Updated" << std::endl;
-  std::cout << "------|-------|----------------|----------------|--------" << std::endl;
+  std::cout << "Joint | Motor | Position (rad) | Position (deg) | Updated"
+            << std::endl;
+  std::cout << "------|-------|----------------|----------------|--------"
+            << std::endl;
 
   // Print each joint
   for (int i = 0; i < 6; i++) {
@@ -114,10 +133,10 @@ void print_arm_positions() {
     float pos_deg = pos_rad * 180.0f / M_PI;
     bool updated = position_updated[i].load();
 
-    std::cout << std::setw(5) << (i + 1) << " | "
-              << std::setw(5) << "M" << (i + 1) << " | "
-              << std::fixed << std::setw(14) << std::setprecision(3) << pos_rad << " | "
-              << std::fixed << std::setw(14) << std::setprecision(1) << pos_deg << " | "
+    std::cout << std::setw(5) << (i + 1) << " | " << std::setw(5) << "M"
+              << (i + 1) << " | " << std::fixed << std::setw(14)
+              << std::setprecision(3) << pos_rad << " | " << std::fixed
+              << std::setw(14) << std::setprecision(1) << pos_deg << " | "
               << (updated ? "✅" : "⏸️") << std::endl;
   }
 
@@ -125,19 +144,26 @@ void print_arm_positions() {
 
   // Print arm configuration info
   std::cout << "Arm Configuration:" << std::endl;
-  std::cout << "  Joint 1 (M1): DM10010L - ±12.5 rad, 25 rad/s, 200 Nm" << std::endl;
-  std::cout << "  Joint 2 (M2): DM6248   - ±12.566 rad, 20 rad/s, 120 Nm" << std::endl;
-  std::cout << "  Joint 3 (M3): DM6248   - ±12.566 rad, 20 rad/s, 120 Nm" << std::endl;
-  std::cout << "  Joint 4 (M4): DM4340   - ±12.5 rad, 10 rad/s, 28 Nm" << std::endl;
-  std::cout << "  Joint 5 (M5): DM4340   - ±12.5 rad, 10 rad/s, 28 Nm" << std::endl;
-  std::cout << "  Joint 6 (M6): DM4310   - ±12.5 rad, 30 rad/s, 10 Nm" << std::endl;
+  std::cout << "  Joint 1 (M1): DM10010L - ±12.5 rad, 25 rad/s, 200 Nm"
+            << std::endl;
+  std::cout << "  Joint 2 (M2): DM6248   - ±12.566 rad, 20 rad/s, 120 Nm"
+            << std::endl;
+  std::cout << "  Joint 3 (M3): DM6248   - ±12.566 rad, 20 rad/s, 120 Nm"
+            << std::endl;
+  std::cout << "  Joint 4 (M4): DM4340   - ±12.5 rad, 10 rad/s, 28 Nm"
+            << std::endl;
+  std::cout << "  Joint 5 (M5): DM4340   - ±12.5 rad, 10 rad/s, 28 Nm"
+            << std::endl;
+  std::cout << "  Joint 6 (M6): DM4310   - ±12.5 rad, 30 rad/s, 10 Nm"
+            << std::endl;
 
   auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
-      std::chrono::steady_clock::now().time_since_epoch()).count();
+                       std::chrono::steady_clock::now().time_since_epoch())
+                       .count();
   std::cout << "\nLast update: " << timestamp << " ms" << std::endl;
 }
 
-void enable_arm_motors(usb_class* device) {
+void enable_arm_motors(usb_class *device) {
   std::cout << "🔧 Enabling all 6 arm motors..." << std::endl;
 
   // Enable motors 1-6
@@ -154,10 +180,14 @@ void enable_arm_motors(usb_class* device) {
   usleep(500000); // Wait 500ms for motors to initialize
 }
 
-void request_status_all(usb_class* device) {
+void request_status_all(usb_class *device) {
   // Send status request to trigger feedback from all motors
-  std::vector<uint8_t> status_cmd = {0x01, 0x00, 0xCC, 0x00};
-  device->fdcanFrameSend(status_cmd, 0x7FF); // Broadcast status request
+  for (int motor_id = 1; motor_id <= 6; motor_id++) {
+    std::cout << " sending command to " << motor_id << std::endl;
+    std::vector<uint8_t> status_cmd = {std::uint8_t(motor_id), 0x00, 0xCC,
+                                       0x00};
+    device->fdcanFrameSend(status_cmd, 0x7FF); // Broadcast status request
+  }
 }
 
 int main() {
@@ -214,7 +244,8 @@ int main() {
     while (g_running) {
       auto current_time = std::chrono::steady_clock::now();
       auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-          current_time - last_update).count();
+                         current_time - last_update)
+                         .count();
 
       // Update display every 100ms
       if (elapsed >= 100) {

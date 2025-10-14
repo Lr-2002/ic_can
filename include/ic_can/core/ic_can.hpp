@@ -80,6 +80,13 @@ public:
     bool set_zero_all();
 
     /**
+     * @brief Set motor zero position calibration
+     * @param motor_id Motor ID (1-9)
+     * @return true if successful
+     */
+    bool set_motor_zero_calibration(int motor_id);
+
+    /**
      * @brief Refresh all motor states
      * @return true if successful
      */
@@ -131,21 +138,91 @@ public:
     bool set_joint_torques(const std::vector<double>& torques);
 
     /**
-     * @brief Start high-frequency control loop (500Hz)
+     * @brief Start control loop with configurable frequency
+     * @param frequency Control frequency in Hz (e.g., 200, 500)
+     * @return true if successful
+     */
+    bool start_control_loop(double frequency);
+
+    /**
+     * @brief Start high-frequency control loop (500Hz) - deprecated
      * @return true if successful
      */
     bool start_high_frequency_control();
 
     /**
-     * @brief Stop high-frequency control loop
+     * @brief Stop control loop
+     */
+    void stop_control_loop();
+
+    /**
+     * @brief Stop high-frequency control loop - deprecated
      */
     void stop_high_frequency_control();
 
     /**
-     * @brief Check if high-frequency control is running
+     * @brief Check if control loop is running
+     * @return true if running
+     */
+    bool is_control_running() const;
+
+    /**
+     * @brief Check if high-frequency control is running - deprecated
      * @return true if running
      */
     bool is_hf_control_running() const;
+
+    /**
+     * @brief Set target positions with velocity-limited interpolation
+     * @param target_positions Target positions for all joints
+     * @param max_velocity Maximum velocity for interpolation (rad/s)
+     */
+    void set_target_positions_interpolated(const std::vector<double>& target_positions,
+                                           double max_velocity = 0.2);
+
+    /**
+     * @brief Interpolate positions with velocity limiting
+     * @param current_positions Current positions
+     * @param target_positions Target positions
+     * @param dt Time step (seconds)
+     * @param max_velocity Maximum velocity (rad/s)
+     * @return Interpolated positions
+     */
+    static std::vector<double> interpolate_positions(const std::vector<double>& current_positions,
+                                                      const std::vector<double>& target_positions,
+                                                      double dt, double max_velocity = 0.2);
+
+    /**
+     * @brief Set motor-specific P and D gains
+     * @param motor_id Motor ID (1-9)
+     * @param kp Proportional gain
+     * @param kd Derivative gain
+     * @return true if successful
+     */
+    bool set_motor_gains(int motor_id, double kp, double kd);
+
+    /**
+     * @brief Set P and D gains for all motors
+     * @param kp_values Vector of proportional gains for each motor (size 9)
+     * @param kd_values Vector of derivative gains for each motor (size 9)
+     * @return true if successful
+     */
+    bool set_all_motor_gains(const std::vector<double>& kp_values,
+                            const std::vector<double>& kd_values);
+
+    /**
+     * @brief Get motor P and D gains
+     * @param motor_id Motor ID (1-9)
+     * @param kp Output proportional gain
+     * @param kd Output derivative gain
+     * @return true if successful
+     */
+    bool get_motor_gains(int motor_id, double& kp, double& kd);
+
+    /**
+     * @brief Load default motor gains based on motor type
+     */
+    void load_default_motor_gains();
 
     /**
      * @brief Get system status information

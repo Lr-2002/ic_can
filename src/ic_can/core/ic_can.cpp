@@ -18,12 +18,14 @@
 #include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <iterator>
 #include <mutex>
 #include <sys/types.h>
 #include <thread>
+#include <unistd.h>
 
 // Use working dm-tools SDK directly
-#include "dm-tools/USB2FDCAN/SDK/C++/ubuntu/include/protocol/usb_class.h"
+#include "protocol/usb_class.h"
 
 namespace ic_can {
 
@@ -49,7 +51,10 @@ class IC_CAN::Impl {
 public:
   Impl(const std::string &device_sn, bool debug)
       : device_sn_(device_sn), debug_enabled_(debug), connected_(false),
-        hf_control_running_(false) {}
+        hf_control_running_(false) {
+    // Initialize motor gains with default values
+    load_default_motor_gains();
+  }
 
   ~Impl() { shutdown(); }
 
@@ -101,6 +106,22 @@ public:
       connected_ = false;
     }
   }
+  void load_default_motor_gains() {
+    std::lock_guard<std::mutex> lock(motor_gains_mutex_);
+
+    motor_kp_gains_ = {250, 120, 120, 80, 150, 30, 8, 8, 0};
+    motor_kd_gains_ = {5, 2, 2, 1.8, 2.2, 1, 1.2, 1.2, 0};
+
+    /*motor_kp_gains_ = {0, 0, 0, 0, 0, 0, 0, 0, 0};*/
+    /*motor_kd_gains_ = {0, 0, 0, 0, 0, 0, 0.0, 0.0, 0};*/
+
+    if (debug_enabled_) {
+      std::cout << "✅ Loaded default motor gains" << std::endl;
+      std::cout << "   Damiao motors (1-6): kp=20.0, kd=0.5" << std::endl;
+      std::cout << "   HT motors (7-8): kp=15.0, kd=0.3" << std::endl;
+      std::cout << "   Servo motor (9): kp=30.0, kd=1.0" << std::endl;
+    }
+  }
 
   bool enable_all() {
     if (!connected_)
@@ -138,6 +159,68 @@ public:
     }
 
     std::cout << "✅ All motors disabled" << std::endl;
+    return true;
+  }
+
+  bool set_zero_all() {
+    if (!connected_)
+      return false;
+
+    std::cout << "\n🎯 Setting all motors to zero position..." << std::endl;
+
+    // Create zero position vector for all 9 motors
+    std::vector<double> zero_positions(9, 0.0);
+
+    // Send zero position command to all motors
+    bool success = set_joint_positions(zero_positions, {}, {});
+
+    if (success) {
+      std::cout << "✅ Zero position command sent to all motors" << std::endl;
+    } else {
+      std::cout << "❌ Failed to send zero position command" << std::endl;
+    }
+
+    return success;
+  }
+
+  bool set_motor_zero_calibration(int motor_id) {
+    if (!connected_)
+      return false;
+
+    if (motor_id < 1 || motor_id > 9) {
+      std::cout << "❌ Invalid motor ID: " << motor_id << " (must be 1-9)"
+                << std::endl;
+      return false;
+    }
+
+    std::cout << "🎯 Setting Motor " << motor_id
+              << " zero position calibration..." << std::endl;
+
+    // Send zero position calibration command (0xFE command)
+    // Based on Python damiao.py: set_zero_position method
+    std::vector<uint8_t> zero_cmd = {0xFF, 0xFF, 0xFF, 0xFF,
+                                     0xFF, 0xFF, 0xFF, 0xFE};
+
+    // Determine CAN ID based on motor type and mode
+    // For Damiao motors 1-6 and servo motor 9, use motor ID directly
+    // For HT motors 7-8, we may need different approach
+    int can_id = motor_id;
+
+    std::cout << "🔧 Sending zero calibration command to Motor " << motor_id
+              << " (CAN ID: " << std::hex << "0x" << can_id << std::dec << ")"
+              << std::endl;
+
+    // Send the raw CAN command
+    device_->fdcanFrameSend(zero_cmd, can_id);
+
+    std::cout << "✅ Zero calibration command sent to Motor " << motor_id
+              << std::endl;
+    std::cout << "📝 The current position is now set as the new zero (0.0 rad)"
+              << std::endl;
+
+    // Give motor time to process the command
+    usleep(5000); // 5ms
+
     return true;
   }
 
@@ -192,20 +275,32 @@ public:
     if (positions.size() < 9)
       return false;
 
+    // Get motor-specific gains
+    std::array<double, 9> kp_values, kd_values;
+    {
+      std::lock_guard<std::mutex> lock(motor_gains_mutex_);
+      for (int i = 0; i < 9; i++) {
+        kp_values[i] = motor_kp_gains_[i];
+        kd_values[i] = motor_kd_gains_[i];
+      }
+    }
+
     for (int i = 0; i < 9; i++) {
       double pos = positions[i];
       double vel = (velocities.size() > i) ? velocities[i] : 0.0;
       double tau = (torques.size() > i) ? torques[i] : 0.0;
+      double kp = kp_values[i];
+      double kd = kd_values[i];
 
       if (i < 6) {
         // Damiao motors 1-6: use DM MIT protocol
-        send_dm_mit_command(i + 1, pos, vel, tau, 0, 0);
+        send_dm_mit_command(i + 1, pos, vel, tau, kp, kd);
       } else if (i < 8) {
         // HT motors 7-8: use HT MIT protocol
-        send_ht_mit_command(pos, vel, tau, 0, 0);
+        send_ht_mit_command(pos, vel, tau, kp, kd);
       } else {
         // Servo motor 9: use DM protocol as placeholder
-        send_dm_mit_command(i + 1, pos, vel, tau, 0, 0);
+        send_dm_mit_command(i + 1, pos, vel, tau, kp, kd);
       }
     }
 
@@ -246,6 +341,127 @@ public:
 
   bool is_hf_control_running() const { return hf_control_running_; }
 
+  // Configurable control loop implementation
+  bool start_control_loop(double frequency) {
+    if (control_running_)
+      return true;
+
+    if (frequency <= 0 || frequency > 1000) {
+      std::cout << "❌ Invalid frequency: " << frequency
+                << " Hz (must be 0-1000 Hz)" << std::endl;
+      return false;
+    }
+
+    control_frequency_ = frequency;
+    control_running_ = true;
+
+    // Initialize interpolation state
+    {
+      std::lock_guard<std::mutex> lock(interpolation_mutex_);
+      current_positions_ = get_joint_positions();
+      target_positions_ = current_positions_;
+      max_velocity_ = 0.1; // Default max velocity
+    }
+
+    control_thread_ = std::thread([this]() {
+      auto period = std::chrono::duration<double>(1.0 / control_frequency_);
+
+      while (control_running_) {
+        auto start_time = std::chrono::steady_clock::now();
+
+        // Get current positions
+        auto current_pos = get_joint_positions();
+
+        // Generate interpolated positions
+        std::vector<double> interpolated_pos;
+        {
+          std::lock_guard<std::mutex> lock(interpolation_mutex_);
+
+          // Debug: print interpolation info
+          /*std::cout << "DEBUG: Interpolating from current[5]=" <<
+           * current_pos[5]*/
+          /*          << " to target[5]=" << target_positions_[5]*/
+          /*          << " with max_vel=" << max_velocity_ << std::endl;*/
+          /**/
+          interpolated_pos = interpolate_positions_static(
+              current_pos, target_positions_, 1.0 / control_frequency_,
+              max_velocity_);
+          current_positions_ = interpolated_pos;
+
+          /*std::cout << "DEBUG: After interpolation, result[5]="*/
+          /*          << interpolated_pos[5] << std::endl;*/
+        }
+
+        // Send interpolated positions to motors
+        std::cout << interpolated_pos[0] << " " << interpolated_pos[1] << " "
+                  << interpolated_pos[2] << " " << interpolated_pos[3] << " "
+                  << interpolated_pos[4] << " " << interpolated_pos[5] << " "
+                  << interpolated_pos[6] << " " << interpolated_pos[7] << " "
+                  << interpolated_pos[8] << std::endl;
+        set_joint_positions(interpolated_pos, {}, {});
+
+        // Request status updates
+        refresh_all();
+
+        // Calculate sleep time to maintain frequency
+        auto elapsed = std::chrono::steady_clock::now() - start_time;
+        auto sleep_time = period - elapsed;
+
+        if (sleep_time.count() > 0) {
+          std::this_thread::sleep_for(sleep_time);
+        }
+      }
+    });
+
+    std::cout << "✅ Started control loop at " << frequency << " Hz"
+              << std::endl;
+    return true;
+  }
+
+  void stop_control_loop() {
+    control_running_ = false;
+    if (control_thread_.joinable()) {
+      control_thread_.join();
+    }
+    std::cout << "✅ Control loop stopped" << std::endl;
+  }
+
+  bool is_control_running() const { return control_running_; }
+
+  void
+  set_target_positions_interpolated(const std::vector<double> &target_positions,
+                                    double max_velocity) {
+    if (target_positions.size() < 9) {
+      std::cout << "❌ Target positions must have at least 9 elements"
+                << std::endl;
+      return;
+    }
+
+    std::lock_guard<std::mutex> lock(interpolation_mutex_);
+    target_positions_ = target_positions;
+    max_velocity_ = max_velocity;
+  }
+
+  static std::vector<double>
+  interpolate_positions_static(const std::vector<double> &current_positions,
+                               const std::vector<double> &target_positions,
+                               double dt, double max_velocity) {
+    if (current_positions.size() != target_positions.size()) {
+      return current_positions;
+    }
+
+    std::vector<double> interpolated_positions(current_positions.size());
+    double max_step = max_velocity * dt;
+
+    for (size_t i = 0; i < current_positions.size(); ++i) {
+      double error = target_positions[i] - current_positions[i];
+      double step = std::clamp(error, -max_step, max_step);
+      interpolated_positions[i] = current_positions[i] + step;
+    }
+
+    return interpolated_positions;
+  }
+
   std::map<std::string, std::string> get_system_status() {
     return {{"connected", connected_ ? "true" : "false"},
             {"hf_control", hf_control_running_ ? "running" : "stopped"},
@@ -254,6 +470,57 @@ public:
             {"damiao_motors", "6"},
             {"ht_motors", "2"},
             {"servo_motors", "1"}};
+  }
+
+  // Motor gain management methods
+  bool set_motor_gains(int motor_id, double kp, double kd) {
+    if (motor_id < 1 || motor_id > 9) {
+      std::cout << "❌ Invalid motor ID: " << motor_id << " (must be 1-9)"
+                << std::endl;
+      return false;
+    }
+
+    std::lock_guard<std::mutex> lock(motor_gains_mutex_);
+    motor_kp_gains_[motor_id - 1] = kp;
+    motor_kd_gains_[motor_id - 1] = kd;
+
+    if (debug_enabled_) {
+      std::cout << "✅ Set motor " << motor_id << " gains: kp=" << kp
+                << ", kd=" << kd << std::endl;
+    }
+    return true;
+  }
+
+  bool set_all_motor_gains(const std::vector<double> &kp_values,
+                           const std::vector<double> &kd_values) {
+    if (kp_values.size() < 9 || kd_values.size() < 9) {
+      std::cout << "❌ Gain vectors must have at least 9 elements" << std::endl;
+      return false;
+    }
+
+    std::lock_guard<std::mutex> lock(motor_gains_mutex_);
+    for (int i = 0; i < 9; i++) {
+      motor_kp_gains_[i] = kp_values[i];
+      motor_kd_gains_[i] = kd_values[i];
+    }
+
+    if (debug_enabled_) {
+      std::cout << "✅ Set all motor gains" << std::endl;
+    }
+    return true;
+  }
+
+  bool get_motor_gains(int motor_id, double &kp, double &kd) {
+    if (motor_id < 1 || motor_id > 9) {
+      std::cout << "❌ Invalid motor ID: " << motor_id << " (must be 1-9)"
+                << std::endl;
+      return false;
+    }
+
+    std::lock_guard<std::mutex> lock(motor_gains_mutex_);
+    kp = motor_kp_gains_[motor_id - 1];
+    kd = motor_kd_gains_[motor_id - 1];
+    return true;
   }
 
   void print_system_info() {
@@ -406,8 +673,17 @@ private:
     data[7] = tau_uint & 0xFF;
 
     device_->fdcanFrameSend(data, motor_id);
+    usleep(200);
   }
+  void print_send_info(int motor_id, auto data) {
+    std::cout << "Sending DM command for motor " << motor_id << " with ";
 
+    for (int i = 0; i < 8; i++) {
+      std::cout << "0x" << std::setw(2) << std::setfill('0') << std::hex
+                << std::uppercase << static_cast<int>(data[i]) << " ";
+    }
+    std::cout << std::dec << std::endl;
+  }
   void send_ht_mit_command(double position, double velocity, double torque,
                            double kp, double kd) {
     // HT motor conversion constants
@@ -457,9 +733,25 @@ private:
   std::mutex velocities_mutex_;
   std::mutex torques_mutex_;
 
+  // Motor-specific P and D gains (9 motors: 6 DM + 2 HT + 1 Servo)
+  std::array<double, 9> motor_kp_gains_;
+  std::array<double, 9> motor_kd_gains_;
+  std::mutex motor_gains_mutex_;
+
   // High-frequency control
   std::atomic<bool> hf_control_running_;
   std::thread hf_control_thread_;
+
+  // Configurable control loop
+  std::atomic<bool> control_running_;
+  std::thread control_thread_;
+  double control_frequency_;
+
+  // Interpolation state
+  std::vector<double> target_positions_;
+  std::vector<double> current_positions_;
+  double max_velocity_;
+  std::mutex interpolation_mutex_;
 };
 
 // IC_CAN class implementation
@@ -472,6 +764,10 @@ bool IC_CAN::initialize() { return impl_->initialize(); }
 void IC_CAN::shutdown() { impl_->shutdown(); }
 bool IC_CAN::enable_all() { return impl_->enable_all(); }
 bool IC_CAN::disable_all() { return impl_->disable_all(); }
+bool IC_CAN::set_zero_all() { return impl_->set_zero_all(); }
+bool IC_CAN::set_motor_zero_calibration(int motor_id) {
+  return impl_->set_motor_zero_calibration(motor_id);
+}
 bool IC_CAN::refresh_all() { return impl_->refresh_all(); }
 
 std::vector<double> IC_CAN::get_joint_positions() {
@@ -502,14 +798,35 @@ bool IC_CAN::set_joint_torques(const std::vector<double> &torques) {
   return impl_->set_joint_positions(dummy_positions, dummy_velocities, torques);
 }
 
+bool IC_CAN::start_control_loop(double frequency) {
+  return impl_->start_control_loop(frequency);
+}
+
 bool IC_CAN::start_high_frequency_control() {
-  return impl_->start_high_frequency_control();
+  return impl_->start_control_loop(500.0); // Default 500Hz
 }
-void IC_CAN::stop_high_frequency_control() {
-  impl_->stop_high_frequency_control();
-}
+
+void IC_CAN::stop_control_loop() { impl_->stop_control_loop(); }
+
+void IC_CAN::stop_high_frequency_control() { impl_->stop_control_loop(); }
+
+bool IC_CAN::is_control_running() const { return impl_->is_control_running(); }
+
 bool IC_CAN::is_hf_control_running() const {
-  return impl_->is_hf_control_running();
+  return impl_->is_control_running();
+}
+
+void IC_CAN::set_target_positions_interpolated(
+    const std::vector<double> &target_positions, double max_velocity) {
+  impl_->set_target_positions_interpolated(target_positions, max_velocity);
+}
+
+std::vector<double>
+IC_CAN::interpolate_positions(const std::vector<double> &current_positions,
+                              const std::vector<double> &target_positions,
+                              double dt, double max_velocity) {
+  return Impl::interpolate_positions_static(current_positions, target_positions,
+                                            dt, max_velocity);
 }
 
 std::map<std::string, std::string> IC_CAN::get_system_status() {
@@ -532,5 +849,21 @@ SafetyModule &IC_CAN::get_safety() {
   static SafetyModule dummy_safety;
   return dummy_safety;
 }
+
+// Motor gain management API
+bool IC_CAN::set_motor_gains(int motor_id, double kp, double kd) {
+  return impl_->set_motor_gains(motor_id, kp, kd);
+}
+
+bool IC_CAN::set_all_motor_gains(const std::vector<double> &kp_values,
+                                 const std::vector<double> &kd_values) {
+  return impl_->set_all_motor_gains(kp_values, kd_values);
+}
+
+bool IC_CAN::get_motor_gains(int motor_id, double &kp, double &kd) {
+  return impl_->get_motor_gains(motor_id, kp, kd);
+}
+
+void IC_CAN::load_default_motor_gains() { impl_->load_default_motor_gains(); }
 
 } // namespace ic_can

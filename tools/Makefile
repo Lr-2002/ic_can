@@ -6,7 +6,7 @@ CXXFLAGS = -std=c++17 -O2 -Wall -Wextra
 
 # Include paths (using absolute paths)
 CURRENT_DIR = $(shell pwd)
-INCLUDES = -I$(CURRENT_DIR)/../include -I$(CURRENT_DIR)/../dm-tools/USB2FDCAN/SDK/C++/ubuntu/include -I$(CURRENT_DIR)/
+INCLUDES = -I$(CURRENT_DIR)/../include -I$(CURRENT_DIR)/../dm-tools/USB2FDCAN/SDK/C++/ubuntu/include -I$(CURRENT_DIR)/ -I/usr/local/include
 
 # Libraries
 LIBS = -lusb-1.0 -pthread
@@ -19,7 +19,7 @@ DM_OBJECTS = $(CURRENT_DIR)/../dm-tools/USB2FDCAN/SDK/C++/ubuntu/lib/usb_class.c
 IC_CAN_SOURCE = $(CURRENT_DIR)/../src/ic_can/core/ic_can.cpp
 
 # Tools
-TOOLS = set_motor_zero arm_position_monitor home_to_zero logging_demo simple_motor_test
+TOOLS = set_motor_zero arm_position_monitor home_to_zero logging_demo simple_motor_test trajectory_executor
 
 .PHONY: all clean install help cmake
 
@@ -49,6 +49,11 @@ simple_motor_test: simple_motor_test.cpp
 	@echo "Building simple_motor_test tool..."
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -o simple_motor_test simple_motor_test.cpp $(IC_CAN_SOURCE) $(DM_OBJECTS) $(LIBS)
 	@echo "✅ simple_motor_test built successfully"
+
+trajectory_executor: trajectory_executor.cpp
+	@echo "Building trajectory_executor tool..."
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -o trajectory_executor trajectory_executor.cpp $(IC_CAN_SOURCE) $(DM_OBJECTS) $(LIBS)
+	@echo "✅ trajectory_executor built successfully"
 
 clean:
 	@echo "Cleaning tools..."
@@ -82,6 +87,7 @@ help:
 	@echo "  home_to_zero         - Move all motors to zero position"
 	@echo "  logging_demo         - Logging and frequency monitoring demo"
 	@echo "  simple_motor_test    - Basic motor movement test"
+	@echo "  trajectory_executor  - JSON trajectory file executor"
 	@echo ""
 	@echo "Usage examples:"
 	@echo "  make                    # Build all tools"

@@ -286,6 +286,41 @@ public:
      */
     void disable_frequency_monitoring();
 
+    /**
+     * @brief Enable gravity compensation for arm joints
+     * @return true if successful
+     */
+    bool enable_gravity_compensation();
+
+    /**
+     * @brief Disable gravity compensation
+     * @return true if successful
+     */
+    bool disable_gravity_compensation();
+
+    /**
+     * @brief Check if gravity compensation is enabled
+     * @return true if enabled
+     */
+    bool is_gravity_compensation_enabled() const;
+
+    /**
+     * @brief Get gravity compensation torques for all joints
+     * @return Vector of 9 gravity torques (first 6 are for arm joints)
+     */
+    std::vector<double> get_gravity_compensation_torques();
+
+    /**
+     * @brief Get all predicted torques (M*ddq + C*dq + G) for current state
+     * @return Vector of 9 predicted torques (first 6 are for arm joints)
+     */
+    std::vector<double> get_all_predicted_torques();
+
+    /**
+     * @brief Print detailed torque component breakdown
+     */
+    void print_torque_breakdown();
+
 private:
     class Impl;
     std::unique_ptr<Impl> impl_;

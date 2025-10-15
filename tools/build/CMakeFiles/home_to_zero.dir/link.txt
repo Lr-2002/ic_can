@@ -1,1 +1,0 @@
-/usr/bin/c++ CMakeFiles/home_to_zero.dir/home_to_zero.cpp.o CMakeFiles/home_to_zero.dir/home/lr-2002/project/InstantCreation/ic_can/src/ic_can/core/ic_can.cpp.o -o home_to_zero  ../../dm-tools/USB2FDCAN/SDK/C++/ubuntu/lib/usb_class.cpp.o ../../dm-tools/USB2FDCAN/SDK/C++/ubuntu/lib/crc.cpp.o -lusb-1.0 -lpthread 

@@ -99,7 +99,7 @@ int main() {
       controller->set_target_positions_interpolated(test_positions[i], 1);
 
       // Start control loop briefly
-      controller->start_control_loop(500); // 50Hz
+      controller->start_control_loop(1000); // 50Hz
       std::this_thread::sleep_for(std::chrono::seconds(2));
       controller->stop_control_loop();
 

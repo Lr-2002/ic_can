@@ -1,1 +1,0 @@
-/usr/bin/c++ CMakeFiles/logging_demo.dir/logging_demo.cpp.o CMakeFiles/logging_demo.dir/home/lr-2002/project/InstantCreation/ic_can/src/ic_can/core/ic_can.cpp.o -o logging_demo  ../../dm-tools/USB2FDCAN/SDK/C++/ubuntu/lib/usb_class.cpp.o ../../dm-tools/USB2FDCAN/SDK/C++/ubuntu/lib/crc.cpp.o -lusb-1.0 -lpthread 

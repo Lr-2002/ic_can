@@ -427,11 +427,6 @@ public:
     /*std::cout << " debug: connected=" << connected_*/
     /*          << ", positions.size()=" << positions.size() << std::endl;*/
     send_count_++;
-    auto now = std::chrono::system_clock::now();
-    auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
-                         now.time_since_epoch())
-                         .count();
-    std::cout << "time stamp is " << timestamp << std::endl;
     if (!connected_) {
       std::cout << " debug: FAILED - not connected" << std::endl;
       return false;
@@ -523,6 +518,16 @@ public:
     control_frequency_ = frequency;
     control_running_ = true;
 
+    // Reset performance counters for accurate loop timing measurement
+    {
+      std::lock_guard<std::mutex> lock(performance_mutex_);
+      send_count_ = 0;
+      receive_count_ = 0;
+      total_bytes_sent_ = 0;
+      total_bytes_received_ = 0;
+      performance_start_time_ = std::chrono::high_resolution_clock::now();
+    }
+
     // Initialize interpolation state and pre-compute trajectory
     {
       std::lock_guard<std::mutex> lock(interpolation_mutex_);
@@ -584,7 +589,6 @@ public:
         auto sleep_time = period - elapsed;
 
         if (sleep_time.count() > 0) {
-          std::cout << "sleep time is " << sleep_time.count();
           std::this_thread::sleep_for(sleep_time);
         }
       }
@@ -1123,7 +1127,7 @@ void IC_CAN::Impl::logger_thread_function() {
   bool targets_initialized = false;
 
   while (logging_running_) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(100)); // Log at 10Hz
+    std::this_thread::sleep_for(std::chrono::milliseconds(1)); // Log at 10Hz
 
     try {
       std::string timestamp = get_current_timestamp();

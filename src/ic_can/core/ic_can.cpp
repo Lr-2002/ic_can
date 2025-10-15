@@ -130,9 +130,9 @@ public:
 
     if (debug_enabled_) {
       std::cout << "✅ Loaded default motor gains" << std::endl;
-      std::cout << "   Damiao motors (1-6): kp=20.0, kd=0.5" << std::endl;
-      std::cout << "   HT motors (7-8): kp=15.0, kd=0.3" << std::endl;
-      std::cout << "   Servo motor (9): kp=30.0, kd=1.0" << std::endl;
+      for (auto i = 0; i <= 8; i++)
+        std::cout << "Motor " << i << " kp: " << motor_kp_gains_[i]
+                  << " kd: " << motor_kd_gains_[i] << std::endl;
     }
   }
 

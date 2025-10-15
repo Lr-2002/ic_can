@@ -65,7 +65,7 @@ endif()
 # 包含目录
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/dm-tools/USB2FDCAN/SDK/C++/ubuntu/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/dm-tools/C++/ubuntu/include
 )
 
 # 添加 libusb 头文件路径 (macOS Homebrew)
@@ -105,52 +105,52 @@ if(NOT LIBUSB_LIBRARY)
     add_definitions(-DSIMULATE_DM_TOOLS)
 endif()
 
-# 收集源文件 - 使用真实通信实现
-file(GLOB_RECURSE CORE_SOURCES
-    "src/ic_can/core/*.cpp"
-    "src/ic_can/core/*.c"
-)
+# 收集源文件 - 检查实际存在的文件
+set(CORE_SOURCES)
+set(MOTORS_SOURCES)
+set(PROTOCOLS_SOURCES)
+set(SAFETY_SOURCES)
 
-file(GLOB_RECURSE MOTORS_SOURCES
-    "src/ic_can/motors/*.cpp"
-    "src/ic_can/motors/*.c"
-)
+# 检查核心源文件
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/ic_can.cpp")
+    list(APPEND CORE_SOURCES "src/ic_can/core/ic_can.cpp")
+endif()
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/ic_can_real.cpp")
+    list(APPEND CORE_SOURCES "src/ic_can/core/ic_can_real.cpp")
+endif()
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/arm_component.cpp")
+    list(APPEND CORE_SOURCES "src/ic_can/core/arm_component.cpp")
+endif()
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/gripper_component.cpp")
+    list(APPEND CORE_SOURCES "src/ic_can/core/gripper_component.cpp")
+endif()
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/torque_predictor.cpp")
+    list(APPEND CORE_SOURCES "src/ic_can/core/torque_predictor.cpp")
+endif()
 
-file(GLOB_RECURSE PROTOCOLS_SOURCES
-    "src/ic_can/protocols/*.cpp"
-    "src/ic_can/protocols/*.c"
-)
+# 检查电机源文件
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/motors/base_motor.cpp")
+    list(APPEND MOTORS_SOURCES "src/ic_can/motors/base_motor.cpp")
+endif()
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/motors/dm_motor_real.cpp")
+    list(APPEND MOTORS_SOURCES "src/ic_can/motors/dm_motor_real.cpp")
+endif()
 
-file(GLOB_RECURSE SAFETY_SOURCES
-    "src/ic_can/safety/*.cpp"
-    "src/ic_can/safety/*.c"
-)
+# 检查协议源文件
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/protocols/usb2can_real.cpp")
+    list(APPEND PROTOCOLS_SOURCES "src/ic_can/protocols/usb2can_real.cpp")
+endif()
 
-# 手动收集源文件，排除仿真文件
-set(REAL_CORE_SOURCES
-    "src/ic_can/core/arm_component.cpp"
-    "src/ic_can/core/gripper_component.cpp"
-    "src/ic_can/core/ic_can_real.cpp"
-)
-
-set(REAL_MOTORS_SOURCES
-    "src/ic_can/motors/base_motor.cpp"
-    "src/ic_can/motors/dm_motor_real.cpp"
-)
-
-set(REAL_PROTOCOLS_SOURCES
-    "src/ic_can/protocols/usb2can_real.cpp"
-)
-
-set(REAL_SAFETY_SOURCES
-    "src/ic_can/safety/safety_module.cpp"
-)
+# 检查安全源文件
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/safety/safety_module.cpp")
+    list(APPEND SAFETY_SOURCES "src/ic_can/safety/safety_module.cpp")
+endif()
 
 set(IC_CAN_SOURCES
-    ${REAL_CORE_SOURCES}
-    ${REAL_MOTORS_SOURCES}
-    ${REAL_PROTOCOLS_SOURCES}
-    ${REAL_SAFETY_SOURCES}
+    ${CORE_SOURCES}
+    ${MOTORS_SOURCES}
+    ${PROTOCOLS_SOURCES}
+    ${SAFETY_SOURCES}
 )
 
 
@@ -191,22 +191,22 @@ install(TARGETS ic_can_core
 target_compile_options(ic_can_core PRIVATE -Wno-unused-parameter)
 
 # 添加 dm-tools SDK 头文件路径
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/dm-tools")
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/lib/dm-tools")
     target_include_directories(ic_can_core PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/dm-tools/USB2FDCAN/SDK/C++/ubuntu/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/lib/dm-tools/C++/ubuntu/include
     )
 
     # 添加 dm-tools SDK 库路径
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/dm-tools/USB2FDCAN/SDK/C++/ubuntu/lib/libu2canfd.a")
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/lib/dm-tools/C++/ubuntu/lib/libu2canfd.a")
         target_link_libraries(ic_can_core
-            ${CMAKE_CURRENT_SOURCE_DIR}/dm-tools/USB2FDCAN/SDK/C++/ubuntu/lib/libu2canfd.a
+            ${CMAKE_CURRENT_SOURCE_DIR}/lib/dm-tools/C++/ubuntu/lib/libu2canfd.a
         )
-        message(STATUS "Found dm-tools SDK library: ${CMAKE_CURRENT_SOURCE_DIR}/dm-tools/USB2FDCAN/SDK/C++/ubuntu/lib/libu2canfd.a")
-    elseif(APPLE AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/dm-tools/USB2FDCAN/SDK/C++/arm/lib/libu2canfd.a")
+        message(STATUS "Found dm-tools SDK library: ${CMAKE_CURRENT_SOURCE_DIR}/lib/dm-tools/C++/ubuntu/lib/libu2canfd.a")
+    elseif(APPLE AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/lib/dm-tools/C++/arm/lib/libu2canfd.a")
         target_link_libraries(ic_can_core
-            ${CMAKE_CURRENT_SOURCE_DIR}/dm-tools/USB2FDCAN/SDK/C++/arm/lib/libu2canfd.a
+            ${CMAKE_CURRENT_SOURCE_DIR}/lib/dm-tools/C++/arm/lib/libu2canfd.a
         )
-        message(STATUS "Found dm-tools SDK library: ${CMAKE_CURRENT_SOURCE_DIR}/dm-tools/USB2FDCAN/SDK/C++/arm/lib/libu2canfd.a")
+        message(STATUS "Found dm-tools SDK library: ${CMAKE_CURRENT_SOURCE_DIR}/lib/dm-tools/C++/arm/lib/libu2canfd.a")
     endif()
 endif()
 
@@ -224,6 +224,12 @@ endif()
 # 构建示例
 if(BUILD_EXAMPLES)
     add_subdirectory(examples)
+endif()
+
+# 构建工具
+option(BUILD_TOOLS "Build tools" ON)
+if(BUILD_TOOLS)
+    add_subdirectory(tools)
 endif()
 
 # 构建 Python 绑定
@@ -251,6 +257,7 @@ message(STATUS "Threads found: ${CMAKE_USE_PTHREADS_INIT}")
 message(STATUS "libusb found: ${LIBUSB_LIBRARY}")
 message(STATUS "Build tests: ${BUILD_TESTS}")
 message(STATUS "Build examples: ${BUILD_EXAMPLES}")
+message(STATUS "Build tools: ${BUILD_TOOLS}")
 message(STATUS "Build Python bindings: ${BUILD_PYTHON_BINDINGS}")
 message(STATUS "=============================")
 

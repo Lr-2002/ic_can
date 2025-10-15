@@ -72,7 +72,9 @@ public:
     if (torque_predictor_->is_initialized()) {
       std::cout << "✅ Torque predictor initialized successfully" << std::endl;
     } else {
-      std::cout << "⚠️  Torque predictor initialization failed - gravity compensation unavailable" << std::endl;
+      std::cout << "⚠️  Torque predictor initialization failed - gravity "
+                   "compensation unavailable"
+                << std::endl;
     }
   }
 
@@ -471,7 +473,9 @@ public:
 
       // Add gravity compensation to torque feedforward
       if (gravity_compensation_enabled_ && i < 6) {
-        tau += gravity_torques[i];
+        /*tau += gravity_torques[i];*/
+        std::cout << "motor id is " << i << ", torque is " << gravity_torques[i]
+                  << std::endl;
       }
 
       if (i < 6) {
@@ -731,7 +735,9 @@ public:
   // Gravity compensation configuration
   bool enable_gravity_compensation() {
     if (!torque_predictor_ || !torque_predictor_->is_initialized()) {
-      std::cout << "❌ Cannot enable gravity compensation - torque predictor not initialized" << std::endl;
+      std::cout << "❌ Cannot enable gravity compensation - torque predictor "
+                   "not initialized"
+                << std::endl;
       return false;
     }
 
@@ -753,7 +759,8 @@ public:
   std::vector<double> get_gravity_compensation_torques() {
     std::vector<double> gravity_torques(9, 0.0);
 
-    if (!gravity_compensation_enabled_ || !torque_predictor_ || !torque_predictor_->is_initialized()) {
+    if (!gravity_compensation_enabled_ || !torque_predictor_ ||
+        !torque_predictor_->is_initialized()) {
       return gravity_torques;
     }
 
@@ -779,7 +786,8 @@ public:
       if (debug_enabled_) {
         std::cout << "🔧 Gravity torques (N⋅m): ";
         for (int i = 0; i < 6; i++) {
-          std::cout << std::fixed << std::setprecision(3) << gravity_torques[i] << " ";
+          std::cout << std::fixed << std::setprecision(3) << gravity_torques[i]
+                    << " ";
         }
         std::cout << std::endl;
       }
@@ -815,7 +823,8 @@ public:
       ddq[i] = 0.0; // Zero acceleration for steady-state
     }
 
-    if (torque_predictor_->predict_total_torque(q.data(), dq.data(), ddq.data(), predicted_torques.data())) {
+    if (torque_predictor_->predict_total_torque(q.data(), dq.data(), ddq.data(),
+                                                predicted_torques.data())) {
       // Copy predicted torques for first 6 arm joints
       for (int i = 0; i < 6; i++) {
         total_torques[i] = predicted_torques[i];
@@ -824,7 +833,8 @@ public:
       if (debug_enabled_) {
         std::cout << "🔧 Predicted torques (N⋅m): ";
         for (int i = 0; i < 6; i++) {
-          std::cout << std::fixed << std::setprecision(3) << total_torques[i] << " ";
+          std::cout << std::fixed << std::setprecision(3) << total_torques[i]
+                    << " ";
         }
         std::cout << std::endl;
       }
@@ -843,7 +853,8 @@ public:
     auto velocities = get_joint_velocities();
 
     if (positions.size() < 6 || velocities.size() < 6) {
-      std::cout << "❌ Insufficient joint state data for torque breakdown" << std::endl;
+      std::cout << "❌ Insufficient joint state data for torque breakdown"
+                << std::endl;
       return;
     }
 
@@ -863,8 +874,14 @@ public:
     std::cout << "\n=== IC_CAN System Information ===" << std::endl;
     std::cout << "Device SN: " << device_sn_ << std::endl;
     std::cout << "Connected: " << (connected_ ? "Yes" : "No") << std::endl;
-    std::cout << "Torque Predictor: " << (torque_predictor_ && torque_predictor_->is_initialized() ? "Available" : "Unavailable") << std::endl;
-    std::cout << "Gravity Compensation: " << (gravity_compensation_enabled_ ? "Enabled" : "Disabled") << std::endl;
+    std::cout << "Torque Predictor: "
+              << (torque_predictor_ && torque_predictor_->is_initialized()
+                      ? "Available"
+                      : "Unavailable")
+              << std::endl;
+    std::cout << "Gravity Compensation: "
+              << (gravity_compensation_enabled_ ? "Enabled" : "Disabled")
+              << std::endl;
     /*std::cout << "Motors: 9 total (6 Damiao + 2 HT + 1 Servo)" <<
      * std::endl;*/
     std::cout << "Control Frequency: 500Hz" << std::endl;
@@ -1527,8 +1544,6 @@ std::vector<double> IC_CAN::get_all_predicted_torques() {
   return impl_->get_all_predicted_torques();
 }
 
-void IC_CAN::print_torque_breakdown() {
-  impl_->print_torque_breakdown();
-}
+void IC_CAN::print_torque_breakdown() { impl_->print_torque_breakdown(); }
 
 } // namespace ic_can

@@ -36,8 +36,11 @@ TorquePredictor::TorquePredictor() : initialized_(false) {
     C_mtrx_fcn_initialize();
     G_vctr_fcn_initialize();
 
-    // Load identified parameters
-    std::string param_file = "regressor/identified_pi_full.txt";
+    // Load identified parameters - check both old and new locations
+    std::string param_file = "../lib/matlab/identified_pi_full.txt";
+    if (!std::ifstream(param_file).good()) {
+        param_file = "regressor/identified_pi_full.txt"; // fallback to old path
+    }
     if (load_parameters(param_file)) {
         initialized_ = true;
         std::cout << "✅ TorquePredictor initialized successfully" << std::endl;

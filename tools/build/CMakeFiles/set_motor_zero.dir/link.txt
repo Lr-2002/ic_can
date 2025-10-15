@@ -1,0 +1,1 @@
+/usr/bin/c++ CMakeFiles/set_motor_zero.dir/set_motor_zero.cpp.o CMakeFiles/set_motor_zero.dir/home/lr-2002/project/InstantCreation/ic_can/src/ic_can/core/ic_can.cpp.o -o set_motor_zero  ../../dm-tools/USB2FDCAN/SDK/C++/ubuntu/lib/usb_class.cpp.o ../../dm-tools/USB2FDCAN/SDK/C++/ubuntu/lib/crc.cpp.o -lusb-1.0 -lpthread 

@@ -253,6 +253,39 @@ public:
      */
     SafetyModule& get_safety();
 
+    /**
+     * @brief Start logging system data to CSV files
+     * @param log_directory Directory to save log files
+     * @return true if logging started successfully
+     */
+    bool start_logging(const std::string& log_directory = ".");
+
+    /**
+     * @brief Stop logging system data
+     */
+    void stop_logging();
+
+    /**
+     * @brief Get performance statistics
+     * @return Map of performance metrics
+     */
+    std::map<std::string, double> get_performance_stats();
+
+    /**
+     * @brief Print performance statistics
+     */
+    void print_performance_stats();
+
+    /**
+     * @brief Enable frequency monitoring
+     */
+    void enable_frequency_monitoring();
+
+    /**
+     * @brief Disable frequency monitoring
+     */
+    void disable_frequency_monitoring();
+
 private:
     class Impl;
     std::unique_ptr<Impl> impl_;

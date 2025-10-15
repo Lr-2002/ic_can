@@ -1,24 +1,82 @@
 # IC_CAN Tools
 
-This directory contains utility tools for the IC_CAN system.
+This directory contains utility tools for the IC_CAN robotic arm system.
 
 ## Available Tools
 
-### set_motor_zero
+### 1. set_motor_zero
 
-Interactive tool to set motor zero position calibration or move motors to zero position.
+Interactive tool to set motor zero position calibration.
 
 #### Features:
 - **Display all motor positions** in both radians and degrees
 - **Interactive motor selection** (1-9)
 - **Zero position calibration** (sets current position as 0.0)
-- **All motor movement to zero** (moves all motors to position 0.0)
 - **Real-time monitoring** of calibration results
 - **Confirmation prompts** for safety
 
-#### Zero Calibration vs Movement:
-- **Motor 1-9**: Sets **zero position calibration** (current position becomes new 0.0)
-- **All motors command**: Moves all motors to **position 0.0** (physical movement)
+#### Usage:
+```bash
+./set_motor_zero
+# Interactive commands: 1-9 (calibrate), p (positions), q (quit)
+```
+
+### 2. arm_position_monitor
+
+Real-time monitoring tool for 6-joint arm positions.
+
+#### Features:
+- **Continuous monitoring** of arm joints (motors 1-6)
+- **Real-time display** of position, velocity, and torque
+- **Configurable update frequency** (1-1000 Hz)
+- **CSV data logging** with timestamps
+- **Time-limited operation** support
+
+#### Usage:
+```bash
+# Default monitoring at 10Hz
+./arm_position_monitor
+
+# High frequency monitoring with logging
+./arm_position_monitor -f 50 -l
+
+# Monitor for 30 seconds only
+./arm_position_monitor -t 30
+```
+
+#### Options:
+- `-f <freq>`: Update frequency in Hz (default: 10)
+- `-l`: Enable CSV logging
+- `-t <seconds>`: Run for specified time, then exit
+- `-h`: Show help
+
+### 3. home_to_zero
+
+Simple tool to move all motors smoothly from current positions to zero.
+
+#### Features:
+- **Smooth interpolation** to zero position
+- **Configurable velocity limits** (safety-first movement)
+- **Progress monitoring** with time estimates
+- **Automatic gain setup** if motors have kp=0
+- **Safety confirmations** before movement
+
+#### Usage:
+```bash
+# Default settings (0.5 rad/s, 100Hz)
+./home_to_zero
+
+# Slower movement
+./home_to_zero -v 0.2
+
+# Fast movement at higher frequency
+./home_to_zero -v 1.0 -f 200
+```
+
+#### Options:
+- `-v <velocity>`: Maximum velocity for movement (rad/s, default: 0.5)
+- `-f <freq>`: Control frequency in Hz (default: 100)
+- `-h`: Show help
 
 #### Example Session:
 ```

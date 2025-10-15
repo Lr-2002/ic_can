@@ -69,7 +69,7 @@ int main() {
     }
 
     // Set target positions with 0.2 rad/s max velocity
-    std::vector<double> target_positions = {0.0,  -0.0, 0.0, -0.0, 0.0,
+    std::vector<double> target_positions = {0.15, -0.0, 0.0, -0.0, 0.0,
                                             -0.0, 0.0,  0.0, 0.0};
     controller->set_target_positions_interpolated(target_positions, 3);
 

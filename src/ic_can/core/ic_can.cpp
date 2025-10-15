@@ -17,6 +17,8 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <iterator>
 #include <mutex>
@@ -51,9 +53,17 @@ class IC_CAN::Impl {
 public:
   Impl(const std::string &device_sn, bool debug)
       : device_sn_(device_sn), debug_enabled_(debug), connected_(false),
-        hf_control_running_(false) {
+        hf_control_running_(false), control_running_(false),
+        logging_running_(false), performance_monitoring_(false) {
     // Initialize motor gains with default values
     load_default_motor_gains();
+
+    // Initialize performance counters
+    send_count_ = 0;
+    receive_count_ = 0;
+    total_bytes_sent_ = 0;
+    total_bytes_received_ = 0;
+    performance_start_time_ = std::chrono::high_resolution_clock::now();
   }
 
   ~Impl() { shutdown(); }
@@ -102,6 +112,9 @@ public:
   void shutdown() {
     if (connected_ && device_) {
       stop_high_frequency_control();
+      stop_control_loop();
+      stop_logging();
+      disable_frequency_monitoring();
       device_->USB_CMD_STOP_CAP();
       connected_ = false;
     }
@@ -121,6 +134,146 @@ public:
       std::cout << "   HT motors (7-8): kp=15.0, kd=0.3" << std::endl;
       std::cout << "   Servo motor (9): kp=30.0, kd=1.0" << std::endl;
     }
+  }
+
+  // Frequency monitoring and logging implementation
+  bool start_logging(const std::string &log_directory) {
+    if (logging_running_) {
+      std::cout << "⚠️ Logging already running, stopping first..." << std::endl;
+      stop_logging();
+    }
+
+    // Validate log directory path
+    if (log_directory.empty()) {
+      std::cout << "❌ Invalid log directory: empty path" << std::endl;
+      return false;
+    }
+
+    // Create timestamped subdirectory
+    auto now = std::chrono::system_clock::now();
+    auto time_t = std::chrono::system_clock::to_time_t(now);
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                  now.time_since_epoch()) %
+              1000;
+
+    std::stringstream ss;
+    ss << std::put_time(std::localtime(&time_t), "%Y%m%d_%H%M%S");
+    ss << "_" << std::setfill('0') << std::setw(3) << ms.count();
+
+    std::string timestamped_dir = log_directory + "/ic_can_log_" + ss.str();
+
+    // Test directory creation/writability
+    if (std::system(("mkdir -p " + timestamped_dir).c_str()) != 0) {
+      std::cout << "❌ Cannot create or access directory: " << timestamped_dir
+                << std::endl;
+      return false;
+    }
+
+    // Test file creation
+    std::string test_file = timestamped_dir + "/.test_write";
+    std::ofstream test_stream(test_file);
+    if (!test_stream.is_open()) {
+      std::cout << "❌ Cannot write to directory: " << timestamped_dir
+                << std::endl;
+      return false;
+    }
+    test_stream << "test";
+    test_stream.close();
+    std::remove(test_file.c_str());
+
+    logging_directory_ = timestamped_dir;
+    logging_running_ = true;
+
+    // Start logger thread
+    logger_thread_ = std::thread([this]() { logger_thread_function(); });
+
+    // Start performance monitoring if not already running
+    if (!performance_monitoring_) {
+      enable_frequency_monitoring();
+    }
+
+    std::cout << "✅ Started logging to timestamped directory: "
+              << timestamped_dir << std::endl;
+    return true;
+  }
+
+  void stop_logging() {
+    logging_running_ = false;
+    if (logger_thread_.joinable()) {
+      logger_thread_.join();
+    }
+    std::cout << "✅ Logging stopped" << std::endl;
+  }
+
+  void enable_frequency_monitoring() {
+    if (performance_monitoring_) {
+      return;
+    }
+
+    performance_monitoring_ = true;
+    performance_thread_ =
+        std::thread([this]() { performance_monitor_thread_function(); });
+
+    std::cout << "✅ Frequency monitoring enabled" << std::endl;
+  }
+
+  void disable_frequency_monitoring() {
+    performance_monitoring_ = false;
+    if (performance_thread_.joinable()) {
+      performance_thread_.join();
+    }
+    std::cout << "✅ Frequency monitoring disabled" << std::endl;
+  }
+
+  std::map<std::string, double> get_performance_stats() {
+    std::lock_guard<std::mutex> lock(performance_mutex_);
+
+    auto now = std::chrono::high_resolution_clock::now();
+    double elapsed_sec =
+        std::chrono::duration<double>(now - performance_start_time_).count();
+
+    if (elapsed_sec < 0.1) {
+      return {{"send_frequency", 0.0},
+              {"receive_frequency", 0.0},
+              {"total_commands_sent", 0.0},
+              {"total_messages_received", 0.0},
+              {"uptime_seconds", elapsed_sec}};
+    }
+
+    double send_freq = (send_count_ / elapsed_sec);
+    double recv_freq = (receive_count_ / elapsed_sec);
+
+    return {{"send_frequency", send_freq},
+            {"receive_frequency", recv_freq},
+            {"total_commands_sent", static_cast<double>(send_count_)},
+            {"total_messages_received", static_cast<double>(receive_count_)},
+            {"uptime_seconds", elapsed_sec},
+            {"send_rate_kbps", (total_bytes_sent_ * 8) / 1024.0 / elapsed_sec},
+            {"receive_rate_kbps",
+             (total_bytes_received_ * 8) / 1024.0 / elapsed_sec}};
+  }
+
+  void print_performance_stats() {
+    auto stats = get_performance_stats();
+
+    std::cout << "\n📊 Performance Statistics:" << std::endl;
+    std::cout << std::string(50, '=') << std::endl;
+    std::cout << "Send Frequency: " << std::fixed << std::setprecision(1)
+              << stats["send_frequency"] << " Hz" << std::endl;
+    std::cout << "Receive Frequency: " << std::fixed << std::setprecision(1)
+              << stats["receive_frequency"] << " Hz" << std::endl;
+    std::cout << "Total Commands Sent: " << std::fixed << std::setprecision(0)
+              << stats["total_commands_sent"] << std::endl;
+    std::cout << "Total Messages Received: " << std::fixed
+              << std::setprecision(0) << stats["total_messages_received"]
+              << std::endl;
+    std::cout << "Send Rate: " << std::fixed << std::setprecision(2)
+              << stats["send_rate_kbps"] << " kB/s" << std::endl;
+    std::cout << "Receive Rate: " << std::fixed << std::setprecision(2)
+              << stats["receive_rate_kbps"] << " kB/s" << std::endl;
+    std::cout << "Uptime: " << std::fixed << std::setprecision(1)
+              << stats["uptime_seconds"] << " s" << std::endl;
+    std::cout << std::string(50, '=') << std::endl;
   }
 
   bool enable_all() {
@@ -270,10 +423,23 @@ public:
   bool set_joint_positions(const std::vector<double> &positions,
                            const std::vector<double> &velocities,
                            const std::vector<double> &torques) {
-    if (!connected_)
+    /*std::cout << " debug: running set joint positions " << std::endl;*/
+    /*std::cout << " debug: connected=" << connected_*/
+    /*          << ", positions.size()=" << positions.size() << std::endl;*/
+    send_count_++;
+    auto now = std::chrono::system_clock::now();
+    auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
+                         now.time_since_epoch())
+                         .count();
+    std::cout << "time stamp is " << timestamp << std::endl;
+    if (!connected_) {
+      std::cout << " debug: FAILED - not connected" << std::endl;
       return false;
-    if (positions.size() < 9)
+    }
+    if (positions.size() < 9) {
+      std::cout << " debug: FAILED - positions size < 9" << std::endl;
       return false;
+    }
 
     // Get motor-specific gains
     std::array<double, 9> kp_values, kd_values;
@@ -295,13 +461,14 @@ public:
       if (i < 6) {
         // Damiao motors 1-6: use DM MIT protocol
         send_dm_mit_command(i + 1, pos, vel, tau, kp, kd);
-      } else if (i < 8) {
-        // HT motors 7-8: use HT MIT protocol
-        send_ht_mit_command(pos, vel, tau, kp, kd);
-      } else {
-        // Servo motor 9: use DM protocol as placeholder
-        send_dm_mit_command(i + 1, pos, vel, tau, kp, kd);
       }
+      /*} else if (i < 8) {*/
+      /*  // HT motors 7-8: use HT MIT protocol*/
+      /*  send_ht_mit_command(pos, vel, tau, kp, kd);*/
+      /*} else {*/
+      /*  // Servo motor 9: use DM protocol as placeholder*/
+      /*  send_dm_mit_command(i + 1, pos, vel, tau, kp, kd);*/
+      /*}*/
     }
 
     return true;
@@ -341,7 +508,8 @@ public:
 
   bool is_hf_control_running() const { return hf_control_running_; }
 
-  // Configurable control loop implementation
+  // Configurable control loop implementation with offline trajectory
+  // generation
   bool start_control_loop(double frequency) {
     if (control_running_)
       return true;
@@ -355,59 +523,68 @@ public:
     control_frequency_ = frequency;
     control_running_ = true;
 
-    // Initialize interpolation state
+    // Initialize interpolation state and pre-compute trajectory
     {
       std::lock_guard<std::mutex> lock(interpolation_mutex_);
+
+      // Get current and target positions
       current_positions_ = get_joint_positions();
-      target_positions_ = current_positions_;
-      max_velocity_ = 0.1; // Default max velocity
+
+      // Pre-compute entire trajectory offline
+      std::cout << "📊 Pre-computing trajectory..." << std::endl;
+      std::cout << "📊 [DEBUG] Current target_positions_ size: "
+                << target_positions_.size() << std::endl;
+      trajectory_points_ =
+          generate_trajectory_offline(current_positions_, target_positions_,
+                                      1.0 / control_frequency_, max_velocity_);
+      current_trajectory_index_ = 0;
+
+      std::cout << "✅ Generated " << trajectory_points_.size()
+                << " trajectory points" << std::endl;
     }
 
     control_thread_ = std::thread([this]() {
       auto period = std::chrono::duration<double>(1.0 / control_frequency_);
-
+      std::cout << "[Notice] sleep time is " << period.count() << std::endl;
       while (control_running_) {
         auto start_time = std::chrono::steady_clock::now();
 
-        // Get current positions
-        auto current_pos = get_joint_positions();
-
-        // Generate interpolated positions
-        std::vector<double> interpolated_pos;
+        // Get next pre-computed position from trajectory
+        std::vector<double> next_position;
         {
           std::lock_guard<std::mutex> lock(interpolation_mutex_);
 
-          // Debug: print interpolation info
-          /*std::cout << "DEBUG: Interpolating from current[5]=" <<
-           * current_pos[5]*/
-          /*          << " to target[5]=" << target_positions_[5]*/
-          /*          << " with max_vel=" << max_velocity_ << std::endl;*/
-          /**/
-          interpolated_pos = interpolate_positions_static(
-              current_pos, target_positions_, 1.0 / control_frequency_,
-              max_velocity_);
-          current_positions_ = interpolated_pos;
+          if (current_trajectory_index_ < trajectory_points_.size()) {
+            next_position = trajectory_points_[current_trajectory_index_];
+            current_trajectory_index_++;
 
-          /*std::cout << "DEBUG: After interpolation, result[5]="*/
-          /*          << interpolated_pos[5] << std::endl;*/
+            /*std::cout << "🎯 Step " << current_trajectory_index_ << "/"*/
+            /*          << trajectory_points_.size() << ": ";*/
+            /*for (int i = 0; i < 9; i++) {*/
+            /*  std::cout << std::fixed << std::setprecision(3)*/
+            /*            << next_position[i] << " ";*/
+            /*}*/
+            /*std::cout << std::endl;*/
+          } else {
+            // Trajectory completed, hold final position
+            next_position = trajectory_points_.back();
+            /*std::cout << "🏁 Trajectory completed, holding position"*/
+            /*          << std::endl;*/
+          }
         }
 
-        // Send interpolated positions to motors
-        std::cout << interpolated_pos[0] << " " << interpolated_pos[1] << " "
-                  << interpolated_pos[2] << " " << interpolated_pos[3] << " "
-                  << interpolated_pos[4] << " " << interpolated_pos[5] << " "
-                  << interpolated_pos[6] << " " << interpolated_pos[7] << " "
-                  << interpolated_pos[8] << std::endl;
-        set_joint_positions(interpolated_pos, {}, {});
+        // Send position to motors
+        set_joint_positions(next_position, {}, {});
 
         // Request status updates
-        refresh_all();
+        /*refresh_all();*/
 
         // Calculate sleep time to maintain frequency
         auto elapsed = std::chrono::steady_clock::now() - start_time;
         auto sleep_time = period - elapsed;
 
         if (sleep_time.count() > 0) {
+          std::cout << "sleep time is " << sleep_time.count();
           std::this_thread::sleep_for(sleep_time);
         }
       }
@@ -440,6 +617,9 @@ public:
     std::lock_guard<std::mutex> lock(interpolation_mutex_);
     target_positions_ = target_positions;
     max_velocity_ = max_velocity;
+    std::cout << "🎯 [DEBUG] set_target_positions_interpolated: size="
+              << target_positions_.size() << ", max_velocity=" << max_velocity_
+              << std::endl;
   }
 
   static std::vector<double>
@@ -527,7 +707,8 @@ public:
     std::cout << "\n=== IC_CAN System Information ===" << std::endl;
     std::cout << "Device SN: " << device_sn_ << std::endl;
     std::cout << "Connected: " << (connected_ ? "Yes" : "No") << std::endl;
-    std::cout << "Motors: 9 total (6 Damiao + 2 HT + 1 Servo)" << std::endl;
+    /*std::cout << "Motors: 9 total (6 Damiao + 2 HT + 1 Servo)" <<
+     * std::endl;*/
     std::cout << "Control Frequency: 500Hz" << std::endl;
     std::cout << "Debug: " << (debug_enabled_ ? "Enabled" : "Disabled")
               << std::endl;
@@ -536,6 +717,12 @@ public:
 private:
   void handle_can_frame(can_value_type &frame) {
     uint32_t can_id = frame.head.id;
+
+    // Track receive frequency
+    if (can_id == 0x11)
+      receive_count_++;
+    total_bytes_received_ += frame.head.dlc;
+
     /*std::cout << "receive from " << can_id << std::endl;*/
 
     // Handle Damiao motor feedback (motors 1-6)
@@ -625,6 +812,9 @@ private:
 
   void send_dm_mit_command(int motor_id, double position, double velocity,
                            double torque, double kp, double kd) {
+    // Track send frequency
+    /*std::cout << motor_id << std::endl;*/
+    total_bytes_sent_ += 8; // DM command is 8 bytes
     auto float_to_uint = [](double x, double min, double max,
                             int bits) -> uint16_t {
       double span = max - min;
@@ -671,11 +861,11 @@ private:
     data[5] = kd_uint >> 4;
     data[6] = ((kd_uint & 0xF) << 4) | ((tau_uint >> 8) & 0xF);
     data[7] = tau_uint & 0xFF;
-
+    /*print_send_info(motor_id, data);*/
     device_->fdcanFrameSend(data, motor_id);
-    usleep(200);
+    /*usleep(200);*/
   }
-  void print_send_info(int motor_id, auto data) {
+  void print_send_info(int motor_id, const std::vector<uint8_t> &data) {
     std::cout << "Sending DM command for motor " << motor_id << " with ";
 
     for (int i = 0; i < 8; i++) {
@@ -683,9 +873,13 @@ private:
                 << std::uppercase << static_cast<int>(data[i]) << " ";
     }
     std::cout << std::dec << std::endl;
+    return;
   }
   void send_ht_mit_command(double position, double velocity, double torque,
                            double kp, double kd) {
+    // Track send frequency
+    std::cout << "-----------------------sennding ht " << std::endl;
+    total_bytes_sent_ += 12; // HT command is 12 bytes
     // HT motor conversion constants
     const double RAD_TO_TURN = 1.0 / (2.0 * M_PI);
     const double torque_k = 0.004855;
@@ -752,7 +946,269 @@ private:
   std::vector<double> current_positions_;
   double max_velocity_;
   std::mutex interpolation_mutex_;
+
+  // Pre-computed trajectory
+  std::vector<std::vector<double>> trajectory_points_;
+  size_t current_trajectory_index_;
+
+  // Generate complete trajectory offline
+  std::vector<std::vector<double>>
+  generate_trajectory_offline(const std::vector<double> &start_positions,
+                              const std::vector<double> &target_positions,
+                              double dt, double max_velocity) {
+
+    std::vector<std::vector<double>> trajectory;
+
+    // Safety checks
+    if (start_positions.size() == 0 || target_positions.size() == 0) {
+      std::cout << "❌ ERROR: Empty position vectors" << std::endl
+                << "start position size " << start_positions.size()
+                << " target position size " << target_positions.size()
+                << std::endl;
+      return trajectory;
+    }
+
+    if (start_positions.size() != target_positions.size()) {
+      std::cout << "❌ ERROR: Position size mismatch - start: "
+                << start_positions.size()
+                << ", target: " << target_positions.size() << std::endl;
+      return trajectory;
+    }
+
+    std::vector<double> current_pos = start_positions;
+    std::vector<double> target_pos = target_positions;
+
+    std::cout << "📐 Generating trajectory from: ";
+    for (size_t i = 0; i < current_pos.size() && i < 9; ++i) {
+      std::cout << std::fixed << std::setprecision(3) << current_pos[i] << " ";
+    }
+    std::cout << "\n📐 Target positions: ";
+    for (size_t i = 0; i < target_pos.size() && i < 9; ++i) {
+      std::cout << std::fixed << std::setprecision(3) << target_pos[i] << " ";
+    }
+    std::cout << std::endl;
+
+    // Generate trajectory points until we reach the target
+    int max_steps = 1000; // Prevent infinite loops
+    int step_count = 0;
+
+    while (step_count < max_steps) {
+      trajectory.push_back(current_pos);
+
+      // Check if we've reached the target
+      bool reached_target = true;
+      for (size_t i = 0; i < current_pos.size() && i < target_pos.size(); ++i) {
+        double error = std::abs(target_pos[i] - current_pos[i]);
+        if (error > 0.001) { // 0.001 rad tolerance
+          reached_target = false;
+          break;
+        }
+      }
+
+      if (reached_target) {
+        trajectory.push_back(target_pos); // Ensure final position is exact
+        break;
+      }
+
+      // Compute next position using velocity-limited interpolation
+      std::vector<double> next_pos = current_pos;
+      double max_step = max_velocity * dt;
+
+      // Ensure vectors have consistent size
+      if (next_pos.size() != current_pos.size() ||
+          next_pos.size() != target_pos.size()) {
+        next_pos.resize(current_pos.size());
+        target_pos.resize(current_pos.size());
+      }
+
+      for (size_t i = 0; i < current_pos.size() && i < target_pos.size(); ++i) {
+        double error = target_pos[i] - current_pos[i];
+        double step = std::clamp(error, -max_step, max_step);
+        next_pos[i] = current_pos[i] + step;
+      }
+
+      current_pos = next_pos;
+      step_count++;
+    }
+
+    std::cout << "📊 Trajectory generated with " << trajectory.size()
+              << " points over " << step_count << " steps" << std::endl;
+
+    return trajectory;
+  }
+
+  // Frequency monitoring and logging
+  std::atomic<bool> logging_running_;
+  std::atomic<bool> performance_monitoring_;
+  std::thread logger_thread_;
+  std::thread performance_thread_;
+  std::string logging_directory_;
+
+  // Performance counters
+  std::atomic<uint64_t> send_count_;
+  std::atomic<uint64_t> receive_count_;
+  std::atomic<uint64_t> total_bytes_sent_;
+  std::atomic<uint64_t> total_bytes_received_;
+  std::chrono::high_resolution_clock::time_point performance_start_time_;
+  std::mutex performance_mutex_;
+
+  // Logger thread function
+  void logger_thread_function();
+
+  // Performance monitor thread function
+  void performance_monitor_thread_function();
+
+  // Get current timestamp as ISO string
+  std::string get_current_timestamp() {
+    auto now = std::chrono::system_clock::now();
+    auto time_t = std::chrono::system_clock::to_time_t(now);
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                  now.time_since_epoch()) %
+              1000;
+
+    std::stringstream ss;
+    ss << std::put_time(std::gmtime(&time_t), "%Y-%m-%dT%H:%M:%S");
+    ss << '.' << std::setfill('0') << std::setw(3) << ms.count();
+    return ss.str();
+  }
 };
+
+// Implementation of logger thread function
+void IC_CAN::Impl::logger_thread_function() {
+  // Ensure logging directory exists
+  if (std::system(("mkdir -p " + logging_directory_).c_str()) != 0) {
+    std::cout << "❌ Failed to create logging directory: " << logging_directory_
+              << std::endl;
+    return;
+  }
+
+  // Open CSV files for writing
+  std::string joint_commands_path = logging_directory_ + "/joint_commands.csv";
+  std::string motor_states_path = logging_directory_ + "/motor_states.csv";
+
+  std::ofstream joint_commands_file(joint_commands_path);
+  std::ofstream motor_states_file(motor_states_path);
+
+  if (!joint_commands_file.is_open() || !motor_states_file.is_open()) {
+    std::cout << "❌ Failed to open log files:" << std::endl;
+    std::cout << "   joint_commands: " << joint_commands_path << " ("
+              << (joint_commands_file.is_open() ? "open" : "failed") << ")"
+              << std::endl;
+    std::cout << "   motor_states: " << motor_states_path << " ("
+              << (motor_states_file.is_open() ? "open" : "failed") << ")"
+              << std::endl;
+    return;
+  }
+
+  // Write CSV headers based on the log example format
+  joint_commands_file << "timestamp";
+  motor_states_file << "timestamp";
+
+  for (int i = 1; i <= 9; i++) {
+    joint_commands_file << ",target_position_motor_" << i
+                        << ",target_velocity_motor_" << i
+                        << ",target_torque_motor_" << i;
+    motor_states_file << ",position_motor_" << i << ",velocity_motor_" << i
+                      << ",torque_motor_" << i;
+  }
+  joint_commands_file << std::endl;
+  motor_states_file << std::endl;
+
+  std::cout << "✅ Logger thread started, writing to CSV files" << std::endl;
+
+  // Store last target values for logging
+  std::vector<double> last_target_positions(9, 0.0);
+  std::vector<double> last_target_velocities(9, 0.0);
+  std::vector<double> last_target_torques(9, 0.0);
+  bool targets_initialized = false;
+
+  while (logging_running_) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100)); // Log at 10Hz
+
+    try {
+      std::string timestamp = get_current_timestamp();
+
+      // Log motor states (actual positions/velocities/torques)
+      auto current_positions = get_joint_positions();
+      auto current_velocities = get_joint_velocities();
+      auto current_torques = get_joint_torques();
+
+      motor_states_file << timestamp;
+      for (int i = 0; i < 9; i++) {
+        motor_states_file << "," << std::fixed << std::setprecision(12)
+                          << current_positions[i] << "," << std::fixed
+                          << std::setprecision(12) << current_velocities[i]
+                          << "," << std::fixed << std::setprecision(12)
+                          << current_torques[i];
+      }
+      motor_states_file << std::endl;
+
+      // Log target commands if we have interpolation state
+      {
+        std::lock_guard<std::mutex> lock(interpolation_mutex_);
+        if (!target_positions_.empty()) {
+          last_target_positions = target_positions_;
+          targets_initialized = true;
+        }
+      }
+
+      if (targets_initialized) {
+        joint_commands_file << timestamp;
+        for (int i = 0; i < 9; i++) {
+          joint_commands_file
+              << "," << std::fixed << std::setprecision(12)
+              << last_target_positions[i] << "," << std::fixed
+              << std::setprecision(12) << last_target_velocities[i] << ","
+              << std::fixed << std::setprecision(12) << last_target_torques[i];
+        }
+        joint_commands_file << std::endl;
+      }
+
+    } catch (const std::exception &e) {
+      std::cout << "⚠️ Logger thread error: " << e.what() << std::endl;
+    }
+  }
+
+  std::cout << "✅ Logger thread stopped" << std::endl;
+}
+
+// Implementation of performance monitor thread function
+void IC_CAN::Impl::performance_monitor_thread_function() {
+  std::cout << "✅ Performance monitor thread started" << std::endl;
+
+  while (performance_monitoring_) {
+    std::this_thread::sleep_for(std::chrono::seconds(1)); // Update every second
+
+    std::lock_guard<std::mutex> lock(performance_mutex_);
+
+    // Calculate instantaneous frequencies
+    auto now = std::chrono::high_resolution_clock::now();
+    double elapsed_sec =
+        std::chrono::duration<double>(now - performance_start_time_).count();
+
+    if (elapsed_sec > 1.0) {
+      double send_freq = send_count_.load() / elapsed_sec;
+      double recv_freq = receive_count_.load() / elapsed_sec;
+
+      if (debug_enabled_) {
+        std::cout << "📊 Performance: Send=" << std::fixed
+                  << std::setprecision(1) << send_freq
+                  << "Hz, Receive=" << recv_freq << "Hz" << std::endl;
+      }
+
+      // Reset counters every 10 seconds to get current rates
+      if (elapsed_sec > 10.0) {
+        send_count_ = 0;
+        receive_count_ = 0;
+        total_bytes_sent_ = 0;
+        total_bytes_received_ = 0;
+        performance_start_time_ = now;
+      }
+    }
+  }
+
+  std::cout << "✅ Performance monitor thread stopped" << std::endl;
+}
 
 // IC_CAN class implementation
 IC_CAN::IC_CAN(const std::string &device_sn, bool debug)
@@ -865,5 +1321,26 @@ bool IC_CAN::get_motor_gains(int motor_id, double &kp, double &kd) {
 }
 
 void IC_CAN::load_default_motor_gains() { impl_->load_default_motor_gains(); }
+
+// Frequency monitoring and logging API implementation
+bool IC_CAN::start_logging(const std::string &log_directory) {
+  return impl_->start_logging(log_directory);
+}
+
+void IC_CAN::stop_logging() { impl_->stop_logging(); }
+
+void IC_CAN::enable_frequency_monitoring() {
+  impl_->enable_frequency_monitoring();
+}
+
+void IC_CAN::disable_frequency_monitoring() {
+  impl_->disable_frequency_monitoring();
+}
+
+std::map<std::string, double> IC_CAN::get_performance_stats() {
+  return impl_->get_performance_stats();
+}
+
+void IC_CAN::print_performance_stats() { impl_->print_performance_stats(); }
 
 } // namespace ic_can

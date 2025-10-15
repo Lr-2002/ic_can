@@ -1127,7 +1127,8 @@ void IC_CAN::Impl::logger_thread_function() {
   bool targets_initialized = false;
 
   while (logging_running_) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(1)); // Log at 10Hz
+    std::this_thread::sleep_for(
+        std::chrono::milliseconds(1000 / 400)); // Log  logging frequency
 
     try {
       std::string timestamp = get_current_timestamp();

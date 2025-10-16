@@ -321,6 +321,18 @@ public:
      */
     void print_torque_breakdown();
 
+    /**
+     * @brief Switch torque prediction method
+     * @param method_id Method ID (0=Pure C MATLAB, 1=Regressor-Based)
+     * @return true if switch successful
+     */
+    bool switch_torque_prediction_method(int method_id);
+
+    /**
+     * @brief Print available torque prediction methods and their status
+     */
+    void print_torque_method_status();
+
 private:
     class Impl;
     std::unique_ptr<Impl> impl_;

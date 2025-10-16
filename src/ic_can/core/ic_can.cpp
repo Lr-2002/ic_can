@@ -13,7 +13,7 @@
 // limitations under the License.
 
 #include "ic_can/core/ic_can.hpp"
-#include "ic_can/core/torque_predictor.h"
+#include "ic_can/core/torque_predictor_unified.h"
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -67,10 +67,12 @@ public:
     total_bytes_received_ = 0;
     performance_start_time_ = std::chrono::high_resolution_clock::now();
 
-    // Initialize torque predictor
-    torque_predictor_ = std::make_unique<TorquePredictor>();
+    // Initialize unified torque predictor
+    torque_predictor_ = std::make_unique<TorquePredictorUnified>();
     if (torque_predictor_->is_initialized()) {
-      std::cout << "✅ Torque predictor initialized successfully" << std::endl;
+      std::cout << "✅ Unified torque predictor initialized successfully"
+                << std::endl;
+      torque_predictor_->print_method_status();
     } else {
       std::cout << "⚠️  Torque predictor initialization failed - gravity "
                    "compensation unavailable"
@@ -133,12 +135,12 @@ public:
   }
   void load_default_motor_gains() {
     std::lock_guard<std::mutex> lock(motor_gains_mutex_);
+    /**/
+    /*motor_kp_gains_ = {250, 120, 120, 80, 150, 30, 8, 8, 0};*/
+    /*motor_kd_gains_ = {5, 2, 2, 1.8, 2.2, 1, 1.2, 1.2, 0};*/
+    motor_kp_gains_ = {0, 0, 0, 0, 0, 0, 0, 0, 0};
 
-    motor_kp_gains_ = {250, 120, 120, 80, 150, 30, 8, 8, 0};
-    motor_kd_gains_ = {5, 2, 2, 1.8, 2.2, 1, 1.2, 1.2, 0};
-
-    /*motor_kp_gains_ = {0, 0, 0, 0, 0, 0, 0, 0, 0};*/
-    /*motor_kd_gains_ = {0, 0, 0, 0, 0, 0, 0.0, 0.0, 0};*/
+    motor_kd_gains_ = {0, 0, 0, 0, 0, 0, 0.0, 0.0, 0};
 
     if (debug_enabled_) {
       std::cout << "✅ Loaded default motor gains" << std::endl;
@@ -473,9 +475,10 @@ public:
 
       // Add gravity compensation to torque feedforward
       if (gravity_compensation_enabled_ && i < 6) {
-        /*tau += gravity_torques[i];*/
-        std::cout << "motor id is " << i << ", torque is " << gravity_torques[i]
-                  << std::endl;
+        tau -= gravity_torques[i];
+        /*std::cout << "motor id is " << i << ", torque is " <<
+         * gravity_torques[i]*/
+        /*          << std::endl;*/
       }
 
       if (i < 6) {
@@ -777,7 +780,8 @@ public:
       q[i] = positions[i];
     }
 
-    if (torque_predictor_->predict_gravity_torque(q, gravity_arm)) {
+    if (torque_predictor_->predict_gravity_torque(q.data(),
+                                                  gravity_arm.data())) {
       // Copy gravity torques for first 6 arm joints
       for (int i = 0; i < 6; i++) {
         gravity_torques[i] = gravity_arm[i];
@@ -843,6 +847,39 @@ public:
     return total_torques;
   }
 
+  // Torque prediction method switching
+  bool switch_torque_prediction_method(int method_id) {
+    if (!torque_predictor_ || !torque_predictor_->is_initialized()) {
+      std::cout << "❌ Cannot switch method - torque predictor not initialized"
+                << std::endl;
+      return false;
+    }
+
+    TorquePredictionMethod method;
+    switch (method_id) {
+    case 0:
+      method = TorquePredictionMethod::PURE_C_MATLAB;
+      break;
+    case 1:
+      method = TorquePredictionMethod::REGRESSOR_BASED;
+      break;
+    default:
+      std::cout << "❌ Invalid method ID: " << method_id
+                << " (0=Pure C MATLAB, 1=Regressor-Based)" << std::endl;
+      return false;
+    }
+
+    return torque_predictor_->switch_method(method);
+  }
+
+  void print_torque_method_status() {
+    if (torque_predictor_ && torque_predictor_->is_initialized()) {
+      torque_predictor_->print_method_status();
+    } else {
+      std::cout << "❌ Torque predictor not initialized" << std::endl;
+    }
+  }
+
   void print_torque_breakdown() {
     if (!torque_predictor_ || !torque_predictor_->is_initialized()) {
       std::cout << "❌ Torque predictor not initialized" << std::endl;
@@ -867,7 +904,7 @@ public:
       ddq[i] = 0.0;
     }
 
-    torque_predictor_->print_torque_breakdown(q, dq, ddq);
+    torque_predictor_->print_torque_breakdown(q.data(), dq.data(), ddq.data());
   }
 
   void print_system_info() {
@@ -891,7 +928,7 @@ public:
 
 private:
   // Torque predictor instance
-  std::unique_ptr<TorquePredictor> torque_predictor_;
+  std::unique_ptr<TorquePredictorUnified> torque_predictor_;
   bool gravity_compensation_enabled_;
 
   void handle_can_frame(can_value_type &frame) {
@@ -1545,5 +1582,14 @@ std::vector<double> IC_CAN::get_all_predicted_torques() {
 }
 
 void IC_CAN::print_torque_breakdown() { impl_->print_torque_breakdown(); }
+
+// Torque prediction method switching API
+bool IC_CAN::switch_torque_prediction_method(int method_id) {
+  return impl_->switch_torque_prediction_method(method_id);
+}
+
+void IC_CAN::print_torque_method_status() {
+  impl_->print_torque_method_status();
+}
 
 } // namespace ic_can

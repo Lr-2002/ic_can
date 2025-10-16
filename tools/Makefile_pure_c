@@ -1,0 +1,59 @@
+# Makefile for Torque Predictor using Pure C MATLAB Functions
+
+CXX = g++
+CXXFLAGS = -std=c++17 -O2 -Wall -Wextra -I.
+
+# Source files
+C_SOURCES = \
+    regressor/lib/M_mtrx_fcn/M_mtrx_fcn.c \
+    regressor/lib/M_mtrx_fcn/M_mtrx_fcn_initialize.c \
+    regressor/lib/M_mtrx_fcn/M_mtrx_fcn_terminate.c \
+    regressor/lib/C_mtrx_fcn/C_mtrx_fcn.c \
+    regressor/lib/C_mtrx_fcn/C_mtrx_fcn_initialize.c \
+    regressor/lib/C_mtrx_fcn/C_mtrx_fcn_terminate.c \
+    regressor/lib/G_vctr_fcn/G_vctr_fcn.c \
+    regressor/lib/G_vctr_fcn/G_vctr_fcn_initialize.c \
+    regressor/lib/G_vctr_fcn/G_vctr_fcn_terminate.c
+
+CPP_SOURCES = torque_predictor_pure_c.cpp test_torque_predictor_speed.cpp
+
+# Object files
+C_OBJECTS = $(C_SOURCES:.c=.o)
+CPP_OBJECTS = $(CPP_SOURCES:.cpp=.o)
+
+# Target executables
+TARGET = torque_predictor_pure_c
+SPEED_TEST = test_torque_predictor_speed
+
+.PHONY: all clean test speed
+
+all: $(TARGET) $(SPEED_TEST)
+
+$(TARGET): $(C_OBJECTS) torque_predictor_pure_c.o
+	$(CXX) $(CXXFLAGS) -o $@ $^
+
+$(SPEED_TEST): $(C_OBJECTS) test_torque_predictor_speed.o
+	$(CXX) $(CXXFLAGS) -o $@ $^
+
+%.o: %.c
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+%.o: %.cpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+test: $(TARGET)
+	./$(TARGET) test
+
+speed: $(SPEED_TEST)
+	./$(SPEED_TEST)
+
+clean:
+	rm -f $(C_OBJECTS) $(CPP_OBJECTS) $(TARGET) $(SPEED_TEST)
+
+help:
+	@echo "Available targets:"
+	@echo "  all     - Build both torque predictor and speed test"
+	@echo "  test    - Build and run torque predictor tests"
+	@echo "  speed   - Build and run performance speed test"
+	@echo "  clean   - Remove all build artifacts"
+	@echo "  help    - Show this help message"

@@ -17,7 +17,7 @@
 #include <array>
 #include <random>
 
-#include "../include/ic_can/core/torque_predictor.h"
+#include "ic_can/core/torque_predictor_unified.h"
 
 using namespace ic_can;
 
@@ -27,7 +27,7 @@ int main() {
     std::cout << "(This simulates getting data from logging_demo.cpp)" << std::endl;
 
     // Create torque predictor instance
-    TorquePredictor predictor;
+    TorquePredictorUnified predictor;
 
     // Check initialization
     if (!predictor.is_initialized()) {
@@ -84,7 +84,7 @@ int main() {
 
         // Compute gravity torques
         std::array<double, 6> gravity_torques;
-        if (predictor.predict_gravity_torque(simulated_positions[step], gravity_torques)) {
+        if (predictor.predict_gravity_torque(simulated_positions[step].data(), gravity_torques.data())) {
             std::cout << "Gravity torques (N⋅m):    ";
             for (int i = 0; i < 6; ++i) {
                 std::cout << std::fixed << std::setprecision(3) << std::setw(8) << gravity_torques[i] << " ";
@@ -134,7 +134,7 @@ int main() {
     std::cout << std::endl;
 
     std::array<double, 6> zero_accel_breakdown = {{0.0, 0.0, 0.0, 0.0, 0.0, 0.0}};
-    predictor.print_torque_breakdown(simulated_positions[4], simulated_velocities[4], zero_accel_breakdown);
+    predictor.print_torque_breakdown(simulated_positions[4].data(), simulated_velocities[4].data(), zero_accel_breakdown.data());
 
     // Performance test with simulated data
     std::cout << "\n⚡ Real-time Performance Test:" << std::endl;

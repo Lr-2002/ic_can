@@ -32,7 +32,7 @@
 #include <random>
 #include <algorithm>
 
-#include "../include/ic_can/core/torque_predictor.h"
+#include "ic_can/core/torque_predictor_unified.h"
 
 using namespace ic_can;
 
@@ -122,12 +122,12 @@ public:
 // Simple torque predictor class that wraps our real predictor
 class SimpleTorquePredictor {
 private:
-    std::unique_ptr<TorquePredictor> predictor_;
+    std::unique_ptr<TorquePredictorUnified> predictor_;
     bool gravity_enabled_;
 
 public:
     SimpleTorquePredictor() : gravity_enabled_(false) {
-        predictor_ = std::make_unique<TorquePredictor>();
+        predictor_ = std::make_unique<TorquePredictorUnified>();
     }
 
     bool is_initialized() const {
@@ -174,7 +174,7 @@ public:
         std::array<double, 6> q, gravity;
         q.fill(0.0);
 
-        if (predictor_->predict_gravity_torque(q, gravity)) {
+        if (predictor_->predict_gravity_torque(q.data(), gravity.data())) {
             for (int i = 0; i < 6; ++i) {
                 torques[i] = gravity[i];
             }
@@ -194,7 +194,7 @@ public:
         dq.fill(0.0);
         ddq.fill(0.0);
 
-        predictor_->print_torque_breakdown(q, dq, ddq);
+        predictor_->print_torque_breakdown(q.data(), dq.data(), ddq.data());
     }
 };
 

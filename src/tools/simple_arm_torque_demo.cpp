@@ -16,7 +16,7 @@
 #include <chrono>
 #include <thread>
 
-#include "../include/ic_can/core/torque_predictor.h"
+#include "ic_can/core/torque_predictor_pure_c.h"
 
 using namespace ic_can;
 
@@ -59,7 +59,7 @@ int main() {
     ArmJointSimulator arm;
 
     // Create torque predictor
-    TorquePredictor predictor;
+    TorquePredictorPureC predictor;
 
     // Check initialization
     if (!predictor.is_initialized()) {
@@ -68,13 +68,9 @@ int main() {
     }
     std::cout << "✅ Torque predictor initialized successfully" << std::endl;
 
-    // Enable gravity compensation
-    std::cout << "\n🔧 Enabling gravity compensation..." << std::endl;
-    if (predictor.enable_gravity_compensation()) {
-        std::cout << "✅ Gravity compensation enabled" << std::endl;
-    } else {
-        std::cout << "⚠️  Gravity compensation not available" << std::endl;
-    }
+    // Pure C torque predictor has gravity compensation built-in
+    std::cout << "\n🔧 Pure C torque predictor with built-in gravity compensation..." << std::endl;
+    std::cout << "✅ Gravity compensation available" << std::endl;
 
     // Test configurations (arm poses)
     std::vector<std::array<double, 6>> test_poses = {
@@ -115,7 +111,7 @@ int main() {
         std::array<double, 6> gravity_torques;
 
         // Get gravity torques
-        if (predictor.predict_gravity_torque(positions, gravity_torques)) {
+        if (predictor.predict_gravity_torque(positions.data(), gravity_torques.data())) {
             std::cout << "Gravity torques (N⋅m):    ";
             for (int j = 0; j < 6; ++j) {
                 std::cout << std::fixed << std::setprecision(3) << std::setw(8) << gravity_torques[j] << " ";
@@ -152,7 +148,7 @@ int main() {
 
         // Show detailed torque breakdown
         std::cout << "\n📊 Detailed Torque Component Breakdown:" << std::endl;
-        predictor.print_torque_breakdown(positions, velocities, zero_accel.data());
+        predictor.print_torque_breakdown(positions.data(), velocities.data(), zero_accel.data());
 
         // Small delay between tests
         std::this_thread::sleep_for(std::chrono::milliseconds(500));

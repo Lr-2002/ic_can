@@ -66,6 +66,8 @@ endif()
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/dm-tools/C++/ubuntu/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/regressor/lib/regressorWithMotorDynamics
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/regressor/lib/frictionRegressor
 )
 
 # 添加 libusb 头文件路径 (macOS Homebrew)
@@ -126,6 +128,18 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/gripper_component.cpp")
 endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/torque_predictor.cpp")
     list(APPEND CORE_SOURCES "src/ic_can/core/torque_predictor.cpp")
+endif()
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/torque_predictor_pure_c.cpp")
+    list(APPEND CORE_SOURCES "src/ic_can/core/torque_predictor_pure_c.cpp")
+endif()
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/torque_predictor_regressor.cpp")
+    list(APPEND CORE_SOURCES "src/ic_can/core/torque_predictor_regressor.cpp")
+endif()
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/torque_predictor_config.cpp")
+    list(APPEND CORE_SOURCES "src/ic_can/core/torque_predictor_config.cpp")
+endif()
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/torque_predictor_unified.cpp")
+    list(APPEND CORE_SOURCES "src/ic_can/core/torque_predictor_unified.cpp")
 endif()
 
 # 检查电机源文件

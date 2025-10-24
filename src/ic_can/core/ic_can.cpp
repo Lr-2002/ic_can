@@ -14,15 +14,20 @@
 
 #include "ic_can/core/ic_can.hpp"
 #include "ic_can/core/torque_predictor_unified.h"
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
+#include <ctime>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <iterator>
 #include <mutex>
+#include <sstream>
 #include <sys/types.h>
 #include <thread>
 #include <unistd.h>
@@ -136,11 +141,11 @@ public:
   void load_default_motor_gains() {
     std::lock_guard<std::mutex> lock(motor_gains_mutex_);
     /**/
-    /*motor_kp_gains_ = {250, 120, 120, 80, 150, 30, 8, 8, 0};*/
-    /*motor_kd_gains_ = {5, 2, 2, 1.8, 2.2, 1, 1.2, 1.2, 0};*/
-    motor_kp_gains_ = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+    motor_kp_gains_ = {480, 120, 120, 80, 150, 30, 8, 8, 0};
+    motor_kd_gains_ = {4, 2, 2, 1.8, 2.2, 1, 1.2, 1.2, 0};
 
-    motor_kd_gains_ = {0, 0, 0, 0, 0, 0, 0.0, 0.0, 0};
+    /*motor_kp_gains_ = {0, 0, 0, 0, 0, 0, 0, 0, 0};*/
+    /*motor_kd_gains_ = {0, 0, 0, 0, 0, 0, 0.0, 0.0, 0};*/
 
     if (debug_enabled_) {
       std::cout << "✅ Loaded default motor gains" << std::endl;
@@ -198,6 +203,14 @@ public:
     logging_directory_ = timestamped_dir;
     logging_running_ = true;
 
+    // Reset logging counters for new trajectory session
+    {
+      std::lock_guard<std::mutex> lock(logging_mutex_);
+      logging_start_time_ = std::chrono::high_resolution_clock::now();
+      last_sent_positions_.clear();
+      last_sent_positions_.resize(9, 0.0);
+    }
+
     // Start logger thread
     logger_thread_ = std::thread([this]() { logger_thread_function(); });
 
@@ -206,9 +219,14 @@ public:
       enable_frequency_monitoring();
     }
 
-    std::cout << "✅ Started logging to timestamped directory: "
-              << timestamped_dir << std::endl;
+    std::cout << "✅ Started trajectory logging to: " << timestamped_dir
+              << std::endl;
     return true;
+  }
+
+  bool start_trajectory_logging(const std::string &log_directory) {
+    // Alias for start_logging with clearer naming
+    return start_logging(log_directory);
   }
 
   void stop_logging() {
@@ -475,7 +493,7 @@ public:
 
       // Add gravity compensation to torque feedforward
       if (gravity_compensation_enabled_ && i < 6) {
-        tau -= gravity_torques[i];
+        /*tau -= gravity_torques[i];*/
         /*std::cout << "motor id is " << i << ", torque is " <<
          * gravity_torques[i]*/
         /*          << std::endl;*/
@@ -492,6 +510,14 @@ public:
       /*  // Servo motor 9: use DM protocol as placeholder*/
       /*  send_dm_mit_command(i + 1, pos, vel, tau, kp, kd);*/
       /*}*/
+    }
+
+    // Record the actually sent positions, velocities, and torques for logging
+    if (logging_running_) {
+      std::lock_guard<std::mutex> lock(logging_mutex_);
+      last_sent_positions_ = positions;
+      last_sent_velocities_ = velocities;
+      last_sent_torques_ = torques;
     }
 
     return true;
@@ -1259,6 +1285,7 @@ private:
   std::thread logger_thread_;
   std::thread performance_thread_;
   std::string logging_directory_;
+  std::mutex logging_mutex_;
 
   // Performance counters
   std::atomic<uint64_t> send_count_;
@@ -1267,6 +1294,12 @@ private:
   std::atomic<uint64_t> total_bytes_received_;
   std::chrono::high_resolution_clock::time_point performance_start_time_;
   std::mutex performance_mutex_;
+
+  // Logging state
+  std::chrono::high_resolution_clock::time_point logging_start_time_;
+  std::vector<double> last_sent_positions_;
+  std::vector<double> last_sent_velocities_;
+  std::vector<double> last_sent_torques_;
 
   // Logger thread function
   void logger_thread_function();
@@ -1332,15 +1365,14 @@ void IC_CAN::Impl::logger_thread_function() {
 
   std::cout << "✅ Logger thread started, writing to CSV files" << std::endl;
 
-  // Store last target values for logging
-  std::vector<double> last_target_positions(9, 0.0);
-  std::vector<double> last_target_velocities(9, 0.0);
-  std::vector<double> last_target_torques(9, 0.0);
-  bool targets_initialized = false;
+  std::vector<double> last_sent_positions(9, 0.0);
+  std::vector<double> last_sent_velocities(9, 0.0);
+  std::vector<double> last_sent_torques(9, 0.0);
+  bool has_sent_data = false;
 
   while (logging_running_) {
     std::this_thread::sleep_for(
-        std::chrono::milliseconds(1000 / 400)); // Log  logging frequency
+        std::chrono::milliseconds(1000 / 400)); // Log at 400Hz
 
     try {
       std::string timestamp = get_current_timestamp();
@@ -1360,23 +1392,25 @@ void IC_CAN::Impl::logger_thread_function() {
       }
       motor_states_file << std::endl;
 
-      // Log target commands if we have interpolation state
+      // Log the actually sent commands (what was actually sent to motors)
       {
-        std::lock_guard<std::mutex> lock(interpolation_mutex_);
-        if (!target_positions_.empty()) {
-          last_target_positions = target_positions_;
-          targets_initialized = true;
+        std::lock_guard<std::mutex> lock(logging_mutex_);
+        if (!last_sent_positions_.empty()) {
+          last_sent_positions = last_sent_positions_;
+          last_sent_velocities = last_sent_velocities_;
+          last_sent_torques = last_sent_torques_;
+          has_sent_data = true;
         }
       }
 
-      if (targets_initialized) {
+      if (has_sent_data) {
         joint_commands_file << timestamp;
         for (int i = 0; i < 9; i++) {
-          joint_commands_file
-              << "," << std::fixed << std::setprecision(12)
-              << last_target_positions[i] << "," << std::fixed
-              << std::setprecision(12) << last_target_velocities[i] << ","
-              << std::fixed << std::setprecision(12) << last_target_torques[i];
+          joint_commands_file << "," << std::fixed << std::setprecision(12)
+                              << last_sent_positions[i] << "," << std::fixed
+                              << std::setprecision(12)
+                              << last_sent_velocities[i] << "," << std::fixed
+                              << std::setprecision(12) << last_sent_torques[i];
         }
         joint_commands_file << std::endl;
       }
@@ -1542,6 +1576,10 @@ void IC_CAN::load_default_motor_gains() { impl_->load_default_motor_gains(); }
 // Frequency monitoring and logging API implementation
 bool IC_CAN::start_logging(const std::string &log_directory) {
   return impl_->start_logging(log_directory);
+}
+
+bool IC_CAN::start_trajectory_logging(const std::string &log_directory) {
+  return impl_->start_trajectory_logging(log_directory);
 }
 
 void IC_CAN::stop_logging() { impl_->stop_logging(); }

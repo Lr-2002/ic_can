@@ -13,12 +13,19 @@
 // limitations under the License.
 
 #include "ic_can/core/arm_component.hpp"
-#include <ic_can/motors/dm_motor_real.hpp>
+// Temporarily remove motor-specific dependencies for compilation
+// #include <ic_can/motors/dm_motor_real.hpp>
 #include <iostream>
 #include <algorithm>
 #include <cmath>
 #include <thread>
 #include <iomanip>
+#include <memory>
+#include <vector>
+#include <map>
+#include <mutex>
+#include <chrono>
+#include <sstream>
 
 namespace ic_can {
 
@@ -156,7 +163,7 @@ bool ArmComponent::send_all_commands() {
         auto command_data = pair.second->get_command_data();
         if (!command_data.empty()) {
             uint32_t can_id = pair.second->get_can_send_id();
-            if (!can_adapter_.send_frame(can_id, command_data)) {
+            if (!can_adapter_.send_frame(command_data, can_id)) {
                 error_print("Failed to send command to motor " + std::to_string(pair.first));
                 success = false;
             }
@@ -365,7 +372,19 @@ bool ArmComponent::mit_control(const std::vector<double>& positions,
         int motor_id = i + 1;
         auto motor = motors_[motor_id];
         if (motor) {
-            // 转换为达妙电机以使用MIT控制
+            // TODO: Fix motor-specific MIT control when motor classes are available
+            // For now, use regular position control
+            double pos = clamp_position(positions[i], i);
+            double vel = clamp_velocity(velocities[i], i);
+            double tau = clamp_torque(torques[i], i);
+
+            if (!motor->set_position(pos, vel, tau)) {
+                error_print("Failed to set position for motor " + std::to_string(motor_id));
+                success = false;
+            }
+
+            // Temporarily disabled DM motor specific code
+            /*
             auto dm_motor = std::dynamic_pointer_cast<DMMotorReal>(motor);
             if (dm_motor) {
                 double pos = clamp_position(positions[i], i);
@@ -382,6 +401,7 @@ bool ArmComponent::mit_control(const std::vector<double>& positions,
                 error_print("Motor " + std::to_string(motor_id) + " is not a DM motor");
                 success = false;
             }
+            */
         }
     }
 

@@ -32,7 +32,9 @@ class LogDataConverter:
         """
         self.dt = dt
 
-    def convert_log_dir_to_dynamics(self, log_dir: str, output_file: str) -> Optional[str]:
+    def convert_log_dir_to_dynamics(
+        self, log_dir: str, output_file: str
+    ) -> Optional[str]:
         """
         将单个日志目录转换为动力学格式
 
@@ -70,11 +72,80 @@ class LogDataConverter:
             motor_df = motor_df.iloc[:min_len]
             command_df = command_df.iloc[:min_len]
 
+            # 检查是否有实际时间戳
+            has_timestamp = False
+            timestamps = None
+            if "timestamp" in motor_df.columns:
+                # 转换时间戳为数值（可能需要处理不同的时间戳格式）
+                timestamp_col = motor_df["timestamp"]
+
+                # 检查时间戳是否为字符串格式，如果是则转换
+                if timestamp_col.dtype == "object":
+                    try:
+                        # 尝试解析ISO格式时间戳 (2025-10-15T06:59:00.418)
+                        timestamps = pd.to_datetime(timestamp_col, errors="coerce")
+                        # 转换为Unix时间戳（秒）
+                        timestamps = timestamps.astype("int64") / 1e9  # 纳秒转秒
+                        # 确保时间戳数组长度匹配 trimmed 数据
+                        timestamps = timestamps.iloc[:min_len].values
+                        # 转换为相对时间（从第一个时间戳开始）
+                        if len(timestamps) > 0:
+                            timestamps = timestamps - timestamps[0]
+                        print(
+                            f"  ✅ 检测到ISO时间戳，已转换为相对时间: {len(timestamps)} 个时间点"
+                        )
+                        print(
+                            f"  时间范围: {timestamps[0]:.3f} - {timestamps[-1]:.3f} s"
+                        )
+                        has_timestamp = True
+                    except Exception as e:
+                        print(f"  ⚠️  ISO时间戳格式无法解析: {e}，尝试数值格式")
+                        try:
+                            # 尝试解析为浮点数（可能是秒或毫秒）
+                            timestamps = pd.to_numeric(timestamp_col, errors="coerce")
+                            # 如果时间戳看起来像是毫秒（很大的数值），转换为秒
+                            if timestamps.max() > 1e10:  # 假设超过这个值是毫秒
+                                timestamps = timestamps / 1000.0
+                            # 确保时间戳数组长度匹配 trimmed 数据
+                            timestamps = timestamps.iloc[:min_len].values
+                            # 转换为相对时间（从第一个时间戳开始）
+                            if len(timestamps) > 0:
+                                timestamps = timestamps - timestamps[0]
+                            print(
+                                f"  ✅ 检测到数值时间戳，已转换为相对时间: {len(timestamps)} 个时间点"
+                            )
+                            print(
+                                f"  时间范围: {timestamps[0]:.3f} - {timestamps[-1]:.3f} s"
+                            )
+                            has_timestamp = True
+                        except Exception as e2:
+                            print(
+                                f"  ⚠️  时间戳格式完全无法解析: {e2}，使用生成的时间序列"
+                            )
+                            has_timestamp = False
+                            timestamps = None
+                else:
+                    timestamps = timestamp_col.iloc[:min_len].values
+                    # 转换为相对时间（从第一个时间戳开始）
+                    if len(timestamps) > 0:
+                        timestamps = timestamps - timestamps[0]
+                    print(
+                        f"  ✅ 检测到数值时间戳，已转换为相对时间: {len(timestamps)} 个时间点"
+                    )
+                    print(f"  时间范围: {timestamps[0]:.3f} - {timestamps[-1]:.3f} s")
+                    has_timestamp = True
+            else:
+                print(f"  ⚠️  未检测到时间戳，使用生成的时间序列")
+
             # 创建动力学数据
             dynamics_data = []
 
             for i in range(len(motor_df)):
-                row_data = {"time": i * self.dt}
+                # 使用实际时间戳或生成时间
+                if has_timestamp:
+                    row_data = {"time": timestamps[i]}
+                else:
+                    row_data = {"time": i * self.dt}
 
                 # 处理所有6个关节
                 for joint_id in range(1, 7):
@@ -93,12 +164,18 @@ class LogDataConverter:
 
                 dynamics_data.append(row_data)
 
-            # 计算加速度
+            # 计算加速度 - 基于实际时间戳或固定时间步长
             for joint_id in range(1, 7):
                 vel_col = f"m{joint_id}_vel_actual"
                 if vel_col in dynamics_data[0]:
                     velocities = [row[vel_col] for row in dynamics_data]
-                    accelerations = np.gradient(velocities, self.dt)
+
+                    if has_timestamp:
+                        # 使用实际时间戳计算加速度
+                        accelerations = np.gradient(velocities, timestamps)
+                    else:
+                        # 使用固定时间步长
+                        accelerations = np.gradient(velocities, self.dt)
 
                     for j, acc in enumerate(accelerations):
                         dynamics_data[j][f"m{joint_id}_acc_actual"] = acc
@@ -111,17 +188,31 @@ class LogDataConverter:
             print(f"  ✅ 保存: {output_file}")
             print(f"  形状: {df.shape}")
 
+            # 显示时间信息
+            if has_timestamp:
+                time_col = df["time"].values
+                print(f"  时间范围: {time_col[0]:.3f} - {time_col[-1]:.3f} s")
+                avg_dt = np.mean(np.diff(time_col))
+                print(f"  平均频率: {1/avg_dt:.1f} Hz")
+            else:
+                print(f"  生成频率: {1/self.dt:.1f} Hz")
+
             return output_file
 
         except Exception as e:
             print(f"  ❌ 错误: {e}")
+            import traceback
+
+            traceback.print_exc()
             return None
 
 
 class DataPreprocessor:
     """数据预处理器 - 对应 step1_data_preprocessing.py 的功能"""
 
-    def __init__(self, cutoff_freq: float = 10.0, fs: float = 400.0, filter_order: int = 4):
+    def __init__(
+        self, cutoff_freq: float = 10.0, fs: float = 400.0, filter_order: int = 4
+    ):
         """
         初始化滤波器参数
 
@@ -162,7 +253,9 @@ class DataPreprocessor:
         filtered_data = filtfilt(self.b, self.a, data)
         return filtered_data
 
-    def estimate_acceleration_central_diff(self, velocity: np.ndarray, time_array: np.ndarray) -> np.ndarray:
+    def estimate_acceleration_central_diff(
+        self, velocity: np.ndarray, time_array: np.ndarray
+    ) -> np.ndarray:
         """
         使用中心差分法估计加速度 (基于实际时间戳)
 
@@ -290,7 +383,9 @@ class MatConverter:
     """MAT格式转换器 - 对应 conver_data_to_mat.py 的功能"""
 
     @staticmethod
-    def convert_processed_to_mat(csv_file_path: str, output_dir: Optional[str] = None) -> str:
+    def convert_processed_to_mat(
+        csv_file_path: str, output_dir: Optional[str] = None
+    ) -> str:
         """
         将预处理后的CSV数据转换为MAT格式
 
@@ -349,7 +444,9 @@ class MatConverter:
         scipy.io.savemat(mat_filepath, mat_data)
 
         print(f"  保存为: {mat_filepath}")
-        print(f"  变量: t({t.shape}), q{q.shape}, dq{dq.shape}, ddq{ddq.shape}, tau{tau.shape}")
+        print(
+            f"  变量: t({t.shape}), q{q.shape}, dq{dq.shape}, ddq{ddq.shape}, tau{tau.shape}"
+        )
 
         return str(mat_filepath)
 
@@ -357,17 +454,26 @@ class MatConverter:
 class UnifiedDataProcessor:
     """统一数据处理器 - 整合所有功能"""
 
-    def __init__(self, base_dir: str = "/Users/lr-2002/project/instantcreation/IC_arm_control"):
+    def __init__(self, base_dir: str = None):
         """
         初始化统一处理器
 
         Args:
-            base_dir: 项目基础目录
+            base_dir: 项目基础目录，如果为None则自动检测
         """
-        self.base_dir = Path(base_dir)
-        self.output_dir = self.base_dir / "dyn_ana_for_mat"
-        self.processed_dir = self.base_dir / "ic_arm_control/control/di_data_from_gh/processed_data_for_mat"
-        self.mat_dir = self.base_dir / "ic_arm_control/control/di_data_from_gh/mat_data"
+        if base_dir is None:
+            # 自动检测ic_can项目根目录
+            script_dir = Path(__file__).parent
+            ic_can_root = script_dir.parent.parent
+            self.base_dir = ic_can_root
+        else:
+            self.base_dir = Path(base_dir)
+
+        # 使用干净的相对路径结构
+        self.output_dir = (
+            self.base_dir / "python" / "data" / "trajectory_data" / "processed"
+        )
+        self.mat_dir = self.base_dir / "python" / "data" / "trajectory_data" / "matlab"
 
         # 创建组件
         self.log_converter = LogDataConverter(dt=0.0025)  # 400Hz
@@ -376,10 +482,11 @@ class UnifiedDataProcessor:
 
         # 创建输出目录
         os.makedirs(self.output_dir, exist_ok=True)
-        os.makedirs(self.processed_dir, exist_ok=True)
         os.makedirs(self.mat_dir, exist_ok=True)
 
-    def load_converted_data(self, csv_file: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def load_converted_data(
+        self, csv_file: str
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
         从转换后的CSV文件加载数据
 
@@ -434,7 +541,7 @@ class UnifiedDataProcessor:
         dq: np.ndarray,
         ddq: np.ndarray,
         tau: np.ndarray,
-        time_array: np.ndarray
+        time_array: np.ndarray,
     ) -> None:
         """
         保存处理后的数据
@@ -481,8 +588,14 @@ class UnifiedDataProcessor:
 
         for log_dir in log_dirs:
             if os.path.exists(log_dir):
-                output_file = self.output_dir / f"dynamics_{os.path.basename(log_dir)}.csv"
-                result = self.log_converter.convert_log_dir_to_dynamics(log_dir, str(output_file))
+                # 生成干净的输出文件名
+                log_name = os.path.basename(log_dir.rstrip("/"))
+                output_file = self.output_dir / f"dynamics_{log_name}.csv"
+
+                print(f"\n处理日志目录: {log_name}")
+                result = self.log_converter.convert_log_dir_to_dynamics(
+                    log_dir, str(output_file)
+                )
                 if result:
                     converted_files.append(result)
             else:
@@ -551,7 +664,7 @@ class UnifiedDataProcessor:
 
                 # 3. 保存处理后的数据
                 file_name = Path(csv_file).stem
-                output_file = self.processed_dir / f"{file_name}_filtered.csv"
+                output_file = self.output_dir / f"{file_name}_filtered.csv"
                 self.save_processed_data(
                     str(output_file),
                     q_filtered,
@@ -565,14 +678,23 @@ class UnifiedDataProcessor:
 
                 # 4. 数据质量检查
                 print(f"\n数据质量检查:")
-                print(f"  位置范围: [{np.min(q_filtered):.4f}, {np.max(q_filtered):.4f}] rad")
-                print(f"  速度范围: [{np.min(dq_filtered):.4f}, {np.max(dq_filtered):.4f}] rad/s")
-                print(f"  加速度范围: [{np.min(ddq_filtered):.4f}, {np.max(ddq_filtered):.4f}] rad/s²")
-                print(f"  力矩范围: [{np.min(tau_filtered):.4f}, {np.max(tau_filtered):.4f}] Nm")
+                print(
+                    f"  位置范围: [{np.min(q_filtered):.4f}, {np.max(q_filtered):.4f}] rad"
+                )
+                print(
+                    f"  速度范围: [{np.min(dq_filtered):.4f}, {np.max(dq_filtered):.4f}] rad/s"
+                )
+                print(
+                    f"  加速度范围: [{np.min(ddq_filtered):.4f}, {np.max(ddq_filtered):.4f}] rad/s²"
+                )
+                print(
+                    f"  力矩范围: [{np.min(tau_filtered):.4f}, {np.max(tau_filtered):.4f}] Nm"
+                )
 
             except Exception as e:
                 print(f"❌ 处理失败: {e}")
                 import traceback
+
                 traceback.print_exc()
 
         return processed_files
@@ -595,7 +717,9 @@ class UnifiedDataProcessor:
 
         for csv_file in csv_files:
             try:
-                mat_file = self.mat_converter.convert_processed_to_mat(csv_file, str(self.mat_dir))
+                mat_file = self.mat_converter.convert_processed_to_mat(
+                    csv_file, str(self.mat_dir)
+                )
                 converted_files.append(mat_file)
             except Exception as e:
                 print(f"❌ 转换失败 {Path(csv_file).name}: {e}")
@@ -636,7 +760,7 @@ class UnifiedDataProcessor:
 
         print(f"\n输出目录:")
         print(f"  原始转换数据: {self.output_dir}")
-        print(f"  预处理数据: {self.processed_dir}")
+        print(f"  预处理数据: {self.output_dir}")  # 现在在同一个目录
         print(f"  MAT格式数据: {self.mat_dir}")
 
         if mat_files:
@@ -647,7 +771,7 @@ class UnifiedDataProcessor:
         return {
             "converted": converted_files,
             "processed": processed_files,
-            "mat_files": mat_files
+            "mat_files": mat_files,
         }
 
 
@@ -656,9 +780,14 @@ def main():
 
     # 日志目录列表 (根据实际情况修改)
     log_dirs = [
-        "/Users/lr-2002/project/instantcreation/ic_can/tools/execitation_trajectories/ic_can_log_20251015_145900_414",
-        "/Users/lr-2002/project/instantcreation/ic_can/tools/execitation_trajectories/ic_can_log_20251015_145946_130",
-        "/Users/lr-2002/project/instantcreation/ic_can/tools/execitation_trajectories/ic_can_log_20251015_150027_011",
+        # "/Users/lr-2002/project/instantcreation/ic_can/tools/execitation_trajectories/ic_can_log_20251015_145900_414",
+        # "/Users/lr-2002/project/instantcreation/ic_can/tools/execitation_trajectories/ic_can_log_20251015_145946_130",
+        # "/Users/lr-2002/project/instantcreation/ic_can/tools/execitation_trajectories/ic_can_log_20251015_150027_011",
+        # "/home/lr-2002/project/InstantCreation/ic_can/tools/execitation_trajectories/ic_can_log_20251015_150027_011",
+        # "/home/lr-2002/project/InstantCreation/ic_can/tools/execitation_trajectories/ic_can_log_20251015_145946_130/",
+        # "/home/lr-2002/project/InstantCreation/ic_can/tools/execitation_trajectories/ic_can_log_20251015_145900_414/",
+        "/home/lr-2002/project/InstantCreation/ic_can/build/logs/ic_can_log_20251016_175109_926",
+        "/home/lr-2002/project/InstantCreation/ic_can/build/logs/ic_can_log_20251016_174907_008",
     ]
 
     # 创建统一处理器
@@ -667,7 +796,9 @@ def main():
     # 运行完整管道
     results = processor.run_complete_pipeline(log_dirs)
 
-    print(f"\n✅ 处理完成! 生成了 {len(results['mat_files'])} 个MAT文件可供MATLAB使用。")
+    print(
+        f"\n✅ 处理完成! 生成了 {len(results['mat_files'])} 个MAT文件可供MATLAB使用。"
+    )
     print(f"\n在MATLAB中使用:")
     print(f"  load('filename.mat')")
     print(f"  % 数据将加载为变量 t, q, dq, ddq, tau")

@@ -261,6 +261,13 @@ public:
     bool start_logging(const std::string& log_directory = ".");
 
     /**
+     * @brief Start trajectory-specific logging
+     * @param log_directory Directory to save log files
+     * @return true if logging started successfully
+     */
+    bool start_trajectory_logging(const std::string& log_directory);
+
+    /**
      * @brief Stop logging system data
      */
     void stop_logging();

@@ -1,0 +1,395 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
+     Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot
+  name="ic_arm_cnc">
+  <link
+    name="base_link">
+    <inertial>
+      <origin
+        xyz="0.00022542 -0.0069918 -0.00061105"
+        rpy="0 0 0" />
+      <mass
+        value="1.797" />
+      <inertia
+        ixx="0.0026164"
+        ixy="-1.74E-05"
+        ixz="1.60E-05"
+        iyy="0.0034037"
+        iyz="5.08E-05"
+        izz="0.0012603" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://ic_arm_cnc/meshes/base_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.89804 0.91765 0.92941 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://ic_arm_cnc/meshes/base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link
+    name="link1">
+    <inertial>
+      <origin
+        xyz="0.121679303915308 0.00317679385775441 -0.0220385702843656"
+        rpy="0 0 0" />
+      <mass
+        value="1.1167" />
+      <inertia
+        ixx="0.000866"
+        ixy="6.50E-05"
+        ixz="3.2E-06"
+        iyy="0.0041142"
+        iyz="-4E-07"
+        izz="0.0041061" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://ic_arm_cnc/meshes/link1.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.898039215686275 0.917647058823529 0.929411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://ic_arm_cnc/meshes/link1.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="j1"
+    type="revolute">
+    <origin
+      xyz="0 -0.04875 0"
+      rpy="1.5708 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="link1" />
+    <axis
+      xyz="0 0 -1" />
+    <limit
+      lower="-3.14"
+      upper="3.14"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="link2">
+    <inertial>
+      <origin
+        xyz="0.100655712032868 -0.00283282379893407 0.0302607494646697"
+        rpy="0 0 0" />
+      <mass
+        value="1.201" />
+      <inertia
+        ixx="0.0009957"
+        ixy="-8.37E-5"
+        ixz="1.086E-04"
+        iyy="0.0050016"
+        iyz="-2.4E-06"
+        izz="0.0050294" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://ic_arm_cnc/meshes/link2.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.898039215686275 0.917647058823529 0.929411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://ic_arm_cnc/meshes/link2.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="j2"
+    type="revolute">
+    <origin
+      xyz="0.17 -0.03225 -0.022"
+      rpy="-1.5708 -1.5708 0" />
+    <parent
+      link="link1" />
+    <child
+      link="link2" />
+    <axis
+      xyz="0 0 -1" />
+    <limit
+      lower="-3.14"
+      upper="3.14"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="link3">
+    <inertial>
+      <origin
+        xyz="0.0360275188907008 6.51215528056082E-05 0.0291485646419718"
+        rpy="0 0 0" />
+      <mass
+        value="0.610" />
+      <inertia
+        ixx="0.000434"
+        ixy="-1.46242444810173E-06"
+        ixz="5.07-05"
+        iyy="0.0011063"
+        iyz="-2.06782140586426E-07"
+        izz="0.0010155" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://ic_arm_cnc/meshes/link3.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.898039215686275 0.917647058823529 0.929411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://ic_arm_cnc/meshes/link3.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="j3"
+    type="revolute">
+    <origin
+      xyz="0.158 0.03225 0.031375"
+      rpy="1.5708 1.5708 0" />
+    <parent
+      link="link2" />
+    <child
+      link="link3" />
+    <axis
+      xyz="0 0 -1" />
+    <limit
+      lower="-3.14"
+      upper="3.14"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="link4">
+    <inertial>
+      <origin
+        xyz="-0.000735676346748593 -5.83183918462238E-06 0.149099716396589"
+        rpy="0 0 0" />
+      <mass
+        value="0.75088" />
+      <inertia
+        ixx="0.0062839"
+        ixy="-2.0E-07"
+        ixz="-6.37E-05"
+        iyy="0.0063440"
+        iyz="-6.32275270969647E-07"
+        izz="0.0003111" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://ic_arm_cnc/meshes/link4.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.898039215686275 0.917647058823529 0.929411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://ic_arm_cnc/meshes/link4.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="j4"
+    type="revolute">
+    <origin
+      xyz="0.10133 0.00020163 0.031375"
+      rpy="0 -1.5708 3.14" />
+    <parent
+      link="link3" />
+    <child
+      link="link4" />
+    <axis
+      xyz="0 0 -1" />
+    <limit
+      lower="-3.14"
+      upper="3.14"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="link5">
+    <inertial>
+      <origin
+        xyz="0.0346574583478251 0.0501422917476773 -0.0175540712096531"
+        rpy="0 0 0" />
+      <mass
+        value="0.57110" />
+      <inertia
+        ixx="0.0012884"
+        ixy="1.405E-04"
+        ixz="-4.977E-04"
+        iyy="0.0014726"
+        iyz="1.876E-04"
+        izz="0.0007005" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://ic_arm_cnc/meshes/link5.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.898039215686275 0.917647058823529 0.929411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://ic_arm_cnc/meshes/link5.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="j5"
+    type="revolute">
+    <origin
+      xyz="0.02715 0 0.25198"
+      rpy="1.5708 0 -1.5708" />
+    <parent
+      link="link4" />
+    <child
+      link="link5" />
+    <axis
+      xyz="0 0 -1" />
+    <limit
+      lower="-3.14"
+      upper="3.14"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="link6">
+    <inertial>
+      <origin
+        xyz="-3.33749418102158E-08 -1.36400007819115E-05 0.0176091608486317"
+        rpy="0 0 0" />
+      <mass
+        value="0.264382698007394" />
+      <inertia
+        ixx="0.000224650822727004"
+        ixy="-1.93416688640056E-07"
+        ixz="8.07259421863697E-11"
+        iyy="0.000148923376183376"
+        iyz="3.299071563267E-08"
+        izz="0.000288790853784869" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://ic_arm_cnc/meshes/link6.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.529411764705882 0.549019607843137 0.549019607843137 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://ic_arm_cnc/meshes/link6.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="j6"
+    type="revolute">
+    <origin
+      xyz="0.058161 0.07975 -0.065144"
+      rpy="1.5708 0 3.14" />
+    <parent
+      link="link5" />
+    <child
+      link="link6" />
+    <axis
+      xyz="0 0 -1" />
+    <limit
+      lower="-3.14"
+      upper="3.14"
+      effort="0"
+      velocity="0" />
+  </joint>
+</robot>

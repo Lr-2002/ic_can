@@ -19,8 +19,9 @@ namespace ic_can {
  * @brief Torque prediction methods enumeration
  */
 enum class TorquePredictionMethod {
-    PURE_C_MATLAB = 0,    ///< Use pure C MATLAB M, C, G matrix functions
-    REGRESSOR_BASED = 1   ///< Use regressor-based approach with friction
+    PINOCCHIO_URDF = 0,    ///< Use Pinocchio with URDF for precise dynamics (default)
+    PURE_C_MATLAB = 1,     ///< Use pure C MATLAB M, C, G matrix functions
+    REGRESSOR_BASED = 2   ///< Use regressor-based approach with friction
 };
 
 /**

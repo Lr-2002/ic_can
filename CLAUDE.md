@@ -48,4 +48,4 @@ When code is added to this repository, this file should be updated with:
 
 - The project directory is named `ic_can` suggesting this may be related to Controller Area Network (CAN) protocol implementation
 - Parent directory is `instantcreation` indicating this might be part of a larger project suite
-
+- use  /home/lr-2002/anaconda3/bin/python for python

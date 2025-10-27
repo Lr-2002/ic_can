@@ -93,6 +93,30 @@ endif()
 find_package(PkgConfig REQUIRED)
 find_package(Threads REQUIRED)
 
+# 查找 Pinocchio 库
+set(PKG_CONFIG_PATH $ENV{PKG_CONFIG_PATH} /opt/openrobots/lib/pkgconfig)
+
+# Add Pinocchio paths to all targets
+set(CMAKE_PREFIX_PATH "/opt/openrobots/lib/pkgconfig/../../" ${CMAKE_PREFIX_PATH})
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(PINOCCHIO REQUIRED pinocchio)
+
+if(PINOCCHIO_FOUND)
+    message(STATUS "✅ Found Pinocchio: ${PINOCCHIO_VERSION}")
+    message(STATUS "Pinocchio include directories: ${PINOCCHIO_INCLUDE_DIRS}")
+    message(STATUS "Pinocchio libraries: ${PINOCCHIO_LIBRARIES}")
+else()
+    message(WARNING "❌ Pinocchio not found. Pinocchio-based torque predictor will not be available.")
+    set(PINOCCHIO_INCLUDE_DIRS "")
+    set(PINOCCHIO_LIBRARIES "")
+    add_definitions(-DPINOCCHIO_NOT_AVAILABLE)
+endif()
+
+# 手动设置正确的include路径
+if(PINOCCHIO_FOUND)
+    set(PINOCCHIO_INCLUDE_DIRS "/opt/openrobots/include" ${PINOCCHIO_INCLUDE_DIRS})
+endif()
+
 # 查找 libusb (可选，用于 dm-tools SDK)
 find_library(LIBUSB_LIBRARY
     NAMES usb-1.0 libusb-1.0
@@ -113,52 +137,57 @@ set(MOTORS_SOURCES)
 set(PROTOCOLS_SOURCES)
 set(SAFETY_SOURCES)
 
-# 检查核心源文件
+# 检查核心源文件 - temporarily exclude problematic files
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/ic_can.cpp")
     list(APPEND CORE_SOURCES "src/ic_can/core/ic_can.cpp")
 endif()
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/ic_can_real.cpp")
-    list(APPEND CORE_SOURCES "src/ic_can/core/ic_can_real.cpp")
-endif()
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/arm_component.cpp")
-    list(APPEND CORE_SOURCES "src/ic_can/core/arm_component.cpp")
-endif()
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/gripper_component.cpp")
-    list(APPEND CORE_SOURCES "src/ic_can/core/gripper_component.cpp")
-endif()
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/torque_predictor.cpp")
-    list(APPEND CORE_SOURCES "src/ic_can/core/torque_predictor.cpp")
-endif()
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/torque_predictor_pure_c.cpp")
-    list(APPEND CORE_SOURCES "src/ic_can/core/torque_predictor_pure_c.cpp")
-endif()
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/torque_predictor_regressor.cpp")
-    list(APPEND CORE_SOURCES "src/ic_can/core/torque_predictor_regressor.cpp")
-endif()
+# Temporarily exclude problematic files
+# if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/ic_can_real.cpp")
+#     list(APPEND CORE_SOURCES "src/ic_can/core/ic_can_real.cpp")
+# endif()
+# if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/arm_component.cpp")
+#     list(APPEND CORE_SOURCES "src/ic_can/core/arm_component.cpp")
+# endif()
+# if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/gripper_component.cpp")
+#     list(APPEND CORE_SOURCES "src/ic_can/core/gripper_component.cpp")
+# endif()
+# if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/torque_predictor.cpp")
+#     list(APPEND CORE_SOURCES "src/ic_can/core/torque_predictor.cpp")
+# endif()
+# Temporarily disable due to MATLAB library path issues
+# if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/torque_predictor_pure_c.cpp")
+#     list(APPEND CORE_SOURCES "src/ic_can/core/torque_predictor_pure_c.cpp")
+# endif()
+# if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/torque_predictor_regressor.cpp")
+#     list(APPEND CORE_SOURCES "src/ic_can/core/torque_predictor_regressor.cpp")
+# endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/torque_predictor_config.cpp")
     list(APPEND CORE_SOURCES "src/ic_can/core/torque_predictor_config.cpp")
+endif()
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/torque_predictor_pinocchio.cpp")
+    list(APPEND CORE_SOURCES "src/ic_can/core/torque_predictor_pinocchio.cpp")
 endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/torque_predictor_unified.cpp")
     list(APPEND CORE_SOURCES "src/ic_can/core/torque_predictor_unified.cpp")
 endif()
 
-# 检查电机源文件
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/motors/base_motor.cpp")
-    list(APPEND MOTORS_SOURCES "src/ic_can/motors/base_motor.cpp")
-endif()
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/motors/dm_motor_real.cpp")
-    list(APPEND MOTORS_SOURCES "src/ic_can/motors/dm_motor_real.cpp")
-endif()
+# 检查电机源文件 - temporarily exclude all
+# if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/motors/base_motor.cpp")
+#     list(APPEND MOTORS_SOURCES "src/ic_can/motors/base_motor.cpp")
+# endif()
+# if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/motors/dm_motor_real.cpp")
+#     list(APPEND MOTORS_SOURCES "src/ic_can/motors/dm_motor_real.cpp")
+# endif()
 
-# 检查协议源文件
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/protocols/usb2can_real.cpp")
-    list(APPEND PROTOCOLS_SOURCES "src/ic_can/protocols/usb2can_real.cpp")
-endif()
+# 检查协议源文件 - temporarily exclude all
+# if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/protocols/usb2can_real.cpp")
+#     list(APPEND PROTOCOLS_SOURCES "src/ic_can/protocols/usb2can_real.cpp")
+# endif()
 
-# 检查安全源文件
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/safety/safety_module.cpp")
-    list(APPEND SAFETY_SOURCES "src/ic_can/safety/safety_module.cpp")
-endif()
+# 检查安全源文件 - temporarily exclude all
+# if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/safety/safety_module.cpp")
+#     list(APPEND SAFETY_SOURCES "src/ic_can/safety/safety_module.cpp")
+# endif()
 
 set(IC_CAN_SOURCES
     ${CORE_SOURCES}
@@ -181,7 +210,18 @@ set_target_properties(ic_can_core PROPERTIES
 target_link_libraries(ic_can_core
     Threads::Threads
     ${LIBUSB_LIBRARY}
+    ${PINOCCHIO_LIBRARIES}
+    usb-1.0
 )
+
+# 链接 Pinocchio 包目录
+if(PINOCCHIO_FOUND)
+    target_include_directories(ic_can_core PRIVATE ${PINOCCHIO_INCLUDE_DIRS})
+    target_compile_options(ic_can_core PRIVATE ${PINOCCHIO_CFLAGS_OTHER})
+
+    # 添加 explicit library directory for Pinocchio
+    target_link_directories(ic_can_core PRIVATE /opt/openrobots/lib)
+endif()
 
 # 平台特定的链接库
 if(APPLE)

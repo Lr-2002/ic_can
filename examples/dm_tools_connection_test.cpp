@@ -33,8 +33,8 @@
 
 // Direct dm-tools SDK includes
 #define private public
-#include "../dm-tools/USB2FDCAN/SDK/C++/arm/include/protocol/usb_class.h"
-#include "../dm-tools/USB2FDCAN/SDK/C++/arm/include/protocol/damiao.h"
+#include "../lib/dm-tools/C++/ubuntu/include/protocol/usb_class.h"
+#include "../lib/dm-tools/C++/ubuntu/include/protocol/damiao.h"
 #undef private
 
 // Global variables for signal handling

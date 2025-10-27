@@ -3,8 +3,10 @@
 #include <iomanip>
 
 // From regressor.cpp
-void H_func(double *regressor, const double *q, const double *dq,
-            const double *ddq);
+extern "C" {
+    void regressorWithMotorDynamics(double *regressor, const double *q, const double *dq,
+                                const double *ddq);
+}
 
 int main() {
     std::cout << "=== Testing Regressor Values ===" << std::endl;
@@ -15,7 +17,7 @@ int main() {
     double ddq[6] = {0.001, 0.002, 0.003, 0.004, 0.005, 0.006};
 
     double regressor[504];
-    H_func(regressor, q, dq, ddq);
+    regressorWithMotorDynamics(regressor, q, dq, ddq);
 
     std::cout << "Sample regressor values:" << std::endl;
     std::cout << "First 10 values: ";

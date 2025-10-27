@@ -35,8 +35,10 @@
 #include <vector>
 
 // From regressor.cpp
-void H_func(double *regressor, const double *q, const double *dq,
-            const double *ddq);
+extern "C" {
+    void regressorWithMotorDynamics(double *regressor, const double *q, const double *dq,
+                                const double *ddq);
+}
 
 struct TrajectoryData {
   std::vector<double> timestamps;
@@ -335,7 +337,7 @@ public:
 
         // Compute full regressor for this sample
         std::vector<double> full_regressor(NUM_PARAMETERS, 0.0);
-        H_func(full_regressor.data(), training_data_.positions[i].data(),
+        regressorWithMotorDynamics(full_regressor.data(), training_data_.positions[i].data(),
                training_data_.velocities[i].data(),
                training_data_.accelerations[i].data());
 
@@ -414,7 +416,7 @@ public:
 
       // Compute full regressor for validation sample
       std::vector<double> full_regressor(NUM_PARAMETERS, 0.0);
-      H_func(full_regressor.data(), validation_data_.positions[i].data(),
+      regressorWithMotorDynamics(full_regressor.data(), validation_data_.positions[i].data(),
              validation_data_.velocities[i].data(),
              validation_data_.accelerations[i].data());
 

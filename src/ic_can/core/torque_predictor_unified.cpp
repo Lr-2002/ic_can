@@ -15,40 +15,57 @@
 
 namespace ic_can {
 
-TorquePredictorUnified::TorquePredictorUnified() : current_method_(TorquePredictionMethod::PURE_C_MATLAB), initialized_(false) {
+TorquePredictorUnified::TorquePredictorUnified() : current_method_(TorquePredictionMethod::PINOCCHIO_URDF), initialized_(false) {
     std::cout << "🔧 Initializing Unified Torque Prediction System..." << std::endl;
 
-    // Initialize Pure C MATLAB predictor
+    // Initialize Pinocchio URDF predictor (preferred default)
     try {
-        pure_c_predictor_ = std::make_unique<TorquePredictorPureC>();
-        if (pure_c_predictor_->is_initialized()) {
-            std::cout << "✅ Pure C MATLAB predictor initialized" << std::endl;
+        pinocchio_predictor_ = std::make_unique<TorquePredictorPinocchio>();
+        if (pinocchio_predictor_->is_initialized()) {
+            std::cout << "✅ Pinocchio URDF predictor initialized (default)" << std::endl;
         }
+    } catch (const std::exception& e) {
+        std::cout << "⚠️  Pinocchio URDF predictor failed: " << e.what() << std::endl;
+        pinocchio_predictor_.reset();
+    }
+
+    // Initialize Pure C MATLAB predictor (fallback) - disabled for now
+    try {
+        // pure_c_predictor_ = std::make_unique<TorquePredictorPureC>();
+        // if (pure_c_predictor_->is_initialized()) {
+        //     std::cout << "✅ Pure C MATLAB predictor initialized" << std::endl;
+        // }
+        std::cout << "ℹ️  Pure C MATLAB predictor disabled (MATLAB libraries not available)" << std::endl;
     } catch (const std::exception& e) {
         std::cout << "⚠️  Pure C MATLAB predictor failed: " << e.what() << std::endl;
         pure_c_predictor_.reset();
     }
 
-    // Initialize Regressor-based predictor
+    // Initialize Regressor-based predictor (fallback) - disabled for now
     try {
-        regressor_predictor_ = std::make_unique<TorquePredictorRegressor>();
-        if (regressor_predictor_->is_initialized()) {
-            std::cout << "✅ Regressor-based predictor initialized" << std::endl;
-        }
+        // regressor_predictor_ = std::make_unique<TorquePredictorRegressor>();
+        // if (regressor_predictor_->is_initialized()) {
+        //     std::cout << "✅ Regressor-based predictor initialized" << std::endl;
+        // }
+        std::cout << "ℹ️  Regressor-based predictor disabled (MATLAB libraries not available)" << std::endl;
     } catch (const std::exception& e) {
         std::cout << "⚠️  Regressor-based predictor failed: " << e.what() << std::endl;
         regressor_predictor_.reset();
     }
 
-    // Check if any method is available
-    if (pure_c_predictor_ && pure_c_predictor_->is_initialized()) {
+    // Check if any method is available, prioritizing Pinocchio
+    if (pinocchio_predictor_ && pinocchio_predictor_->is_initialized()) {
+        initialized_ = true;
+        current_method_ = TorquePredictionMethod::PINOCCHIO_URDF;
+        std::cout << "✅ Using Pinocchio URDF torque prediction method (default)" << std::endl;
+    } else if (pure_c_predictor_ && pure_c_predictor_->is_initialized()) {
         initialized_ = true;
         current_method_ = TorquePredictionMethod::PURE_C_MATLAB;
-        std::cout << "✅ Using Pure C MATLAB torque prediction method" << std::endl;
+        std::cout << "✅ Using Pure C MATLAB torque prediction method (fallback)" << std::endl;
     } else if (regressor_predictor_ && regressor_predictor_->is_initialized()) {
         initialized_ = true;
         current_method_ = TorquePredictionMethod::REGRESSOR_BASED;
-        std::cout << "✅ Using Regressor-based torque prediction method" << std::endl;
+        std::cout << "✅ Using Regressor-based torque prediction method (fallback)" << std::endl;
     } else {
         std::cout << "❌ No torque prediction methods available!" << std::endl;
     }
@@ -59,7 +76,16 @@ bool TorquePredictorUnified::is_initialized() const {
 }
 
 bool TorquePredictorUnified::switch_method(TorquePredictionMethod method) {
-    if (method == TorquePredictionMethod::PURE_C_MATLAB) {
+    if (method == TorquePredictionMethod::PINOCCHIO_URDF) {
+        if (pinocchio_predictor_ && pinocchio_predictor_->is_initialized()) {
+            current_method_ = method;
+            std::cout << "🔧 Switched to torque prediction method: " << get_torque_method_name(method) << std::endl;
+            return true;
+        } else {
+            std::cout << "❌ Pinocchio URDF method is not available" << std::endl;
+            return false;
+        }
+    } else if (method == TorquePredictionMethod::PURE_C_MATLAB) {
         if (pure_c_predictor_ && pure_c_predictor_->is_initialized()) {
             current_method_ = method;
             std::cout << "🔧 Switched to torque prediction method: " << get_torque_method_name(method) << std::endl;
@@ -91,7 +117,11 @@ bool TorquePredictorUnified::predict_torques(const double q[6], const double dq[
         return false;
     }
 
-    if (current_method_ == TorquePredictionMethod::PURE_C_MATLAB) {
+    if (current_method_ == TorquePredictionMethod::PINOCCHIO_URDF) {
+        if (pinocchio_predictor_ && pinocchio_predictor_->is_initialized()) {
+            return pinocchio_predictor_->predict_torques(q, dq, ddq, M_torque, C_torque, G_torque, total_torque);
+        }
+    } else if (current_method_ == TorquePredictionMethod::PURE_C_MATLAB) {
         if (pure_c_predictor_ && pure_c_predictor_->is_initialized()) {
             return pure_c_predictor_->predict_torques(q, dq, ddq, M_torque, C_torque, G_torque, total_torque);
         }
@@ -115,7 +145,11 @@ bool TorquePredictorUnified::predict_total_torque(const double q[6], const doubl
         return false;
     }
 
-    if (current_method_ == TorquePredictionMethod::PURE_C_MATLAB) {
+    if (current_method_ == TorquePredictionMethod::PINOCCHIO_URDF) {
+        if (pinocchio_predictor_ && pinocchio_predictor_->is_initialized()) {
+            return pinocchio_predictor_->predict_total_torque(q, dq, ddq, total_torque);
+        }
+    } else if (current_method_ == TorquePredictionMethod::PURE_C_MATLAB) {
         if (pure_c_predictor_ && pure_c_predictor_->is_initialized()) {
             return pure_c_predictor_->predict_total_torque(q, dq, ddq, total_torque);
         }
@@ -135,7 +169,11 @@ bool TorquePredictorUnified::predict_gravity_torque(const double q[6], double gr
         return false;
     }
 
-    if (current_method_ == TorquePredictionMethod::PURE_C_MATLAB) {
+    if (current_method_ == TorquePredictionMethod::PINOCCHIO_URDF) {
+        if (pinocchio_predictor_ && pinocchio_predictor_->is_initialized()) {
+            return pinocchio_predictor_->predict_gravity_torque(q, gravity_torque);
+        }
+    } else if (current_method_ == TorquePredictionMethod::PURE_C_MATLAB) {
         if (pure_c_predictor_ && pure_c_predictor_->is_initialized()) {
             return pure_c_predictor_->predict_gravity_torque(q, gravity_torque);
         }
@@ -155,7 +193,12 @@ void TorquePredictorUnified::print_torque_breakdown(const double q[6], const dou
         return;
     }
 
-    if (current_method_ == TorquePredictionMethod::PURE_C_MATLAB) {
+    if (current_method_ == TorquePredictionMethod::PINOCCHIO_URDF) {
+        if (pinocchio_predictor_ && pinocchio_predictor_->is_initialized()) {
+            pinocchio_predictor_->print_torque_breakdown(q, dq, ddq);
+            return;
+        }
+    } else if (current_method_ == TorquePredictionMethod::PURE_C_MATLAB) {
         if (pure_c_predictor_ && pure_c_predictor_->is_initialized()) {
             pure_c_predictor_->print_torque_breakdown(q, dq, ddq);
             return;
@@ -172,9 +215,16 @@ void TorquePredictorUnified::print_torque_breakdown(const double q[6], const dou
 
 void TorquePredictorUnified::print_method_status() {
     std::cout << "\n🔧 Torque Prediction Methods Status:" << std::endl;
-    std::cout << std::string(50, '=') << std::endl;
+    std::cout << std::string(55, '=') << std::endl;
 
-    std::cout << "Pure C MATLAB (M,C,G matrices): ";
+    std::cout << "Pinocchio URDF (precise dynamics): ";
+    if (pinocchio_predictor_ && pinocchio_predictor_->is_initialized()) {
+        std::cout << "✅ AVAILABLE" << std::endl;
+    } else {
+        std::cout << "❌ NOT AVAILABLE" << std::endl;
+    }
+
+    std::cout << "Pure C MATLAB (M,C,G matrices):  ";
     if (pure_c_predictor_ && pure_c_predictor_->is_initialized()) {
         std::cout << "✅ AVAILABLE" << std::endl;
     } else {
@@ -189,7 +239,7 @@ void TorquePredictorUnified::print_method_status() {
     }
 
     std::cout << "Current method: " << get_torque_method_name(current_method_) << std::endl;
-    std::cout << std::string(50, '=') << std::endl;
+    std::cout << std::string(55, '=') << std::endl;
 }
 
 std::string TorquePredictorUnified::get_method_name() const {

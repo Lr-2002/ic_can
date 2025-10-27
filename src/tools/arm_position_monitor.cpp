@@ -241,7 +241,7 @@ int main(int argc, char *argv[]) {
       std::vector<double> arm_velocities(velocities.begin(),
                                          velocities.begin() + 6);
       std::vector<double> arm_torques(torques.begin(), torques.begin() + 6);
-
+      controller->set_joint_positions(positions);
       // Calculate timestamp
       double timestamp =
           std::chrono::duration<double>(loop_start - start_time).count();

@@ -13,6 +13,7 @@
 #define IC_CAN_TORQUE_PREDICTOR_UNIFIED_H
 
 #include "ic_can/core/torque_predictor_config.h"
+#include "ic_can/core/torque_predictor_pinocchio.h"
 #include "ic_can/core/torque_predictor_pure_c.h"
 #include "ic_can/core/torque_predictor_regressor.h"
 #include <memory>
@@ -28,6 +29,7 @@ namespace ic_can {
  */
 class TorquePredictorUnified {
 private:
+    std::unique_ptr<TorquePredictorPinocchio> pinocchio_predictor_;
     std::unique_ptr<TorquePredictorPureC> pure_c_predictor_;
     std::unique_ptr<TorquePredictorRegressor> regressor_predictor_;
     TorquePredictionMethod current_method_;

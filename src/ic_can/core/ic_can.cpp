@@ -61,7 +61,7 @@ public:
       : device_sn_(device_sn), debug_enabled_(debug), connected_(false),
         hf_control_running_(false), control_running_(false),
         logging_running_(false), performance_monitoring_(false),
-        gravity_compensation_enabled_(false) {
+        gravity_compensation_enabled_(true) {
     // Initialize motor gains with default values
     load_default_motor_gains();
 
@@ -78,6 +78,13 @@ public:
       std::cout << "✅ Unified torque predictor initialized successfully"
                 << std::endl;
       torque_predictor_->print_method_status();
+
+      // Enable gravity compensation by default for precise dynamics
+      if (!enable_gravity_compensation()) {
+        std::cout
+            << "⚠️  Warning: Could not enable gravity compensation by default"
+            << std::endl;
+      }
     } else {
       std::cout << "⚠️  Torque predictor initialization failed - gravity "
                    "compensation unavailable"
@@ -141,11 +148,11 @@ public:
   void load_default_motor_gains() {
     std::lock_guard<std::mutex> lock(motor_gains_mutex_);
     /**/
-    motor_kp_gains_ = {480, 120, 120, 80, 150, 30, 8, 8, 0};
-    motor_kd_gains_ = {4, 2, 2, 1.8, 2.2, 1, 1.2, 1.2, 0};
+    /*motor_kp_gains_ = {480, 120, 120, 80, 150, 30, 8, 8, 0};*/
+    /*motor_kd_gains_ = {4, 2, 2, 1.8, 2.2, 1, 1.2, 1.2, 0};*/
 
-    /*motor_kp_gains_ = {0, 0, 0, 0, 0, 0, 0, 0, 0};*/
-    /*motor_kd_gains_ = {0, 0, 0, 0, 0, 0, 0.0, 0.0, 0};*/
+    motor_kp_gains_ = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+    motor_kd_gains_ = {0, 0, 0, 0, 0, 0, 0.0, 0.0, 0};
 
     if (debug_enabled_) {
       std::cout << "✅ Loaded default motor gains" << std::endl;
@@ -491,11 +498,12 @@ public:
       double kd = kd_values[i];
 
       // Add gravity compensation to torque feedforward
+      std::cout << " the gravity compensation is "
+                << gravity_compensation_enabled_ << std::endl;
       if (gravity_compensation_enabled_ && i < 6) {
-        /*tau -= gravity_torques[i];*/
-        /*std::cout << "motor id is " << i << ", torque is " <<
-         * gravity_torques[i]*/
-        /*          << std::endl;*/
+        tau += gravity_torques[i];
+        std::cout << "motor id is " << i << ", torque is " << gravity_torques[i]
+                  << std::endl;
       }
 
       if (i < 6) {
@@ -883,14 +891,18 @@ public:
     TorquePredictionMethod method;
     switch (method_id) {
     case 0:
-      method = TorquePredictionMethod::PURE_C_MATLAB;
+      method = TorquePredictionMethod::PINOCCHIO_URDF;
       break;
     case 1:
+      method = TorquePredictionMethod::PURE_C_MATLAB;
+      break;
+    case 2:
       method = TorquePredictionMethod::REGRESSOR_BASED;
       break;
     default:
       std::cout << "❌ Invalid method ID: " << method_id
-                << " (0=Pure C MATLAB, 1=Regressor-Based)" << std::endl;
+                << " (0=Pinocchio URDF, 1=Pure C MATLAB, 2=Regressor-Based)"
+                << std::endl;
       return false;
     }
 

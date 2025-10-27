@@ -12,6 +12,23 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(PkgConfig REQUIRED)
 find_package(Threads REQUIRED)
 
+# Set PKG_CONFIG_PATH for Pinocchio
+set(PKG_CONFIG_PATH $ENV{PKG_CONFIG_PATH} /opt/openrobots/lib/pkgconfig)
+
+# Find Pinocchio
+set(CMAKE_PREFIX_PATH "/opt/openrobots/lib/pkgconfig/../../" ${CMAKE_PREFIX_PATH})
+pkg_check_modules(PINOCCHIO REQUIRED pinocchio)
+
+if(PINOCCHIO_FOUND)
+    message(STATUS "✅ Found Pinocchio for tools: ${PINOCCHIO_VERSION}")
+    set(PINOCCHIO_INCLUDE_DIRS "/opt/openrobots/include" ${PINOCCHIO_INCLUDE_DIRS})
+else()
+    message(WARNING "❌ Pinocchio not found for tools. Pinocchio-based torque predictor will not be available.")
+    set(PINOCCHIO_INCLUDE_DIRS "")
+    set(PINOCCHIO_LIBRARIES "")
+    add_definitions(-DPINOCCHIO_NOT_AVAILABLE)
+endif()
+
 # Try to find libusb
 pkg_check_modules(USB1 libusb-1.0)
 if(NOT USB1_FOUND)
@@ -39,6 +56,7 @@ set(IC_CAN_SOURCE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/ic_can/core/torque_predictor_pure_c.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/ic_can/core/torque_predictor_regressor.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/ic_can/core/torque_predictor_config.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/ic_can/core/torque_predictor_pinocchio.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/ic_can/core/torque_predictor_unified.cpp
 )
 
@@ -55,6 +73,7 @@ endif()
 set(COMMON_LIBS
     ${USB1_LIBRARIES}
     Threads::Threads
+    ${PINOCCHIO_LIBRARIES}
 )
 
 # Add dm-tools library if available
@@ -92,6 +111,11 @@ function(add_ic_can_tool_from_src name)
         ${IC_CAN_SOURCE}
     )
     target_link_libraries(${name} ${DM_TOOLS_OBJECTS} ${COMMON_LIBS})
+
+    # Add explicit library directory for Pinocchio
+    if(PINOCCHIO_FOUND)
+        target_link_directories(${name} PRIVATE /opt/openrobots/lib)
+    endif()
     target_include_directories(${name} PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../include
         ${CMAKE_CURRENT_SOURCE_DIR}/../lib/dm-tools/C++/ubuntu/include
@@ -100,6 +124,7 @@ function(add_ic_can_tool_from_src name)
         ${CMAKE_CURRENT_SOURCE_DIR}/../lib/regressor/lib
         ${CMAKE_CURRENT_SOURCE_DIR}/../lib/regressor/lib/regressorWithMotorDynamics
         ${CMAKE_CURRENT_SOURCE_DIR}/../lib/regressor/lib/frictionRegressor
+        ${PINOCCHIO_INCLUDE_DIRS}
     )
     target_compile_options(${name} PRIVATE -Wall -Wextra)
 

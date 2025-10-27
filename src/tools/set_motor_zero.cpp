@@ -35,13 +35,15 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-void print_all_positions(ic_can::IC_CAN& controller) {
+void print_all_positions(ic_can::IC_CAN &controller) {
   auto positions = controller.get_joint_positions();
 
   std::cout << "\n📊 Current Motor Positions:" << std::endl;
   std::cout << std::string(70, '=') << std::endl;
-  std::cout << "Motor | Position (rad) | Position (deg) | Type      | Status" << std::endl;
-  std::cout << "------|---------------|----------------|-----------|--------" << std::endl;
+  std::cout << "Motor | Position (rad) | Position (deg) | Type      | Status"
+            << std::endl;
+  std::cout << "------|---------------|----------------|-----------|--------"
+            << std::endl;
 
   for (int i = 0; i < 9; i++) {
     std::string motor_type;
@@ -63,39 +65,46 @@ void print_all_positions(ic_can::IC_CAN& controller) {
       status = "OFFSET";
     }
 
-    std::cout << std::setw(5) << (i + 1) << " | "
-              << std::setw(13) << std::fixed << std::setprecision(4) << pos << " | "
-              << std::setw(14) << std::setprecision(2) << (pos * 180.0 / M_PI) << " | "
-              << std::setw(9) << motor_type << " | "
-              << status << std::endl;
+    std::cout << std::setw(5) << (i + 1) << " | " << std::setw(13) << std::fixed
+              << std::setprecision(4) << pos << " | " << std::setw(14)
+              << std::setprecision(2) << (pos * 180.0 / M_PI) << " | "
+              << std::setw(9) << motor_type << " | " << status << std::endl;
   }
   std::cout << std::string(70, '=') << std::endl;
 }
 
-void set_motor_to_zero(ic_can::IC_CAN& controller, int motor_id) {
+void set_motor_to_zero(ic_can::IC_CAN &controller, int motor_id) {
   if (motor_id < 1 || motor_id > 9) {
-    std::cout << "❌ Invalid motor ID: " << motor_id << " (must be 1-9)" << std::endl;
+    std::cout << "❌ Invalid motor ID: " << motor_id << " (must be 1-9)"
+              << std::endl;
     return;
   }
 
-  std::cout << "\n🎯 Setting Motor " << motor_id << " zero position calibration..." << std::endl;
+  std::cout << "\n🎯 Setting Motor " << motor_id
+            << " zero position calibration..." << std::endl;
 
   // Get current positions
   auto current_positions = controller.get_joint_positions();
   std::cout << "Current position: " << std::fixed << std::setprecision(4)
             << current_positions[motor_id - 1] << " rad ("
-            << (current_positions[motor_id - 1] * 180.0 / M_PI) << "°)" << std::endl;
+            << (current_positions[motor_id - 1] * 180.0 / M_PI) << "°)"
+            << std::endl;
 
-  std::cout << "⚠️  This will set the CURRENT position as the new ZERO calibration" << std::endl;
-  std::cout << "📝 After calibration, this position will be reported as 0.0 rad" << std::endl;
+  std::cout
+      << "⚠️  This will set the CURRENT position as the new ZERO calibration"
+      << std::endl;
+  std::cout << "📝 After calibration, this position will be reported as 0.0 rad"
+            << std::endl;
 
   // Ask for confirmation
   std::cout << "\n🤔 Do you want to proceed? (y/N): ";
   std::string confirm;
   std::getline(std::cin, confirm);
 
-  if (confirm != "y" && confirm != "Y" && confirm != "yes" && confirm != "YES") {
-    std::cout << "❌ Cancelled zero calibration for Motor " << motor_id << std::endl;
+  if (confirm != "y" && confirm != "Y" && confirm != "yes" &&
+      confirm != "YES") {
+    std::cout << "❌ Cancelled zero calibration for Motor " << motor_id
+              << std::endl;
     return;
   }
 
@@ -103,7 +112,8 @@ void set_motor_to_zero(ic_can::IC_CAN& controller, int motor_id) {
   bool success = controller.set_motor_zero_calibration(motor_id);
 
   if (success) {
-    std::cout << "\n✅ Zero calibration command sent to Motor " << motor_id << std::endl;
+    std::cout << "\n✅ Zero calibration command sent to Motor " << motor_id
+              << std::endl;
     std::cout << "⏳ Waiting for motor to process calibration..." << std::endl;
 
     // Wait for motor to process
@@ -117,43 +127,58 @@ void set_motor_to_zero(ic_can::IC_CAN& controller, int motor_id) {
     auto new_positions = controller.get_joint_positions();
     std::cout << "📊 New reading: " << std::fixed << std::setprecision(4)
               << new_positions[motor_id - 1] << " rad ("
-              << (new_positions[motor_id - 1] * 180.0 / M_PI) << "°)" << std::endl;
+              << (new_positions[motor_id - 1] * 180.0 / M_PI) << "°)"
+              << std::endl;
 
     if (std::abs(new_positions[motor_id - 1]) < 0.1) {
-      std::cout << "✅ SUCCESS: Motor " << motor_id << " zero calibration completed!" << std::endl;
+      std::cout << "✅ SUCCESS: Motor " << motor_id
+                << " zero calibration completed!" << std::endl;
     } else {
-      std::cout << "⚠️  WARNING: Motor position may still need time to settle" << std::endl;
-      std::cout << "💡 Try refreshing positions again in a few seconds" << std::endl;
+      std::cout << "⚠️  WARNING: Motor position may still need time to settle"
+                << std::endl;
+      std::cout << "💡 Try refreshing positions again in a few seconds"
+                << std::endl;
     }
   } else {
-    std::cout << "❌ Failed to send zero calibration command to Motor " << motor_id << std::endl;
+    std::cout << "❌ Failed to send zero calibration command to Motor "
+              << motor_id << std::endl;
   }
 
-  std::cout << "\n📖 Note: Zero position calibration sets the current position as 0.0" << std::endl;
-  std::cout << "   This is different from moving the motor to position 0.0" << std::endl;
-  std::cout << "   After calibration, the motor will treat this position as its new origin" << std::endl;
+  std::cout
+      << "\n📖 Note: Zero position calibration sets the current position as 0.0"
+      << std::endl;
+  std::cout << "   This is different from moving the motor to position 0.0"
+            << std::endl;
+  std::cout << "   After calibration, the motor will treat this position as "
+               "its new origin"
+            << std::endl;
 }
 
 void print_usage() {
   std::cout << "\n📖 Usage:" << std::endl;
   std::cout << "  - Type 'p' or 'pos' to display all positions" << std::endl;
-  std::cout << "  - Type '1'-'9' to set that motor's ZERO CALIBRATION" << std::endl;
-  std::cout << "  - Type 'a' or 'all' to set all motors to zero position (move)" << std::endl;
+  std::cout << "  - Type '1'-'9' to set that motor's ZERO CALIBRATION"
+            << std::endl;
+  std::cout << "  - Type 'a' or 'all' to set all motors to zero position (move)"
+            << std::endl;
   std::cout << "  - Type 'r' or 'refresh' to refresh positions" << std::endl;
   std::cout << "  - Type 'q' or 'quit' to exit" << std::endl;
   std::cout << "  - Type 'h' or 'help' to show this help" << std::endl;
-  std::cout << "\n📌 NOTE: Setting zero calibration means setting CURRENT position as 0.0" << std::endl;
+  std::cout << "\n📌 NOTE: Setting zero calibration means setting CURRENT "
+               "position as 0.0"
+            << std::endl;
   std::cout << "   This is NOT moving the motor to position 0.0!" << std::endl;
 }
 
 int main() {
   std::cout << "=== IC_CAN Motor Zero Setting Tool ===" << std::endl;
-  std::cout << "Interactive tool to set individual motors to zero position" << std::endl;
+  std::cout << "Interactive tool to set individual motors to zero position"
+            << std::endl;
 
   try {
     // Create IC_CAN controller
     auto controller = std::make_unique<ic_can::IC_CAN>(
-        "F561E08C892274DB09496BCC1102DBC5", true);
+        "693D3DE86DF5940C8BC74A5B46A3CE2E", true);
 
     // Initialize system
     if (!controller->initialize()) {
@@ -179,7 +204,7 @@ int main() {
       std::getline(std::cin, input);
 
       // Convert to lowercase
-      for (char& c : input) {
+      for (char &c : input) {
         c = std::tolower(c);
       }
 

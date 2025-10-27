@@ -26,10 +26,10 @@
 #include <chrono>
 #include <cmath>
 #include <csignal>
+#include <fstream>
 #include <ic_can/core/ic_can.hpp>
 #include <iomanip>
 #include <iostream>
-#include <fstream>
 #include <thread>
 #include <vector>
 
@@ -41,42 +41,48 @@ static volatile bool g_running = true;
 static std::ofstream g_log_file;
 
 void signal_handler(int signal) {
-  std::cout << "\n⚠️  Received signal " << signal << ", stopping monitor..." << std::endl;
+  std::cout << "\n⚠️  Received signal " << signal << ", stopping monitor..."
+            << std::endl;
   g_running = false;
 }
 
 void print_arm_header() {
   std::cout << "\n" << std::string(100, '=') << std::endl;
-  std::cout << "Joint | Position (rad) | Position (deg) | Velocity (rad/s) | Torque (Nm) | Motor Type" << std::endl;
-  std::cout << "------|---------------|----------------|-----------------|-------------|------------" << std::endl;
+  std::cout << "Joint | Position (rad) | Position (deg) | Velocity (rad/s) | "
+               "Torque (Nm) | Motor Type"
+            << std::endl;
+  std::cout << "------|---------------|----------------|-----------------|-----"
+               "--------|------------"
+            << std::endl;
 }
 
-void print_arm_data(const std::vector<double>& positions,
-                   const std::vector<double>& velocities,
-                   const std::vector<double>& torques) {
-  const char* motor_types[] = {"DM10010L", "DM6248", "DM6248", "DM4340", "DM4340", "DM4310"};
+void print_arm_data(const std::vector<double> &positions,
+                    const std::vector<double> &velocities,
+                    const std::vector<double> &torques) {
+  const char *motor_types[] = {"DM10010L", "DM6248", "DM6248",
+                               "DM4340",   "DM4340", "DM4310"};
 
   for (int i = 0; i < 6; i++) {
-    std::cout << std::setw(5) << (i + 1) << " | "
-              << std::setw(13) << std::fixed << std::setprecision(4) << positions[i] << " | "
-              << std::setw(14) << std::setprecision(2) << (positions[i] * 180.0 / M_PI) << " | "
+    std::cout << std::setw(5) << (i + 1) << " | " << std::setw(13) << std::fixed
+              << std::setprecision(4) << positions[i] << " | " << std::setw(14)
+              << std::setprecision(2) << (positions[i] * 180.0 / M_PI) << " | "
               << std::setw(15) << std::setprecision(3) << velocities[i] << " | "
               << std::setw(11) << std::setprecision(3) << torques[i] << " | "
               << motor_types[i] << std::endl;
   }
 }
 
-void log_arm_data(const std::vector<double>& positions,
-                  const std::vector<double>& velocities,
-                  const std::vector<double>& torques,
-                  double timestamp) {
+void log_arm_data(const std::vector<double> &positions,
+                  const std::vector<double> &velocities,
+                  const std::vector<double> &torques, double timestamp) {
   if (g_log_file.is_open()) {
     g_log_file << std::fixed << std::setprecision(6) << timestamp << ",";
     for (int i = 0; i < 6; i++) {
       g_log_file << std::setprecision(6) << positions[i] << ","
                  << std::setprecision(6) << velocities[i] << ","
                  << std::setprecision(6) << torques[i];
-      if (i < 5) g_log_file << ",";
+      if (i < 5)
+        g_log_file << ",";
     }
     g_log_file << std::endl;
   }
@@ -94,8 +100,10 @@ void start_logging() {
   if (g_log_file.is_open()) {
     g_log_file << "timestamp,";
     for (int i = 1; i <= 6; i++) {
-      g_log_file << "joint" << i << "_pos,joint" << i << "_vel,joint" << i << "_tau";
-      if (i < 6) g_log_file << ",";
+      g_log_file << "joint" << i << "_pos,joint" << i << "_vel,joint" << i
+                 << "_tau";
+      if (i < 6)
+        g_log_file << ",";
     }
     g_log_file << std::endl;
 
@@ -103,26 +111,29 @@ void start_logging() {
   }
 }
 
-void print_usage(const char* program_name) {
+void print_usage(const char *program_name) {
   std::cout << "Usage: " << program_name << " [options]" << std::endl;
   std::cout << "Options:" << std::endl;
-  std::cout << "  -f <freq>     Update frequency in Hz (default: 10)" << std::endl;
+  std::cout << "  -f <freq>     Update frequency in Hz (default: 10)"
+            << std::endl;
   std::cout << "  -l            Enable data logging to CSV file" << std::endl;
   std::cout << "  -t <seconds>  Run for specified time, then exit" << std::endl;
   std::cout << "  -h            Show this help message" << std::endl;
   std::cout << "\nExample:" << std::endl;
-  std::cout << "  " << program_name << " -f 20 -l     # Monitor at 20Hz with logging" << std::endl;
-  std::cout << "  " << program_name << " -t 30        # Monitor for 30 seconds only" << std::endl;
+  std::cout << "  " << program_name
+            << " -f 20 -l     # Monitor at 20Hz with logging" << std::endl;
+  std::cout << "  " << program_name
+            << " -t 30        # Monitor for 30 seconds only" << std::endl;
 }
 
-int main(int argc, char* argv[]) {
+int main(int argc, char *argv[]) {
   std::cout << "=== IC_CAN Arm Position Monitor ===" << std::endl;
   std::cout << "Real-time monitoring for 6-joint arm (motors 1-6)" << std::endl;
 
   // Parse command line arguments
-  double frequency = 10.0;  // Hz
+  double frequency = 10.0; // Hz
   bool enable_logging = false;
-  double duration_seconds = 0.0;  // 0 = run forever
+  double duration_seconds = 0.0; // 0 = run forever
 
   for (int i = 1; i < argc; i++) {
     std::string arg = argv[i];
@@ -133,7 +144,8 @@ int main(int argc, char* argv[]) {
     } else if (arg == "-f" && i + 1 < argc) {
       frequency = std::atof(argv[++i]);
       if (frequency <= 0 || frequency > 1000) {
-        std::cout << "❌ Invalid frequency: " << frequency << " Hz (must be 0-1000)" << std::endl;
+        std::cout << "❌ Invalid frequency: " << frequency
+                  << " Hz (must be 0-1000)" << std::endl;
         return -1;
       }
     } else if (arg == "-l") {
@@ -141,7 +153,8 @@ int main(int argc, char* argv[]) {
     } else if (arg == "-t" && i + 1 < argc) {
       duration_seconds = std::atof(argv[++i]);
       if (duration_seconds <= 0) {
-        std::cout << "❌ Invalid duration: " << duration_seconds << " seconds" << std::endl;
+        std::cout << "❌ Invalid duration: " << duration_seconds << " seconds"
+                  << std::endl;
         return -1;
       }
     } else {
@@ -152,7 +165,8 @@ int main(int argc, char* argv[]) {
   }
 
   std::cout << "📊 Monitoring frequency: " << frequency << " Hz" << std::endl;
-  std::cout << "📝 Logging: " << (enable_logging ? "Enabled" : "Disabled") << std::endl;
+  std::cout << "📝 Logging: " << (enable_logging ? "Enabled" : "Disabled")
+            << std::endl;
   if (duration_seconds > 0) {
     std::cout << "⏱️  Duration: " << duration_seconds << " seconds" << std::endl;
   } else {
@@ -164,8 +178,9 @@ int main(int argc, char* argv[]) {
 
   try {
     // Create IC_CAN controller
-    auto controller = std::make_unique<ic_can::IC_CAN>(
-        "F561E08C892274DB09496BCC1102DBC5", false);  // Debug off for cleaner output
+    auto controller =
+        std::make_unique<ic_can::IC_CAN>("693D3DE86DF5940C8BC74A5B46A3CE2E",
+                                         false); // Debug off for cleaner output
 
     // Initialize system
     if (!controller->initialize()) {
@@ -201,16 +216,19 @@ int main(int argc, char* argv[]) {
 
       // Check duration limit
       if (duration_seconds > 0) {
-        auto elapsed = std::chrono::duration<double>(loop_start - start_time).count();
+        auto elapsed =
+            std::chrono::duration<double>(loop_start - start_time).count();
         if (elapsed >= duration_seconds) {
-          std::cout << "\n⏱️  Time limit reached, stopping monitor..." << std::endl;
+          std::cout << "\n⏱️  Time limit reached, stopping monitor..."
+                    << std::endl;
           break;
         }
       }
 
       // Refresh motor data
       controller->refresh_all();
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));  // Small delay for response
+      std::this_thread::sleep_for(
+          std::chrono::milliseconds(10)); // Small delay for response
 
       // Get arm data (motors 1-6)
       auto positions = controller->get_joint_positions();
@@ -218,12 +236,15 @@ int main(int argc, char* argv[]) {
       auto torques = controller->get_joint_torques();
 
       // Truncate to first 6 motors (arm joints)
-      std::vector<double> arm_positions(positions.begin(), positions.begin() + 6);
-      std::vector<double> arm_velocities(velocities.begin(), velocities.begin() + 6);
+      std::vector<double> arm_positions(positions.begin(),
+                                        positions.begin() + 6);
+      std::vector<double> arm_velocities(velocities.begin(),
+                                         velocities.begin() + 6);
       std::vector<double> arm_torques(torques.begin(), torques.begin() + 6);
 
       // Calculate timestamp
-      double timestamp = std::chrono::duration<double>(loop_start - start_time).count();
+      double timestamp =
+          std::chrono::duration<double>(loop_start - start_time).count();
 
       // Print data every second (to avoid spam)
       if (update_count % static_cast<int>(frequency) == 0) {

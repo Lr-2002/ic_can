@@ -136,7 +136,7 @@ int main(int argc, char *argv[]) {
   try {
     // Create IC_CAN controller
     auto controller = std::make_unique<ic_can::IC_CAN>(
-        "F561E08C892274DB09496BCC1102DBC5", true);
+        "693D3DE86DF5940C8BC74A5B46A3CE2E", true);
 
     // Initialize system
     if (!controller->initialize()) {
@@ -206,12 +206,16 @@ int main(int argc, char *argv[]) {
     std::cout << "\n🚀 Starting movement to zero position..." << std::endl;
     std::cout << "Press Ctrl+C to stop early" << std::endl;
 
-    // Set target positions to zero with interpolation BEFORE starting control loop
+    // Set target positions to zero with interpolation BEFORE starting control
+    // loop
     std::vector<double> target_positions(9, 0.0);
     std::cout << "🎯 Setting target positions to zero..." << std::endl;
-    std::cout << "🎯 Target vector size: " << target_positions.size() << std::endl;
-    controller->set_target_positions_interpolated(target_positions, max_velocity);
-    std::cout << "🎯 Target positions set, about to start control loop..." << std::endl;
+    std::cout << "🎯 Target vector size: " << target_positions.size()
+              << std::endl;
+    controller->set_target_positions_interpolated(target_positions,
+                                                  max_velocity);
+    std::cout << "🎯 Target positions set, about to start control loop..."
+              << std::endl;
 
     // Start control loop AFTER setting targets
     std::cout << "🔄 Starting control loop..." << std::endl;

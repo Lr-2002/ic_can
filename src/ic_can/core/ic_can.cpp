@@ -411,7 +411,6 @@ public:
 
   bool refresh_all() {
     // Send status request to trigger position feedback
-
     for (int motor_id = 1; motor_id <= 9; motor_id++) {
       std::vector<uint8_t> status_cmd = {uint8_t(motor_id), 0x00, 0xCC, 0x00};
       device_->fdcanFrameSend(status_cmd, 0x7FF); // Broadcast status request
@@ -959,7 +958,6 @@ private:
 
   void handle_can_frame(can_value_type &frame) {
     uint32_t can_id = frame.head.id;
-
     // Track receive frequency
     if (can_id == 0x11)
       receive_count_++;
@@ -1104,6 +1102,7 @@ private:
     data[6] = ((kd_uint & 0xF) << 4) | ((tau_uint >> 8) & 0xF);
     data[7] = tau_uint & 0xFF;
     /*print_send_info(motor_id, data);*/
+
     device_->fdcanFrameSend(data, motor_id);
     /*usleep(200);*/
   }

@@ -209,6 +209,16 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../src/tools/trajectory_executor.cpp")
     add_ic_can_tool_from_src(trajectory_executor)
 endif()
 
+# Friction identification tools
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../src/tools/friction_sweep.cpp")
+    add_ic_can_tool_from_src(friction_sweep)
+endif()
+
+# Friction control tools
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../src/tools/friction_compensated_controller.cpp")
+    add_ic_can_tool_from_src(friction_compensated_controller)
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../src/tools/dynamic_identifier.cpp")
     add_ic_can_tool_from_src(dynamic_identifier)
 endif()

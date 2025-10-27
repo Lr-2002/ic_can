@@ -27,6 +27,7 @@
 #include <iostream>
 #include <iterator>
 #include <mutex>
+#include <nlohmann/json.hpp>
 #include <sstream>
 #include <sys/types.h>
 #include <thread>
@@ -36,6 +37,15 @@
 #include "protocol/usb_class.h"
 
 namespace ic_can {
+
+using json = nlohmann::json;
+
+// Friction compensation data structure
+struct FrictionParams {
+  double Fc = 0.0;                 // Coulomb friction coefficient
+  double Fv = 0.0;                 // Viscous friction coefficient
+  double velocity_threshold = 0.1; // Velocity threshold for friction activation
+};
 
 // Forward declarations for component classes
 class ArmComponent {
@@ -61,9 +71,14 @@ public:
       : device_sn_(device_sn), debug_enabled_(debug), connected_(false),
         hf_control_running_(false), control_running_(false),
         logging_running_(false), performance_monitoring_(false),
-        gravity_compensation_enabled_(true) {
+        gravity_compensation_enabled_(true),
+        friction_compensation_enabled_(false), velocity_damping_(0.1),
+        smooth_transition_(true), sgn_threshold_(0.01) {
     // Initialize motor gains with default values
     load_default_motor_gains();
+
+    // Initialize friction parameters with default values
+    load_default_friction_params();
 
     // Initialize performance counters
     send_count_ = 0;
@@ -159,6 +174,113 @@ public:
       for (auto i = 0; i <= 8; i++)
         std::cout << "Motor " << i << " kp: " << motor_kp_gains_[i]
                   << " kd: " << motor_kd_gains_[i] << std::endl;
+    }
+  }
+
+  void load_default_friction_params() {
+    std::lock_guard<std::mutex> lock(friction_params_mutex_);
+
+    // Initialize with conservative default friction parameters
+    friction_params_ = {{
+        {0.5, 1.0, 0.1},   // Joint 0
+        {0.3, 0.8, 0.1},   // Joint 1
+        {0.4, 0.6, 0.1},   // Joint 2
+        {0.3, 0.5, 0.08},  // Joint 3
+        {0.2, 0.4, 0.06},  // Joint 4
+        {0.15, 0.2, 0.05}, // Joint 5
+        {0.1, 0.1, 0.03},  // Joint 6 (gripper)
+        {0.1, 0.1, 0.03},  // Joint 7 (gripper)
+        {0.05, 0.05, 0.02} // Joint 8 (gripper)
+    }};
+
+    if (debug_enabled_) {
+      std::cout << "✅ Loaded default friction parameters" << std::endl;
+      for (int i = 0; i < 9; i++) {
+        std::cout << "Joint " << i << " Fc: " << friction_params_[i].Fc
+                  << " Fv: " << friction_params_[i].Fv
+                  << " threshold: " << friction_params_[i].velocity_threshold
+                  << std::endl;
+      }
+    }
+  }
+
+  bool load_friction_params_from_file(const std::string &filename) {
+    std::lock_guard<std::mutex> lock(friction_params_mutex_);
+
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+      std::cout << "❌ Cannot open friction parameters file: " << filename
+                << std::endl;
+      return false;
+    }
+
+    try {
+      json j;
+      file >> j;
+
+      // Load global friction compensation settings
+      if (j.contains("enable_friction")) {
+        friction_compensation_enabled_ = j["enable_friction"].get<bool>();
+      }
+      if (j.contains("velocity_damping")) {
+        velocity_damping_ = j["velocity_damping"].get<double>();
+      }
+      if (j.contains("smooth_transition")) {
+        smooth_transition_ = j["smooth_transition"].get<bool>();
+      }
+      if (j.contains("sgn_threshold")) {
+        sgn_threshold_ = j["sgn_threshold"].get<double>();
+      }
+
+      // Load joint-specific friction parameters
+      if (j.contains("friction_params") && j["friction_params"].is_array()) {
+        auto friction_array = j["friction_params"];
+        size_t num_joints =
+            std::min(friction_array.size(), friction_params_.size());
+
+        for (size_t i = 0; i < num_joints; i++) {
+          const auto &joint_params = friction_array[i];
+          if (joint_params.contains("joint") && joint_params.contains("Fc") &&
+              joint_params.contains("Fv")) {
+            int joint_id = joint_params["joint"].get<int>();
+            if (joint_id >= 0 && joint_id < 9) {
+              friction_params_[joint_id].Fc = joint_params["Fc"].get<double>();
+              friction_params_[joint_id].Fv = joint_params["Fv"].get<double>();
+              if (joint_params.contains("velocity_threshold")) {
+                friction_params_[joint_id].velocity_threshold =
+                    joint_params["velocity_threshold"].get<double>();
+              }
+            }
+          }
+        }
+      }
+
+      std::cout << "✅ Successfully loaded friction parameters from: "
+                << filename << std::endl;
+      std::cout << "   Friction compensation: "
+                << (friction_compensation_enabled_ ? "enabled" : "disabled")
+                << std::endl;
+
+      if (debug_enabled_) {
+        std::cout << "📋 Loaded friction parameters:" << std::endl;
+        for (int i = 0; i < 9; i++) {
+          std::cout << "   Joint " << i << ": Fc=" << friction_params_[i].Fc
+                    << " Fv=" << friction_params_[i].Fv
+                    << " threshold=" << friction_params_[i].velocity_threshold
+                    << std::endl;
+        }
+      }
+
+      return true;
+
+    } catch (const json::exception &e) {
+      std::cout << "❌ JSON parsing error in friction parameters file: "
+                << e.what() << std::endl;
+      return false;
+    } catch (const std::exception &e) {
+      std::cout << "❌ Error loading friction parameters file: " << e.what()
+                << std::endl;
+      return false;
     }
   }
 
@@ -490,6 +612,19 @@ public:
       gravity_torques = get_gravity_compensation_torques();
     }
 
+    // Get friction compensation torques if enabled
+    std::vector<double> friction_torques(9, 0.0);
+    if (friction_compensation_enabled_) {
+      // Use actual velocities if available, otherwise use commanded velocities
+      std::vector<double> actual_velocities;
+      if (velocities.size() >= 9) {
+        actual_velocities = velocities;
+      } else {
+        actual_velocities = get_joint_velocities();
+      }
+      friction_torques = get_friction_compensation_torques(actual_velocities);
+    }
+
     for (int i = 0; i < 9; i++) {
       double pos = positions[i];
       double vel = (velocities.size() > i) ? velocities[i] : 0.0;
@@ -498,12 +633,24 @@ public:
       double kd = kd_values[i];
 
       // Add gravity compensation to torque feedforward
-      std::cout << " the gravity compensation is "
-                << gravity_compensation_enabled_ << std::endl;
+      /*std::cout << " the gravity compensation is "*/
+      /*          << gravity_compensation_enabled_ << std::endl;*/
       if (gravity_compensation_enabled_ && i < 6) {
         tau += gravity_torques[i];
-        std::cout << "motor id is " << i << ", torque is " << gravity_torques[i]
-                  << std::endl;
+        /*std::cout << "motor id is " << i << ", torque is " <<
+         * gravity_torques[i]*/
+        /*          << std::endl;*/
+      }
+
+      // Add friction compensation to torque feedforward
+      if (friction_compensation_enabled_) {
+        tau += friction_torques[i];
+        if (debug_enabled_ && i < 6) {
+          std::cout << "🔧 Joint " << i << " compensation - gravity: "
+                    << (gravity_compensation_enabled_ ? gravity_torques[i]
+                                                      : 0.0)
+                    << ", friction: " << friction_torques[i] << std::endl;
+        }
       }
 
       if (i < 6) {
@@ -792,6 +939,71 @@ public:
     return gravity_compensation_enabled_;
   }
 
+  // Friction compensation configuration
+  bool enable_friction_compensation() {
+    friction_compensation_enabled_ = true;
+    std::cout << "✅ Friction compensation enabled" << std::endl;
+    return true;
+  }
+
+  bool disable_friction_compensation() {
+    friction_compensation_enabled_ = false;
+    std::cout << "✅ Friction compensation disabled" << std::endl;
+    return true;
+  }
+
+  bool is_friction_compensation_enabled() const {
+    return friction_compensation_enabled_;
+  }
+
+  std::vector<double>
+  get_friction_compensation_torques(const std::vector<double> &velocities) {
+    std::vector<double> friction_torques(9, 0.0);
+
+    if (!friction_compensation_enabled_) {
+      return friction_torques;
+    }
+
+    std::lock_guard<std::mutex> lock(friction_params_mutex_);
+
+    for (int i = 0; i < 9 && i < velocities.size(); i++) {
+      double velocity = velocities[i];
+      const auto &params = friction_params_[i];
+
+      // Check if velocity is above threshold
+      if (std::abs(velocity) > params.velocity_threshold) {
+        // Coulomb friction: Fc * sign(velocity)
+        double coulomb_friction = params.Fc * ((velocity > 0) ? 1.0 : -1.0);
+
+        // Viscous friction: Fv * velocity
+        double viscous_friction = params.Fv * velocity;
+
+        // Apply velocity damping if enabled
+        if (velocity_damping_ > 0.0) {
+          viscous_friction += velocity_damping_ * velocity;
+        }
+
+        // Smooth transition using sigmoid function if enabled
+        double total_friction = coulomb_friction + viscous_friction;
+        if (smooth_transition_) {
+          double weight =
+              std::tanh(std::abs(velocity) / params.velocity_threshold);
+          total_friction *= weight;
+        }
+
+        friction_torques[i] = total_friction * 0.1;
+
+        if (debug_enabled_ && i < 6) { // Only log for first 6 joints
+          std::cout << "🔧 Joint " << i
+                    << " friction torque: " << total_friction
+                    << " (velocity: " << velocity << ")" << std::endl;
+        }
+      }
+    }
+
+    return friction_torques;
+  }
+
   std::vector<double> get_gravity_compensation_torques() {
     std::vector<double> gravity_torques(9, 0.0);
 
@@ -956,6 +1168,9 @@ public:
     std::cout << "Gravity Compensation: "
               << (gravity_compensation_enabled_ ? "Enabled" : "Disabled")
               << std::endl;
+    std::cout << "Friction Compensation: "
+              << (friction_compensation_enabled_ ? "Enabled" : "Disabled")
+              << std::endl;
     /*std::cout << "Motors: 9 total (6 Damiao + 2 HT + 1 Servo)" <<
      * std::endl;*/
     std::cout << "Control Frequency: 500Hz" << std::endl;
@@ -963,10 +1178,50 @@ public:
               << std::endl;
   }
 
+  void print_friction_compensation_status() {
+    std::cout << "\n=== Friction Compensation Status ===" << std::endl;
+    std::cout << "Friction Compensation: "
+              << (friction_compensation_enabled_ ? "Enabled" : "Disabled")
+              << std::endl;
+    std::cout << "Velocity Damping: " << velocity_damping_ << std::endl;
+    std::cout << "Smooth Transition: "
+              << (smooth_transition_ ? "Enabled" : "Disabled") << std::endl;
+    std::cout << "Sign Threshold: " << sgn_threshold_ << std::endl;
+
+    if (friction_compensation_enabled_) {
+      std::cout << "\n📋 Friction Parameters:" << std::endl;
+      std::lock_guard<std::mutex> lock(friction_params_mutex_);
+      for (int i = 0; i < 9; i++) {
+        std::cout << "  Joint " << i << ": Fc=" << friction_params_[i].Fc
+                  << " Nm, Fv=" << friction_params_[i].Fv
+                  << " Nm/(rad/s), threshold="
+                  << friction_params_[i].velocity_threshold << " rad/s"
+                  << std::endl;
+      }
+    }
+
+    // Show current friction compensation values
+    auto velocities = get_joint_velocities();
+    auto friction_torques = get_friction_compensation_torques(velocities);
+    std::cout << "\n🔧 Current Friction Compensation Torques:" << std::endl;
+    for (int i = 0; i < 6; i++) { // Show first 6 joints
+      std::cout << "  Joint " << i << ": " << friction_torques[i] << " Nm"
+                << " (velocity: " << velocities[i] << " rad/s)" << std::endl;
+    }
+  }
+
 private:
   // Torque predictor instance
   std::unique_ptr<TorquePredictorUnified> torque_predictor_;
   bool gravity_compensation_enabled_;
+
+  // Friction compensation
+  bool friction_compensation_enabled_;
+  double velocity_damping_;
+  bool smooth_transition_;
+  double sgn_threshold_;
+  std::array<FrictionParams, 9> friction_params_;
+  std::mutex friction_params_mutex_;
 
   void handle_can_frame(can_value_type &frame) {
     uint32_t can_id = frame.head.id;
@@ -1639,6 +1894,27 @@ bool IC_CAN::switch_torque_prediction_method(int method_id) {
 
 void IC_CAN::print_torque_method_status() {
   impl_->print_torque_method_status();
+}
+
+// Friction compensation API implementation
+bool IC_CAN::enable_friction_compensation() {
+  return impl_->enable_friction_compensation();
+}
+
+bool IC_CAN::disable_friction_compensation() {
+  return impl_->disable_friction_compensation();
+}
+
+bool IC_CAN::is_friction_compensation_enabled() const {
+  return impl_->is_friction_compensation_enabled();
+}
+
+bool IC_CAN::load_friction_params_from_file(const std::string &filename) {
+  return impl_->load_friction_params_from_file(filename);
+}
+
+void IC_CAN::print_friction_compensation_status() {
+  impl_->print_friction_compensation_status();
 }
 
 } // namespace ic_can

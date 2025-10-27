@@ -180,7 +180,7 @@ int main(int argc, char *argv[]) {
     // Create IC_CAN controller
     auto controller =
         std::make_unique<ic_can::IC_CAN>("693D3DE86DF5940C8BC74A5B46A3CE2E",
-                                         false); // Debug off for cleaner output
+                                         true); // Debug off for cleaner output
 
     // Initialize system
     if (!controller->initialize()) {
@@ -210,7 +210,10 @@ int main(int argc, char *argv[]) {
     auto start_time = std::chrono::steady_clock::now();
     auto period = std::chrono::duration<double>(1.0 / frequency);
     int update_count = 0;
-
+    controller->load_friction_params_from_file(
+        "/home/lr-2002/project/InstantCreation/ic_can/"
+        "friction_calibrated_params.json");
+    controller->enable_friction_compensation();
     while (g_running) {
       auto loop_start = std::chrono::steady_clock::now();
 

@@ -340,6 +340,37 @@ public:
      */
     void print_torque_method_status();
 
+    // Friction compensation API
+    /**
+     * @brief Enable friction compensation
+     * @return true if successful
+     */
+    bool enable_friction_compensation();
+
+    /**
+     * @brief Disable friction compensation
+     * @return true if successful
+     */
+    bool disable_friction_compensation();
+
+    /**
+     * @brief Check if friction compensation is enabled
+     * @return true if enabled
+     */
+    bool is_friction_compensation_enabled() const;
+
+    /**
+     * @brief Load friction parameters from JSON file
+     * @param filename Path to friction parameters JSON file
+     * @return true if successful
+     */
+    bool load_friction_params_from_file(const std::string& filename);
+
+    /**
+     * @brief Print friction compensation status and parameters
+     */
+    void print_friction_compensation_status();
+
 private:
     class Impl;
     std::unique_ptr<Impl> impl_;

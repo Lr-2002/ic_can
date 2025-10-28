@@ -49,3 +49,6 @@ When code is added to this repository, this file should be updated with:
 - The project directory is named `ic_can` suggesting this may be related to Controller Area Network (CAN) protocol implementation
 - Parent directory is `instantcreation` indicating this might be part of a larger project suite
 - use  /home/lr-2002/anaconda3/bin/python for python
+- do not use mock any time
+- follow the old cmake, if you add new app, remeber to fix the cmake and notice to test the build;
+- in this system, there are 3 big component: arm, wrist, gripper; their relation are: themselves  could be used singlely, data read, action execution; and they could be combiniation, while there are include info, the arm could include wirst, wrist+gripper; the wrist could include the gripper; so you need to achieve such pipeline.

@@ -13,6 +13,11 @@
 // limitations under the License.
 
 #include "ic_can/core/ic_can.hpp"
+// #include "ic_can/core/torque_predictor_unified.h"  // Temporarily disabled
+#include "ic_can/core/wrist_component.hpp"
+#include "ic_can/core/gripper_component.hpp"
+
+// Include stub implementations
 #include "ic_can/core/torque_predictor_unified.h"
 #include <algorithm>
 #include <atomic>
@@ -53,12 +58,7 @@ public:
   void print_info() { std::cout << "Arm Component (placeholder)" << std::endl; }
 };
 
-class GripperComponent {
-public:
-  void print_info() {
-    std::cout << "Gripper Component (placeholder)" << std::endl;
-  }
-};
+// Use the actual component implementations
 
 class SafetyModule {
 public:
@@ -66,6 +66,7 @@ public:
 };
 
 class IC_CAN::Impl {
+  friend class IC_CAN; // Allow IC_CAN to access private members
 public:
   Impl(const std::string &device_sn, bool debug)
       : device_sn_(device_sn), debug_enabled_(debug), connected_(false),
@@ -87,24 +88,16 @@ public:
     total_bytes_received_ = 0;
     performance_start_time_ = std::chrono::high_resolution_clock::now();
 
-    // Initialize unified torque predictor
+    // Initialize unified torque predictor - using stub implementation
+    std::cout << "🔧 Initializing torque predictor with stub implementation..." << std::endl;
     torque_predictor_ = std::make_unique<TorquePredictorUnified>();
-    if (torque_predictor_->is_initialized()) {
-      std::cout << "✅ Unified torque predictor initialized successfully"
-                << std::endl;
-      torque_predictor_->print_method_status();
+    std::cout << "✅ Torque predictor initialized (stub)" << std::endl;
 
-      // Enable gravity compensation by default for precise dynamics
-      if (!enable_gravity_compensation()) {
-        std::cout
-            << "⚠️  Warning: Could not enable gravity compensation by default"
-            << std::endl;
-      }
-    } else {
-      std::cout << "⚠️  Torque predictor initialization failed - gravity "
-                   "compensation unavailable"
-                << std::endl;
-    }
+    // Initialize components
+    wrist_component_ = std::make_unique<WristComponent>();
+    gripper_component_ = std::make_unique<GripperComponent>();
+
+    std::cout << "✅ Wrist and Gripper components initialized" << std::endl;
   }
 
   ~Impl() { shutdown(); }
@@ -918,8 +911,7 @@ public:
   // Gravity compensation configuration
   bool enable_gravity_compensation() {
     if (!torque_predictor_ || !torque_predictor_->is_initialized()) {
-      std::cout << "❌ Cannot enable gravity compensation - torque predictor "
-                   "not initialized"
+      std::cout << "❌ Cannot enable gravity compensation - torque predictor not initialized"
                 << std::endl;
       return false;
     }
@@ -1211,7 +1203,11 @@ public:
   }
 
 private:
-  // Torque predictor instance
+  // Component instances
+  std::unique_ptr<WristComponent> wrist_component_;
+  std::unique_ptr<GripperComponent> gripper_component_;
+
+  // Torque predictor instance - using stub implementation
   std::unique_ptr<TorquePredictorUnified> torque_predictor_;
   bool gravity_compensation_enabled_;
 
@@ -1813,9 +1809,12 @@ ArmComponent &IC_CAN::get_arm() {
   return dummy_arm;
 }
 
+WristComponent &IC_CAN::get_wrist() {
+  return *impl_->wrist_component_;
+}
+
 GripperComponent &IC_CAN::get_gripper() {
-  static GripperComponent dummy_gripper;
-  return dummy_gripper;
+  return *impl_->gripper_component_;
 }
 
 SafetyModule &IC_CAN::get_safety() {

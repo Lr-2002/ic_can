@@ -19,6 +19,8 @@
 #include <chrono>
 #include <functional>
 #include <cmath>
+#include <atomic>
+#include <mutex>
 
 namespace ic_can {
 
@@ -124,6 +126,14 @@ public:
 
     // Error handling
     virtual void reset_error() = 0;
+    virtual bool has_error() const;
+
+    // Additional methods for component integration
+    bool is_command_safe(const MotorCommand& command) const;
+    void update_internal_state(double position, double velocity, double torque, double temperature);
+    void set_enabled_state(bool enabled);
+    void set_error_state(bool error);
+    MotorState get_state_snapshot() const;
 
     // Motor information
     virtual int get_motor_id() const;
@@ -144,9 +154,24 @@ protected:
     double position_limit_max_;
     double velocity_limit_max_;
     double torque_limit_max_;
+    MotorLimits limits_;
 
     // Command data
     std::vector<uint8_t> command_data_;
+
+    // State variables
+    std::atomic<double> position_{0.0};
+    std::atomic<double> velocity_{0.0};
+    std::atomic<double> torque_{0.0};
+    std::atomic<double> temperature_{25.0};
+    std::atomic<bool> enabled_{false};
+    std::atomic<bool> error_{false};
+
+    // Last command
+    MotorCommand last_command_;
+
+    // Thread safety
+    mutable std::mutex state_mutex_;
 };
 
 } // namespace ic_can

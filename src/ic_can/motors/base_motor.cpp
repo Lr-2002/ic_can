@@ -20,12 +20,10 @@
 namespace ic_can {
 
 BaseMotor::BaseMotor(int motor_id, MotorType type, uint32_t can_send_id, uint32_t can_recv_id)
-    : motor_id_(motor_id), type_(type), can_send_id_(can_send_id), can_recv_id_(can_recv_id),
-      position_(0.0), velocity_(0.0), torque_(0.0), temperature_(25.0),
-      enabled_(false), error_(false) {
+    : motor_id_(motor_id), motor_type_(type), can_send_id_(can_send_id), can_recv_id_(can_recv_id) {
 
     // 根据电机类型设置默认限制参数
-    switch (type_) {
+    switch (motor_type_) {
         case MotorType::DM_DAMIAO:
             limits_.max_position = 3.14159;    // ±180度
             limits_.min_position = -3.14159;
@@ -134,6 +132,10 @@ void BaseMotor::set_error_state(bool error) {
     error_.store(error);
 }
 
+bool BaseMotor::has_error() const {
+    return error_.load();
+}
+
 MotorState BaseMotor::get_state_snapshot() const {
     MotorState state;
     state.position = position_.load();
@@ -145,5 +147,27 @@ MotorState BaseMotor::get_state_snapshot() const {
     state.timestamp = std::chrono::steady_clock::now();
     return state;
 }
+
+// BaseMotor getter implementations
+int BaseMotor::get_motor_id() const {
+    return motor_id_;
+}
+
+MotorType BaseMotor::get_motor_type() const {
+    return motor_type_;
+}
+
+uint32_t BaseMotor::get_can_send_id() const {
+    return can_send_id_;
+}
+
+uint32_t BaseMotor::get_can_recv_id() const {
+    return can_recv_id_;
+}
+
+std::vector<uint8_t> BaseMotor::get_command_data() const {
+    return command_data_;
+}
+
 
 } // namespace ic_can

@@ -24,17 +24,17 @@
 namespace ic_can {
 
 // Forward declarations
-class USB2CANAdapter;
 class BaseMotor;
 class ArmComponent;
 class GripperComponent;
+class WristComponent;
 class SafetyModule;
 
 /**
  * @brief Main IC_CAN controller class
  *
  * Provides high-level interface for controlling the IC_ARM system
- * with 9 motors (6 arm joints + 2 gripper + 1 servo) at 500Hz.
+ * with 9 motors (6 arm joints + 2 wrist + 1 gripper servo) at 500Hz.
  */
 class IC_CAN {
 public:
@@ -246,6 +246,12 @@ public:
      * @return Reference to gripper component
      */
     GripperComponent& get_gripper();
+
+    /**
+     * @brief Get wrist component
+     * @return Reference to wrist component
+     */
+    WristComponent& get_wrist();
 
     /**
      * @brief Get safety module

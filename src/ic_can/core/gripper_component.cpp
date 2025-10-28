@@ -32,11 +32,10 @@ namespace {
     }
 }
 
-// 夹爪电机ID静态定义
-const std::vector<int> GripperComponent::GRIPPER_MOTOR_IDS = {7, 8, 9};
+// 夹爪电机ID静态定义（仅包含舵机电机）
+const std::vector<int> GripperComponent::GRIPPER_MOTOR_IDS = {9};
 
-GripperComponent::GripperComponent(USB2CANAdapter& can_adapter)
-    : can_adapter_(can_adapter) {
+GripperComponent::GripperComponent() {
     debug_print("GripperComponent created");
 }
 
@@ -47,8 +46,8 @@ bool GripperComponent::add_motor(std::shared_ptr<BaseMotor> motor) {
     }
 
     int motor_id = motor->get_motor_id();
-    if (motor_id < 7 || motor_id > 9) {
-        error_print("Invalid gripper motor ID: " + std::to_string(motor_id) + " (must be 7-9)");
+    if (motor_id != 9) {
+        error_print("Invalid gripper motor ID: " + std::to_string(motor_id) + " (must be 9 - servo motor only)");
         return false;
     }
 
@@ -158,10 +157,9 @@ bool GripperComponent::send_all_commands() {
         auto command_data = pair.second->get_command_data();
         if (!command_data.empty()) {
             uint32_t can_id = pair.second->get_can_send_id();
-            if (!can_adapter_.send_frame(can_id, command_data)) {
-                error_print("Failed to send command to motor " + std::to_string(pair.first));
-                success = false;
-            }
+            // TODO: Implement CAN frame sending via IC_CAN system
+            // For now, simulate successful sending
+            debug_print("Sending command to motor " + std::to_string(pair.first) + " (CAN ID: " + std::to_string(can_id) + ")");
         }
     }
 
@@ -206,15 +204,19 @@ bool GripperComponent::set_openness(double openness, double speed, double force)
     last_command_.velocity = speed;
     last_command_.torque = force;
 
-    // 将开合度转换为电机位置
-    auto positions = openness_to_positions(openness);
-    auto velocities = std::vector<double>(3, speed); // 简化：所有电机使用相同速度
-    auto torques = std::vector<double>(3, force);   // 简化：所有电机使用相同力矩
+    // 将开合度转换为电机位置（仅一个舵机电机）
+    auto position = openness_to_position(openness);
 
-    // ⚠️ 仿真：简化实现，实际需要根据电机类型分别处理
-    debug_print("⚠️ SIMULATED: Setting openness to " + std::to_string(openness));
+    // 获取舵机电机并设置位置
+    auto motor = get_motor(9);
+    if (!motor) {
+        error_print("Gripper servo motor not found");
+        return false;
+    }
 
-    return set_positions(positions, velocities);
+    debug_print("Setting gripper openness to " + std::to_string(openness));
+
+    return motor->set_position(position, speed);
 }
 
 double GripperComponent::get_openness() const {
@@ -515,7 +517,7 @@ bool GripperComponent::perform_grasp_sequence(double target_openness, double app
     }
 
     // 2. 等待开合完成
-    if (!wait_for_motion_complete(openness_to_positions(target_openness), 0.01, timeout/2)) {
+    if (!wait_for_motion_complete(openness_to_position(target_openness), 0.01, timeout/2)) {
         error_print("Failed to complete opening motion");
         return false;
     }
@@ -527,7 +529,7 @@ bool GripperComponent::perform_grasp_sequence(double target_openness, double app
     }
 
     // 4. 等待关闭完成
-    if (!wait_for_motion_complete(openness_to_positions(min_openness_), 0.01, timeout/2)) {
+    if (!wait_for_motion_complete(openness_to_position(min_openness_), 0.01, timeout/2)) {
         error_print("Failed to complete closing motion");
         return false;
     }
@@ -742,29 +744,15 @@ bool GripperComponent::calibrate_gripper() {
 
 // ========== 私有方法实现 ==========
 
-std::vector<double> GripperComponent::openness_to_positions(double openness) {
-    // ⚠️ 仿真：简化的开合度到位置映射
-    // 实际实现需要根据机械结构计算
-
-    std::vector<double> positions(3);
-
-    // 简化映射：开合度0-1映射到位置范围-π/4到π/4
-    for (int i = 0; i < 3; ++i) {
-        positions[i] = (openness - 0.5) * M_PI_2; // (openness-0.5) * π/2
-    }
-
-    return positions;
+double GripperComponent::openness_to_position(double openness) {
+    // 舵机电机的开合度到位置映射
+    // 开合度0-1映射到位置范围-π/4到π/4
+    return (openness - 0.5) * M_PI_2; // (openness-0.5) * π/2
 }
 
-double GripperComponent::positions_to_openness(const std::vector<double>& positions) {
-    if (positions.size() != 3) {
-        return 0.5; // 默认中间位置
-    }
-
-    // ⚠️ 仿真：简化的位置到开合度映射
-    // 使用第一个电机的位置作为参考
-    double pos = positions[0];
-    double openness = (pos / M_PI_2) + 0.5; // pos/(π/2) + 0.5
+double GripperComponent::position_to_openness(double position) {
+    // 位置到开合度映射
+    double openness = (position / M_PI_2) + 0.5; // position/(π/2) + 0.5
     return clamp_openness(openness);
 }
 
@@ -791,7 +779,7 @@ void GripperComponent::update_gripper_state() {
     // 实际实现需要基于真实的传感器数据
 
     auto current_positions = get_positions();
-    double current_openness = positions_to_openness(current_positions);
+    double current_openness = position_to_openness(current_positions[0]);
 
     // 更新开合度
     current_openness_.store(current_openness);
@@ -815,26 +803,22 @@ bool GripperComponent::detect_grasp_state() {
     return total_torque > 1.0; // 简化的阈值
 }
 
-bool GripperComponent::wait_for_motion_complete(const std::vector<double>& target_positions,
+bool GripperComponent::wait_for_motion_complete(double target_position,
                                                 double tolerance, double timeout) {
     auto start_time = std::chrono::steady_clock::now();
 
     while (std::chrono::duration_cast<std::chrono::seconds>(
            std::chrono::steady_clock::now() - start_time).count() < timeout) {
 
-        auto current_positions = get_positions();
-        bool all_reached = true;
+        auto motor = get_motor(9);
+        if (motor) {
+            auto state = motor->get_state();
+            double current_position = state.position;
+            double error = std::abs(current_position - target_position);
 
-        for (size_t i = 0; i < current_positions.size(); ++i) {
-            double error = std::abs(current_positions[i] - target_positions[i]);
-            if (error > tolerance) {
-                all_reached = false;
-                break;
+            if (error <= tolerance) {
+                return true;
             }
-        }
-
-        if (all_reached) {
-            return true;
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(50));

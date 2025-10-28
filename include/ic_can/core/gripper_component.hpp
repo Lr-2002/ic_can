@@ -18,26 +18,25 @@
 #include <memory>
 #include <mutex>
 #include <map>
+#include <atomic>
 #include "../motors/base_motor.hpp"
-#include "../protocols/usb2can_adapter.hpp"
 
 namespace ic_can {
 
 /**
  * @brief 夹爪组件类
  *
- * 管理夹爪的3个电机（m7-m9），提供统一的夹爪控制接口
- * m7: HT4438 (高扭矩电机)
- * m8: HT4438 (高扭矩电机)
- * m9: Servo (舵机)
+ * 管理夹爪的1个电机（m9），提供统一的夹爪控制接口
+ * m9: Servo (舵机) - 实际的夹爪执行器
+ *
+ * 注意：手腕电机（m7-m8, HT4438）已分离到独立的WristComponent中
  */
 class GripperComponent {
 public:
     /**
      * @brief 构造函数
-     * @param can_adapter CAN适配器引用
      */
-    explicit GripperComponent(USB2CANAdapter& can_adapter);
+    GripperComponent();
 
     /**
      * @brief 析构函数
@@ -371,7 +370,6 @@ public:
 private:
     // ========== 私有成员变量 ==========
 
-    USB2CANAdapter& can_adapter_;              // CAN适配器引用
     std::map<int, std::shared_ptr<BaseMotor>> motors_; // 电机映射表
     mutable std::mutex motors_mutex_;           // 电机映射表互斥锁
 
@@ -390,23 +388,23 @@ private:
     MotorCommand last_command_;
 
     // 预定义的夹爪电机ID映射
-    static const std::vector<int> GRIPPER_MOTOR_IDS; // [7, 8, 9]
+    static const std::vector<int> GRIPPER_MOTOR_IDS; // [9]
 
     // ========== 私有方法 ==========
 
     /**
      * @brief 将开合度转换为电机位置
      * @param openness 开合度 (0.0-1.0)
-     * @return 电机位置数组（弧度）
+     * @return 电机位置（弧度）
      */
-    std::vector<double> openness_to_positions(double openness);
+    double openness_to_position(double openness);
 
     /**
      * @brief 将电机位置转换为开合度
-     * @param positions 电机位置数组（弧度）
+     * @param position 电机位置（弧度）
      * @return 开合度 (0.0-1.0)
      */
-    double positions_to_openness(const std::vector<double>& positions);
+    double position_to_openness(double position);
 
     /**
      * @brief 限制开合度到安全范围
@@ -442,12 +440,12 @@ private:
 
     /**
      * @brief 等待运动完成
-     * @param target_positions 目标位置
+     * @param target_position 目标位置
      * @param tolerance 误差容限
      * @param timeout 超时时间
      * @return 是否成功到达目标
      */
-    bool wait_for_motion_complete(const std::vector<double>& target_positions,
+    bool wait_for_motion_complete(double target_position,
                                  double tolerance = 0.01, double timeout = 5.0);
 };
 

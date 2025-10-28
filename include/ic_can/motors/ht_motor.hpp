@@ -17,8 +17,25 @@
 #include "base_motor.hpp"
 #include <cstdint>
 #include <vector>
+#include <iostream>
 
 namespace ic_can {
+
+// HT电机控制模式枚举
+enum class HTControlMode {
+    POSITION_CONTROL,    // 位置控制模式
+    FORCE_CONTROL,       // 力控制模式
+    VELOCITY_CONTROL     // 速度控制模式
+};
+
+// HT motor constants
+constexpr double RAD_TO_TURN = 1.0 / (2.0 * M_PI);  // Convert radians to turns
+constexpr double TURN_TO_RAD = 2.0 * M_PI;          // Convert turns to radians
+
+// Debug function for HT motor
+static inline void debug_print(const std::string& message) {
+    std::cout << "[DEBUG] HTMotor: " << message << std::endl;
+}
 
 /**
  * @brief 高力矩电机类 (HT Motor)
@@ -32,8 +49,13 @@ public:
      * @param motor_id 电机ID
      * @param can_send_id 发送CAN ID
      * @param can_recv_id 接收CAN ID
+     * @param kp 比例增益
+     * @param kd 微分增益
+     * @param max_torque 最大力矩
+     * @param debug 调试模式
      */
-    HTMotor(int motor_id, uint32_t can_send_id, uint32_t can_recv_id);
+    HTMotor(int motor_id, uint32_t can_send_id, uint32_t can_recv_id,
+             double kp, double kd, double max_torque, bool debug = false);
 
     /**
      * @brief 析构函数
@@ -71,11 +93,34 @@ public:
      */
     bool set_velocity_control(double velocity);
 
-    // ========== 状态查询接口 ==========
+    // ========== Override BaseMotor virtual methods ==========
 
+    bool set_position(double position, double velocity = 0.0, double torque = 0.0) override;
+    bool set_velocity(double velocity, double torque = 0.0) override;
+    bool set_torque(double torque) override;
+    bool mit_control(double position, double velocity, double torque, double kp, double kd) override;
+    double get_position() const override;
+    double get_velocity() const override;
+    double get_torque() const override;
+    double get_temperature() const override;
     void update_state() override;
-    bool process_response(const std::vector<uint8_t>& data) override;
+    MotorState get_state() const override;
+    bool is_enabled() const override;
+    void set_limits(const MotorLimits& limits) override;
+    void set_max_position(double max_position) override;
+    void set_min_position(double min_position) override;
+    void set_max_velocity(double max_velocity) override;
+    void set_max_torque(double max_torque) override;
+    bool is_position_safe(double position) const override;
+    bool is_velocity_safe(double velocity) const override;
+    bool is_torque_safe(double torque) const override;
+    bool is_temperature_safe(double temperature) const override;
+    void reset_error() override;
+    int get_motor_id() const override;
+    uint32_t get_can_send_id() const override;
+    uint32_t get_can_recv_id() const override;
     std::vector<uint8_t> get_command_data() const override;
+    bool process_response(const std::vector<uint8_t>& data) override;
 
     /**
      * @brief 获取当前力值
@@ -83,12 +128,7 @@ public:
      */
     double get_current_force() const { return force_.load(); }
 
-    /**
-     * @brief 获取电机温度
-     * @return 温度 (摄氏度)
-     */
-    double get_temperature() const { return temperature_.load(); }
-
+    
     /**
      * @brief 获取错误状态
      * @return 错误代码
@@ -116,48 +156,69 @@ public:
      */
     void set_control_mode(HTControlMode mode);
 
+    /**
+     * @brief Set HT motor parameters
+     * @param kp 比例增益
+     * @param kd 微分增益
+     * @param max_torque 最大力矩
+     */
+    void set_ht_params(double kp, double kd, double max_torque);
+
 private:
     // ========== 私有成员变量 ==========
 
-    HTControlMode control_mode_;              // 控制模式
+    // Motor identification
+    int motor_id_;
+    uint32_t can_send_id_;
+    uint32_t can_recv_id_;
+
+    // Control parameters
+    double kp_, kd_, max_torque_;
+    HTControlMode control_mode_;
+
+    // State variables
+    double position_, velocity_, torque_;
+    std::atomic<double> temperature_{25.0};   // 温度
     std::atomic<double> force_{0.0};         // 当前力值
     std::atomic<double> target_force_{0.0};   // 目标力值
-    std::atomic<double> temperature_{25.0};   // 温度
     std::atomic<uint8_t> error_code_{0};      // 错误代码
+    uint8_t error_;
 
-    double max_force_;                        // 最大力限制
+    // Motor limits
+    double position_limit_min_, position_limit_max_;
+    double velocity_limit_max_, torque_limit_max_;
+    double max_force_;
+
+    // HT motor specific constants
+    double torque_k_, torque_d_;
+    double RAD_TO_TURN_, TURN_TO_RAD_;
+
+    // Control flags
+    bool enabled_, debug_enabled_;
     bool has_pending_command_;                // 是否有待发送的命令
+
+    // Command data
+    std::vector<uint8_t> command_data_;
 
     // ========== 私有方法 ==========
 
     /**
-     * @brief 创建位置控制命令
+     * @brief Pack HT MIT command data
      * @param position 目标位置
-     * @param velocity 最大速度
-     * @return 命令数据
-     */
-    std::vector<uint8_t> create_position_command(double position, double velocity);
-
-    /**
-     * @brief 创建力控制命令
-     * @param force 目标力
-     * @return 命令数据
-     */
-    std::vector<uint8_t> create_force_command(double force);
-
-    /**
-     * @brief 创建速度控制命令
      * @param velocity 目标速度
+     * @param torque 目标力矩
+     * @param kp 比例增益
+     * @param kd 微分增益
      * @return 命令数据
      */
-    std::vector<uint8_t> create_velocity_command(double velocity);
+    std::vector<uint8_t> pack_ht_mit_command(double position, double velocity,
+                                           double torque, double kp, double kd);
 
     /**
-     * @brief 解析状态响应
+     * @brief Unpack HT response data
      * @param data 响应数据
-     * @return 解析是否成功
      */
-    bool parse_status_response(const std::vector<uint8_t>& data);
+    void unpack_ht_response(const std::vector<uint8_t>& data);
 
     /**
      * @brief 浮点数转换为整数 (HT协议格式)
@@ -168,14 +229,12 @@ private:
      * @brief HT格式转换为浮点数
      */
     float ht_format_to_float(uint16_t raw_value, float min_val, float max_val);
-};
 
-// HT电机控制模式
-enum class HTControlMode {
-    POSITION_CONTROL = 0x01,    // 位置控制
-    FORCE_CONTROL = 0x02,       // 力控制
-    VELOCITY_CONTROL = 0x03,    // 速度控制
-    DISABLED = 0x00             // 禁用
+    /**
+     * @brief Debug print function
+     * @param message Debug message
+     */
+    void debug_print(const std::string& message);
 };
 
 } // namespace ic_can

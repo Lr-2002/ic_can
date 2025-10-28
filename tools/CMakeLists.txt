@@ -53,9 +53,9 @@ include_directories(
 # Common source files
 set(IC_CAN_SOURCE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/ic_can/core/ic_can.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/ic_can/core/torque_predictor_pure_c.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/ic_can/core/torque_predictor_regressor.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/ic_can/core/torque_predictor_config.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/ic_can/core/wrist_component.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/ic_can/core/gripper_component.cpp
+    # Real torque predictor implementations
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/ic_can/core/torque_predictor_pinocchio.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/ic_can/core/torque_predictor_unified.cpp
 )
@@ -150,6 +150,14 @@ endif()
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../src/tools/arm_position_monitor.cpp")
     add_ic_can_tool_from_src(arm_position_monitor)
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../src/tools/wrist_motor_monitor.cpp")
+    add_ic_can_tool_from_src(wrist_motor_monitor)
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../src/tools/wrist_motor_only_monitor.cpp")
+    add_ic_can_tool_from_src(wrist_motor_only_monitor)
 endif()
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../src/tools/home_to_zero.cpp")

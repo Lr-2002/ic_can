@@ -12,747 +12,415 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <ic_can/core/wrist_component.hpp>
 #include <algorithm>
 #include <chrono>
-#include <cmath>
 #include <iomanip>
-#include <ic_can/core/wrist_component.hpp>
 #include <iostream>
-#include <thread>
+#include <sstream>
 
 namespace ic_can {
 
-// 静态成员定义
-const std::vector<int> WristComponent::WRIST_MOTOR_IDS = {7, 8};
+WristComponent::WristComponent()
+    : MotorProtocolBase("WristHT", HT_MIN_CAN_ID, HT_MAX_CAN_ID)
+    , target_position_(2, 0.0)  // [pitch, roll]
+    , pitch_min_(DEFAULT_PITCH_MIN)
+    , pitch_max_(DEFAULT_PITCH_MAX)
+    , roll_min_(DEFAULT_ROLL_MIN)
+    , roll_max_(DEFAULT_ROLL_MAX)
+    , max_velocity_(DEFAULT_MAX_VELOCITY)
+    , initialized_(false)
+    , last_error_("") {
 
-WristComponent::WristComponent() {
-  // 初始化目标位置
-  target_position_.resize(2, 0.0);
+    std::cout << "🔧 WristComponent created for HT motors (m7-m8)" << std::endl;
+    std::cout << "   CAN ID range: [0x" << std::hex << HT_MIN_CAN_ID
+              << ", 0x" << HT_MAX_CAN_ID << std::dec << "]" << std::endl;
 }
 
-// ========== 电机管理接口 ==========
+// ========== CANProtocolInterface Implementation ==========
 
-bool WristComponent::add_motor(std::shared_ptr<BaseMotor> motor) {
-  if (!motor) {
-    std::cerr << "❌ WristComponent: Cannot add null motor" << std::endl;
-    return false;
-  }
-
-  int motor_id = motor->get_motor_id();
-
-  // 检查是否为手腕电机ID
-  if (std::find(WRIST_MOTOR_IDS.begin(), WRIST_MOTOR_IDS.end(), motor_id) ==
-      WRIST_MOTOR_IDS.end()) {
-    std::cerr << "❌ WristComponent: Motor ID " << motor_id
-              << " is not a wrist motor" << std::endl;
-    return false;
-  }
-
-  std::lock_guard<std::mutex> lock(motors_mutex_);
-
-  // 检查电机是否已存在
-  if (motors_.find(motor_id) != motors_.end()) {
-    std::cerr << "⚠️  WristComponent: Motor " << motor_id << " already exists"
-              << std::endl;
-    return false;
-  }
-
-  motors_[motor_id] = motor;
-  std::cout << "✅ WristComponent: Added motor " << motor_id << std::endl;
-  return true;
-}
-
-bool WristComponent::remove_motor(int motor_id) {
-  std::lock_guard<std::mutex> lock(motors_mutex_);
-
-  auto it = motors_.find(motor_id);
-  if (it == motors_.end()) {
-    std::cerr << "❌ WristComponent: Motor " << motor_id << " not found"
-              << std::endl;
-    return false;
-  }
-
-  motors_.erase(it);
-  std::cout << "✅ WristComponent: Removed motor " << motor_id << std::endl;
-  return true;
-}
-
-std::shared_ptr<BaseMotor> WristComponent::get_motor(int motor_id) const {
-  std::lock_guard<std::mutex> lock(motors_mutex_);
-
-  auto it = motors_.find(motor_id);
-  if (it != motors_.end()) {
-    return it->second;
-  }
-  return nullptr;
-}
-
-std::map<int, std::shared_ptr<BaseMotor>>
-WristComponent::get_all_motors() const {
-  std::lock_guard<std::mutex> lock(motors_mutex_);
-  return motors_;
-}
-
-size_t WristComponent::get_motor_count() const {
-  std::lock_guard<std::mutex> lock(motors_mutex_);
-  return motors_.size();
-}
-
-// ========== 批量控制接口 ==========
-
-bool WristComponent::enable_all() {
-  std::lock_guard<std::mutex> lock(motors_mutex_);
-  bool all_success = true;
-
-  for (auto &[motor_id, motor] : motors_) {
-    if (!motor->enable()) {
-      std::cerr << "❌ WristComponent: Failed to enable motor " << motor_id
-                << std::endl;
-      all_success = false;
+bool WristComponent::process_can_frame(const CANFrame& frame) {
+    if (!enabled_) {
+        return false;
     }
-  }
 
-  if (all_success) {
-    std::cout << "✅ WristComponent: All motors enabled" << std::endl;
-  }
-  return all_success;
-}
-
-bool WristComponent::disable_all() {
-  std::lock_guard<std::mutex> lock(motors_mutex_);
-  bool all_success = true;
-
-  for (auto &[motor_id, motor] : motors_) {
-    if (!motor->disable()) {
-      std::cerr << "❌ WristComponent: Failed to disable motor " << motor_id
-                << std::endl;
-      all_success = false;
+    // Check if frame ID is within HT motor range
+    if (frame.id < HT_MIN_CAN_ID || frame.id > HT_MAX_CAN_ID) {
+        return false;
     }
-  }
 
-  if (all_success) {
-    std::cout << "✅ WristComponent: All motors disabled" << std::endl;
-  }
-  return all_success;
-}
-
-bool WristComponent::set_zero_all() {
-  std::lock_guard<std::mutex> lock(motors_mutex_);
-  bool all_success = true;
-
-  for (auto &[motor_id, motor] : motors_) {
-    if (!motor->set_zero()) {
-      std::cerr << "❌ WristComponent: Failed to set zero for motor "
-                << motor_id << std::endl;
-      all_success = false;
+    // Extract motor ID from CAN ID
+    // HT motors use 0x700 series (m7) and 0x800 series (m8)
+    int motor_id = -1;
+    if (frame.id >= 0x700 && frame.id < 0x800) {
+        motor_id = 7;  // Pitch motor
+    } else if (frame.id >= 0x800 && frame.id < 0x900) {
+        motor_id = 8;  // Roll motor
     }
-  }
 
-  if (all_success) {
-    std::cout << "✅ WristComponent: All motors set to zero" << std::endl;
-  }
-  return all_success;
+    if (motor_id == -1 || !is_valid_motor_id(motor_id)) {
+        if (debug_enabled_) {
+            std::cout << "⚠️  WristComponent: Invalid motor ID from CAN frame 0x"
+                      << std::hex << frame.id << std::dec << std::endl;
+        }
+        return false;
+    }
+
+    auto motor = get_motor(motor_id);
+    if (!motor) {
+        if (debug_enabled_) {
+            std::cout << "⚠️  WristComponent: Motor " << motor_id << " not found for frame processing" << std::endl;
+        }
+        return false;
+    }
+
+    // Process the frame with the motor
+    bool success = motor->process_response(frame.data);
+    if (success && debug_enabled_) {
+        std::cout << "📥 WristComponent: Processed frame for motor " << motor_id
+                  << " (ID: 0x" << std::hex << frame.id << std::dec << ")" << std::endl;
+    }
+
+    // Update wrist state after motor state update
+    update_wrist_state();
+
+    return success;
 }
 
-void WristComponent::update_all_states() {
-  std::lock_guard<std::mutex> lock(motors_mutex_);
-
-  for (auto &[motor_id, motor] : motors_) {
-    motor->update_state();
-  }
-
-  update_wrist_state();
-}
-
-bool WristComponent::send_all_commands() {
-  std::lock_guard<std::mutex> lock(motors_mutex_);
-  bool all_success = true;
-
-  for (auto &[motor_id, motor] : motors_) {
-    // TODO: Implement command sending via IC_CAN system
-    // For now, simulate successful sending
-    std::cout << "WristComponent: Sending command to motor " << motor_id << std::endl;
-  }
-
-  return all_success;
-}
-
-// ========== 手腕控制接口 ==========
+// ========== Wrist-Specific Control Interface ==========
 
 bool WristComponent::set_pitch_angle(double pitch_angle, double velocity) {
-  auto motor7 = get_motor(7);
-  if (!motor7) {
-    std::cerr << "❌ WristComponent: Motor 7 (pitch) not found" << std::endl;
-    return false;
-  }
+    auto motor7 = get_motor(7);
+    if (!motor7) {
+        std::lock_guard<std::mutex> lock(status_mutex_);
+        last_error_ = "Motor 7 (pitch) not found";
+        return false;
+    }
 
-  // 限制角度和速度
-  double clamped_angle = clamp_angle(pitch_angle, min_pitch_, max_pitch_);
-  double clamped_velocity = clamp_velocity(velocity);
+    double clamped_angle = clamp_angle(pitch_angle, pitch_min_, pitch_max_);
+    double clamped_velocity = clamp_velocity(velocity);
 
-  target_position_[0] = clamped_angle;
+    {
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        target_position_[0] = clamped_angle;
+    }
 
-  return motor7->set_position(clamped_angle, clamped_velocity);
+    bool success = motor7->set_position(clamped_angle, clamped_velocity);
+    if (debug_enabled_) {
+        std::cout << "🎯 WristComponent: Set pitch to " << std::fixed << std::setprecision(3)
+                  << clamped_angle << " rad (" << (clamped_angle * 180.0 / M_PI) << "°)" << std::endl;
+    }
+
+    return success;
 }
 
 bool WristComponent::set_roll_angle(double roll_angle, double velocity) {
-  auto motor8 = get_motor(8);
-  if (!motor8) {
-    std::cerr << "❌ WristComponent: Motor 8 (roll) not found" << std::endl;
-    return false;
-  }
+    auto motor8 = get_motor(8);
+    if (!motor8) {
+        std::lock_guard<std::mutex> lock(status_mutex_);
+        last_error_ = "Motor 8 (roll) not found";
+        return false;
+    }
 
-  // 限制角度和速度
-  double clamped_angle = clamp_angle(roll_angle, min_roll_, max_roll_);
-  double clamped_velocity = clamp_velocity(velocity);
+    double clamped_angle = clamp_angle(roll_angle, roll_min_, roll_max_);
+    double clamped_velocity = clamp_velocity(velocity);
 
-  target_position_[1] = clamped_angle;
+    {
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        target_position_[1] = clamped_angle;
+    }
 
-  return motor8->set_position(clamped_angle, clamped_velocity);
+    bool success = motor8->set_position(clamped_angle, clamped_velocity);
+    if (debug_enabled_) {
+        std::cout << "🎯 WristComponent: Set roll to " << std::fixed << std::setprecision(3)
+                  << clamped_angle << " rad (" << (clamped_angle * 180.0 / M_PI) << "°)" << std::endl;
+    }
+
+    return success;
 }
 
-bool WristComponent::set_wrist_pose(double pitch_angle, double roll_angle,
-                                    double velocity) {
-  std::vector<double> positions = {pitch_angle, roll_angle};
-  std::vector<double> velocities = {velocity, velocity};
-  return set_positions(positions, velocities);
+bool WristComponent::set_wrist_pose(double pitch_angle, double roll_angle, double velocity) {
+    bool pitch_success = set_pitch_angle(pitch_angle, velocity);
+    bool roll_success = set_roll_angle(roll_angle, velocity);
+    return pitch_success && roll_success;
 }
 
 double WristComponent::get_pitch_angle() const {
-  auto motor7 = get_motor(7);
-  if (!motor7) {
+    auto motor7 = get_motor(7);
+    if (motor7) {
+        return motor7->get_position();
+    }
     return 0.0;
-  }
-
-  auto state = motor7->get_state();
-  return state.position;
 }
 
 double WristComponent::get_roll_angle() const {
-  auto motor8 = get_motor(8);
-  if (!motor8) {
+    auto motor8 = get_motor(8);
+    if (motor8) {
+        return motor8->get_position();
+    }
     return 0.0;
-  }
-
-  auto state = motor8->get_state();
-  return state.position;
 }
 
-// ========== 位置控制接口 ==========
-
-bool WristComponent::set_positions(const std::vector<double> &positions,
-                                   const std::vector<double> &velocities) {
-  if (positions.size() != 2) {
-    std::cerr << "❌ WristComponent: Invalid positions array size, expected 2"
-              << std::endl;
-    return false;
-  }
-
-  bool success = true;
-
-  // 设置俯仰角 (m7)
-  if (!set_pitch_angle(positions[0],
-                       velocities.empty() ? max_velocity_ : velocities[0])) {
-    success = false;
-  }
-
-  // 设置旋转角 (m8)
-  if (!set_roll_angle(positions[1],
-                      velocities.empty() ? max_velocity_ : velocities[1])) {
-    success = false;
-  }
-
-  return success;
+std::vector<double> WristComponent::get_wrist_pose() const {
+    return {get_pitch_angle(), get_roll_angle()};
 }
 
 std::vector<double> WristComponent::get_positions() const {
-  std::vector<double> positions(2, 0.0);
+    std::vector<double> positions;
 
-  auto motor7 = get_motor(7);
-  if (motor7) {
-    auto state = motor7->get_state();
-    positions[0] = state.position;
-  }
-
-  auto motor8 = get_motor(8);
-  if (motor8) {
-    auto state = motor8->get_state();
-    positions[1] = state.position;
-  }
-
-  return positions;
-}
-
-// ========== 速度控制接口 ==========
-
-bool WristComponent::set_velocities(const std::vector<double> &velocities) {
-  if (velocities.size() != 2) {
-    std::cerr << "❌ WristComponent: Invalid velocities array size, expected 2"
-              << std::endl;
-    return false;
-  }
-
-  std::lock_guard<std::mutex> lock(motors_mutex_);
-  bool success = true;
-
-  for (size_t i = 0; i < velocities.size(); ++i) {
-    int motor_id = WRIST_MOTOR_IDS[i];
-    auto it = motors_.find(motor_id);
-    if (it != motors_.end()) {
-      double clamped_velocity = clamp_velocity(velocities[i]);
-      if (!it->second->set_velocity(clamped_velocity)) {
-        success = false;
-      }
+    auto motor7 = get_motor(7);
+    if (motor7) {
+        positions.push_back(motor7->get_position());
+    } else {
+        positions.push_back(0.0);
     }
-  }
 
-  return success;
+    auto motor8 = get_motor(8);
+    if (motor8) {
+        positions.push_back(motor8->get_position());
+    } else {
+        positions.push_back(0.0);
+    }
+
+    return positions;
 }
 
 std::vector<double> WristComponent::get_velocities() const {
-  std::vector<double> velocities(2, 0.0);
+    std::vector<double> velocities;
 
-  std::lock_guard<std::mutex> lock(motors_mutex_);
-
-  for (size_t i = 0; i < WRIST_MOTOR_IDS.size(); ++i) {
-    int motor_id = WRIST_MOTOR_IDS[i];
-    auto it = motors_.find(motor_id);
-    if (it != motors_.end()) {
-      auto state = it->second->get_state();
-      velocities[i] = state.velocity;
+    auto motor7 = get_motor(7);
+    if (motor7) {
+        velocities.push_back(motor7->get_velocity());
+    } else {
+        velocities.push_back(0.0);
     }
-  }
 
-  return velocities;
-}
-
-// ========== 力矩控制接口 ==========
-
-bool WristComponent::set_torques(const std::vector<double> &torques) {
-  if (torques.size() != 2) {
-    std::cerr << "❌ WristComponent: Invalid torques array size, expected 2"
-              << std::endl;
-    return false;
-  }
-
-  std::lock_guard<std::mutex> lock(motors_mutex_);
-  bool success = true;
-
-  for (size_t i = 0; i < torques.size(); ++i) {
-    int motor_id = WRIST_MOTOR_IDS[i];
-    auto it = motors_.find(motor_id);
-    if (it != motors_.end()) {
-      double clamped_torque = clamp_torque(torques[i]);
-      if (!it->second->set_torque(clamped_torque)) {
-        success = false;
-      }
+    auto motor8 = get_motor(8);
+    if (motor8) {
+        velocities.push_back(motor8->get_velocity());
+    } else {
+        velocities.push_back(0.0);
     }
-  }
 
-  return success;
+    return velocities;
 }
 
-std::vector<double> WristComponent::get_torques() {
-  std::vector<double> torques(2, 0.0);
+std::vector<double> WristComponent::get_torques() const {
+    std::vector<double> torques;
 
-  std::lock_guard<std::mutex> lock(motors_mutex_);
-
-  for (size_t i = 0; i < WRIST_MOTOR_IDS.size(); ++i) {
-    int motor_id = WRIST_MOTOR_IDS[i];
-    auto it = motors_.find(motor_id);
-    if (it != motors_.end()) {
-      auto state = it->second->get_state();
-      torques[i] = state.torque;
+    auto motor7 = get_motor(7);
+    if (motor7) {
+        torques.push_back(motor7->get_torque());
+    } else {
+        torques.push_back(0.0);
     }
-  }
 
-  return torques;
-}
-
-// ========== 力控制接口 ==========
-
-bool WristComponent::set_forces(const std::vector<double> &forces) {
-  // 将力转换为力矩（简化实现）
-  std::vector<double> torques(2);
-  for (size_t i = 0; i < forces.size(); ++i) {
-    torques[i] = forces[i] * max_torque_;
-  }
-  return set_torques(torques);
-}
-
-std::vector<double> WristComponent::get_forces() {
-  auto torques = get_torques();
-  std::vector<double> forces(2);
-  for (size_t i = 0; i < torques.size(); ++i) {
-    forces[i] = torques[i] / max_torque_;
-  }
-  return forces;
-}
-
-// ========== 状态查询接口 ==========
-
-bool WristComponent::is_moving() const {
-  auto velocities = get_velocities();
-  const double velocity_threshold = 0.01; // rad/s
-
-  for (double vel : velocities) {
-    if (std::abs(vel) > velocity_threshold) {
-      return true;
+    auto motor8 = get_motor(8);
+    if (motor8) {
+        torques.push_back(motor8->get_torque());
+    } else {
+        torques.push_back(0.0);
     }
-  }
-  return false;
+
+    return torques;
+}
+
+std::vector<double> WristComponent::get_temperatures() const {
+    std::vector<double> temperatures;
+
+    auto motor7 = get_motor(7);
+    if (motor7) {
+        temperatures.push_back(motor7->get_temperature());
+    } else {
+        temperatures.push_back(0.0);
+    }
+
+    auto motor8 = get_motor(8);
+    if (motor8) {
+        temperatures.push_back(motor8->get_temperature());
+    } else {
+        temperatures.push_back(0.0);
+    }
+
+    return temperatures;
 }
 
 bool WristComponent::at_target_position(double tolerance) const {
-  auto current_pos = get_positions();
+    auto current_pos = get_positions();
+    std::lock_guard<std::mutex> lock(state_mutex_);
 
-  for (size_t i = 0; i < current_pos.size(); ++i) {
-    if (std::abs(current_pos[i] - target_position_[i]) > tolerance) {
-      return false;
+    for (size_t i = 0; i < current_pos.size() && i < target_position_.size(); ++i) {
+        if (std::abs(current_pos[i] - target_position_[i]) > tolerance) {
+            return false;
+        }
     }
-  }
-  return true;
+    return true;
 }
 
-std::vector<double> WristComponent::get_temperatures() {
-  std::vector<double> temperatures(2, 0.0);
+bool WristComponent::has_motor_errors() const {
+    auto motor7 = get_motor(7);
+    auto motor8 = get_motor(8);
 
-  std::lock_guard<std::mutex> lock(motors_mutex_);
-
-  for (size_t i = 0; i < WRIST_MOTOR_IDS.size(); ++i) {
-    int motor_id = WRIST_MOTOR_IDS[i];
-    auto it = motors_.find(motor_id);
-    if (it != motors_.end()) {
-      auto state = it->second->get_state();
-      temperatures[i] = state.temperature;
+    bool has_errors = false;
+    if (motor7 && motor7->has_error()) {
+        has_errors = true;
     }
-  }
-
-  return temperatures;
-}
-
-bool WristComponent::has_motor_errors() {
-  std::lock_guard<std::mutex> lock(motors_mutex_);
-
-  for (auto &[motor_id, motor] : motors_) {
-    if (motor->has_error()) {
-      return true;
-    }
-  }
-  return false;
-}
-
-std::vector<int> WristComponent::get_error_motor_ids() {
-  std::vector<int> error_ids;
-  std::lock_guard<std::mutex> lock(motors_mutex_);
-
-  for (auto &[motor_id, motor] : motors_) {
-    if (motor->has_error()) {
-      error_ids.push_back(motor_id);
-    }
-  }
-
-  return error_ids;
-}
-
-std::map<std::string, std::vector<double>>
-WristComponent::get_complete_state() {
-  std::map<std::string, std::vector<double>> state;
-
-  state["positions"] = get_positions();
-  state["velocities"] = get_velocities();
-  state["torques"] = get_torques();
-  state["temperatures"] = get_temperatures();
-  state["target_positions"] = target_position_;
-
-  return state;
-}
-
-// ========== 安全和限制接口 ==========
-
-bool WristComponent::set_pitch_limits(double min_pitch, double max_pitch) {
-  if (min_pitch >= max_pitch) {
-    std::cerr << "❌ WristComponent: Invalid pitch limits" << std::endl;
-    return false;
-  }
-
-  min_pitch_ = min_pitch;
-  max_pitch_ = max_pitch;
-  std::cout << "✅ WristComponent: Set pitch limits [" << min_pitch_ << ", "
-            << max_pitch_ << "]" << std::endl;
-  return true;
-}
-
-bool WristComponent::set_roll_limits(double min_roll, double max_roll) {
-  if (min_roll >= max_roll) {
-    std::cerr << "❌ WristComponent: Invalid roll limits" << std::endl;
-    return false;
-  }
-
-  min_roll_ = min_roll;
-  max_roll_ = max_roll;
-  std::cout << "✅ WristComponent: Set roll limits [" << min_roll_ << ", "
-            << max_roll_ << "]" << std::endl;
-  return true;
-}
-
-bool WristComponent::set_max_velocity(double max_velocity) {
-  if (max_velocity <= 0) {
-    std::cerr << "❌ WristComponent: Invalid max velocity" << std::endl;
-    return false;
-  }
-
-  max_velocity_ = max_velocity;
-  std::cout << "✅ WristComponent: Set max velocity " << max_velocity_
-            << " rad/s" << std::endl;
-  return true;
-}
-
-bool WristComponent::set_max_torque(double max_torque) {
-  if (max_torque <= 0) {
-    std::cerr << "❌ WristComponent: Invalid max torque" << std::endl;
-    return false;
-  }
-
-  max_torque_ = max_torque;
-  std::cout << "✅ WristComponent: Set max torque " << max_torque_ << " Nm"
-            << std::endl;
-  return true;
-}
-
-// ========== 高级功能接口 ==========
-
-bool WristComponent::smooth_move_to(double target_pitch, double target_roll,
-                                    double duration) {
-  auto current_pos = get_positions();
-  std::vector<double> start_pos = current_pos;
-  std::vector<double> end_pos = {target_pitch, target_roll};
-
-  // 生成轨迹
-  int steps = static_cast<int>(duration * 100); // 100Hz
-  auto trajectory = generate_trajectory(start_pos, end_pos, duration, steps);
-
-  // 执行轨迹
-  for (const auto &point : trajectory) {
-    if (!set_positions(point)) {
-      std::cerr << "❌ WristComponent: Failed to execute smooth move"
-                << std::endl;
-      return false;
+    if (motor8 && motor8->has_error()) {
+        has_errors = true;
     }
 
-    if (!send_all_commands()) {
-      std::cerr
-          << "❌ WristComponent: Failed to send commands during smooth move"
-          << std::endl;
-      return false;
+    return has_errors;
+}
+
+std::vector<int> WristComponent::get_error_motor_ids() const {
+    std::vector<int> error_ids;
+
+    auto motor7 = get_motor(7);
+    if (motor7 && motor7->has_error()) {
+        error_ids.push_back(7);
     }
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  }
-
-  return true;
-}
-
-bool WristComponent::circular_motion(double center_pitch, double center_roll,
-                                     double radius, double frequency,
-                                     double duration) {
-  int steps = static_cast<int>(duration * 100); // 100Hz
-  double dt = 1.0 / 100.0;                      // 10ms
-
-  for (int i = 0; i < steps; ++i) {
-    double t = i * dt;
-    double angle = 2.0 * M_PI * frequency * t;
-
-    double pitch = center_pitch + radius * std::cos(angle);
-    double roll = center_roll + radius * std::sin(angle);
-
-    if (!set_wrist_pose(pitch, roll)) {
-      std::cerr << "❌ WristComponent: Failed to execute circular motion"
-                << std::endl;
-      return false;
+    auto motor8 = get_motor(8);
+    if (motor8 && motor8->has_error()) {
+        error_ids.push_back(8);
     }
 
-    if (!send_all_commands()) {
-      std::cerr
-          << "❌ WristComponent: Failed to send commands during circular motion"
-          << std::endl;
-      return false;
+    return error_ids;
+}
+
+// ========== HT Motor Specific Methods ==========
+
+bool WristComponent::set_ht_motor_params(int motor_id, double kp, double kd, double max_torque) {
+    if (!is_valid_motor_id(motor_id)) {
+        std::lock_guard<std::mutex> lock(status_mutex_);
+        last_error_ = "Invalid motor ID: " + std::to_string(motor_id);
+        return false;
     }
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  }
-
-  return true;
-}
-
-bool WristComponent::stop_motion() {
-  std::lock_guard<std::mutex> lock(motors_mutex_);
-  bool success = true;
-
-  for (auto &[motor_id, motor] : motors_) {
-    if (!motor->set_velocity(0.0)) {
-      std::cerr << "❌ WristComponent: Failed to stop motor " << motor_id
-                << std::endl;
-      success = false;
-    }
-  }
-
-  is_moving_ = false;
-  return success;
-}
-
-// ========== 诊断接口 ==========
-
-void WristComponent::print_wrist_state() {
-  auto state = get_complete_state();
-
-  std::cout << "\n=== Wrist Component State ===" << std::endl;
-  std::cout << "Pitch Angle: " << std::fixed << std::setprecision(3)
-            << state["positions"][0] * 180.0 / M_PI << " deg" << std::endl;
-  std::cout << "Roll Angle: " << std::fixed << std::setprecision(3)
-            << state["positions"][1] * 180.0 / M_PI << " deg" << std::endl;
-  std::cout << "Pitch Velocity: " << std::fixed << std::setprecision(3)
-            << state["velocities"][0] << " rad/s" << std::endl;
-  std::cout << "Roll Velocity: " << std::fixed << std::setprecision(3)
-            << state["velocities"][1] << " rad/s" << std::endl;
-  std::cout << "Pitch Torque: " << std::fixed << std::setprecision(3)
-            << state["torques"][0] << " Nm" << std::endl;
-  std::cout << "Roll Torque: " << std::fixed << std::setprecision(3)
-            << state["torques"][1] << " Nm" << std::endl;
-  std::cout << "Temperatures: [" << std::fixed << std::setprecision(1)
-            << state["temperatures"][0] << ", " << state["temperatures"][1]
-            << "] °C" << std::endl;
-  std::cout << "Is Moving: " << (is_moving() ? "Yes" : "No") << std::endl;
-  std::cout << "Has Errors: " << (has_motor_errors() ? "Yes" : "No")
-            << std::endl;
-}
-
-bool WristComponent::test_wrist_functionality() {
-  std::cout << "\n🔧 Testing wrist component functionality..." << std::endl;
-
-  // 测试电机连接
-  if (get_motor_count() != 2) {
-    std::cerr << "❌ WristComponent: Expected 2 motors, found "
-              << get_motor_count() << std::endl;
-    return false;
-  }
-
-  // 测试电机使能
-  if (!enable_all()) {
-    std::cerr << "❌ WristComponent: Failed to enable all motors" << std::endl;
-    return false;
-  }
-
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-  // 测试位置控制
-  double test_pitch = 0.5; // ~28.6 degrees
-  double test_roll = -0.3; // ~-17.2 degrees
-
-  if (!set_wrist_pose(test_pitch, test_roll)) {
-    std::cerr << "❌ WristComponent: Failed to set test pose" << std::endl;
-    return false;
-  }
-
-  // 等待运动完成
-  if (!wait_for_motion_complete(0.01, 3.0)) {
-    std::cerr << "❌ WristComponent: Failed to reach target position"
-              << std::endl;
-    return false;
-  }
-
-  // 测试零位
-  if (!set_wrist_pose(0.0, 0.0)) {
-    std::cerr << "❌ WristComponent: Failed to return to zero position"
-              << std::endl;
-    return false;
-  }
-
-  std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-
-  std::cout << "✅ WristComponent: All tests passed" << std::endl;
-  return true;
-}
-
-bool WristComponent::calibrate_wrist() {
-  std::cout << "\n🔧 Calibrating wrist..." << std::endl;
-
-  if (!set_zero_all()) {
-    std::cerr << "❌ WristComponent: Failed to set zero positions" << std::endl;
-    return false;
-  }
-
-  std::this_thread::sleep_for(std::chrono::milliseconds(500));
-
-  target_position_ = {0.0, 0.0};
-
-  std::cout << "✅ WristComponent: Calibration completed" << std::endl;
-  return true;
-}
-
-// ========== 私有方法 ==========
-
-double WristComponent::clamp_angle(double angle, double min_angle,
-                                   double max_angle) {
-  return std::max(min_angle, std::min(max_angle, angle));
-}
-
-double WristComponent::clamp_velocity(double velocity) {
-  return std::max(-max_velocity_, std::min(max_velocity_, std::abs(velocity))) *
-         (velocity >= 0 ? 1 : -1);
-}
-
-double WristComponent::clamp_torque(double torque) {
-  return std::max(-max_torque_, std::min(max_torque_, std::abs(torque))) *
-         (torque >= 0 ? 1 : -1);
-}
-
-void WristComponent::update_wrist_state() { is_moving_ = is_moving(); }
-
-bool WristComponent::check_motion_complete() { return at_target_position(); }
-
-bool WristComponent::wait_for_motion_complete(double tolerance,
-                                              double timeout) {
-  auto start_time = std::chrono::steady_clock::now();
-
-  while (std::chrono::steady_clock::now() - start_time <
-         std::chrono::duration<double>(timeout)) {
-    update_all_states();
-
-    if (check_motion_complete()) {
-      return true;
+    auto motor = get_motor(motor_id);
+    if (!motor) {
+        std::lock_guard<std::mutex> lock(status_mutex_);
+        last_error_ = "Motor " + std::to_string(motor_id) + " not found";
+        return false;
     }
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  }
+    // Try to cast to HT motor and set parameters
+    // Note: This would need dynamic_cast if we want HT-specific methods
+    // For now, use generic motor interface
+    motor->set_max_torque(max_torque);
 
-  std::cerr << "⚠️  WristComponent: Motion timeout after " << timeout
-            << " seconds" << std::endl;
-  return false;
+    if (debug_enabled_) {
+        std::cout << "⚙️  WristComponent: Set motor " << motor_id
+                  << " params - kp: " << kp << ", kd: " << kd
+                  << ", max_torque: " << max_torque << std::endl;
+    }
+
+    return true;
 }
 
-std::vector<std::vector<double>>
-WristComponent::generate_trajectory(const std::vector<double> &start_pos,
-                                    const std::vector<double> &end_pos,
-                                    double duration, int steps) {
+bool WristComponent::send_mit_command(int motor_id, double position, double velocity,
+                                       double torque, double kp, double kd) {
+    if (!is_valid_motor_id(motor_id)) {
+        std::lock_guard<std::mutex> lock(status_mutex_);
+        last_error_ = "Invalid motor ID: " + std::to_string(motor_id);
+        return false;
+    }
 
-  std::vector<std::vector<double>> trajectory;
-  trajectory.reserve(steps);
+    auto motor = get_motor(motor_id);
+    if (!motor) {
+        std::lock_guard<std::mutex> lock(status_mutex_);
+        last_error_ = "Motor " + std::to_string(motor_id) + " not found";
+        return false;
+    }
 
-  for (int i = 0; i <= steps; ++i) {
-    double alpha = static_cast<double>(i) / steps;
+    bool success = motor->mit_control(position, velocity, torque, kp, kd);
+    if (debug_enabled_) {
+        std::cout << "📤 WristComponent: Sent MIT command to motor " << motor_id
+                  << " - p: " << position << ", v: " << velocity
+                  << ", t: " << torque << ", kp: " << kp << ", kd: " << kd << std::endl;
+    }
 
-    // 使用平滑插值（三次样条）
-    double smooth_alpha = alpha * alpha * (3.0 - 2.0 * alpha);
+    return success;
+}
 
-    std::vector<double> point(2);
-    point[0] = start_pos[0] + smooth_alpha * (end_pos[0] - start_pos[0]);
-    point[1] = start_pos[1] + smooth_alpha * (end_pos[1] - start_pos[1]);
+// ========== Configuration ==========
 
-    trajectory.push_back(point);
-  }
+void WristComponent::set_pitch_limits(double min_angle, double max_angle) {
+    pitch_min_ = min_angle;
+    pitch_max_ = max_angle;
+    std::cout << "✅ WristComponent: Pitch limits set to ["
+              << (min_angle * 180.0 / M_PI) << "°, " << (max_angle * 180.0 / M_PI) << "°]" << std::endl;
+}
 
-  return trajectory;
+void WristComponent::set_roll_limits(double min_angle, double max_angle) {
+    roll_min_ = min_angle;
+    roll_max_ = max_angle;
+    std::cout << "✅ WristComponent: Roll limits set to ["
+              << (min_angle * 180.0 / M_PI) << "°, " << (max_angle * 180.0 / M_PI) << "°]" << std::endl;
+}
+
+std::pair<double, double> WristComponent::get_pitch_limits() const {
+    return {pitch_min_, pitch_max_};
+}
+
+std::pair<double, double> WristComponent::get_roll_limits() const {
+    return {roll_min_, roll_max_};
+}
+
+std::string WristComponent::get_state_summary() const {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    std::lock_guard<std::mutex> status_lock(status_mutex_);
+
+    std::ostringstream ss;
+    ss << "WristComponent State:\n";
+    ss << "  Enabled: " << (enabled_ ? "Yes" : "No") << "\n";
+    ss << "  Motors: " << get_motor_count() << "/2\n";
+    ss << "  Target Pose: [" << std::fixed << std::setprecision(3)
+       << target_position_[0] << ", " << target_position_[1] << "] rad\n";
+
+    auto current_pose = get_wrist_pose();
+    ss << "  Current Pose: [" << current_pose[0] << ", " << current_pose[1] << "] rad\n";
+
+    ss << "  At Target: " << (at_target_position() ? "Yes" : "No") << "\n";
+    ss << "  Has Errors: " << (has_motor_errors() ? "Yes" : "No") << "\n";
+
+    if (!last_error_.empty()) {
+        ss << "  Last Error: " << last_error_ << "\n";
+    }
+
+    return ss.str();
+}
+
+// ========== Helper Methods ==========
+
+bool WristComponent::is_valid_motor_id(int motor_id) const {
+    return motor_id == 7 || motor_id == 8;
+}
+
+double WristComponent::clamp_angle(double angle, double min_angle, double max_angle) const {
+    return std::clamp(angle, min_angle, max_angle);
+}
+
+double WristComponent::clamp_velocity(double velocity) const {
+    return std::clamp(velocity, -max_velocity_, max_velocity_);
+}
+
+void WristComponent::update_wrist_state() {
+    // This method can be used to update any internal wrist state
+    // based on motor states. For now, the state is computed on-demand.
+    if (debug_enabled_) {
+        auto pose = get_wrist_pose();
+        std::cout << "🔄 WristComponent: State updated - pose ["
+                  << pose[0] << ", " << pose[1] << "] rad" << std::endl;
+    }
+}
+
+// ========== Factory Function ==========
+
+std::unique_ptr<WristComponent> create_wrist_component() {
+    auto wrist = std::make_unique<WristComponent>();
+    std::cout << "✅ WristComponent created successfully" << std::endl;
+    return wrist;
 }
 
 } // namespace ic_can

@@ -1,0 +1,58 @@
+{
+  "calibration_comparison": {
+    "original_file": "friction_trajectory_friction_params.json",
+    "calibrated_file": "friction_calibrated_params.json",
+    "motors_comparison": [
+      {
+        "joint": 1,
+        "motor": 2,
+        "original_Fc": 0.9,
+        "calibrated_Fc": 0.466,
+        "original_Fv": 0.04,
+        "calibrated_Fv": 2.089,
+        "Fc_change": "-48.3%",
+        "Fv_change": "+5121.7%"
+      },
+      {
+        "joint": 2,
+        "motor": 3,
+        "original_Fc": 0.7,
+        "calibrated_Fc": 0.477,
+        "original_Fv": 0.03,
+        "calibrated_Fv": 2.525,
+        "Fc_change": "-31.8%",
+        "Fv_change": "+8315.5%"
+      },
+      {
+        "joint": 3,
+        "motor": 4,
+        "original_Fc": 0.5,
+        "calibrated_Fc": 0.209,
+        "original_Fv": 0.02,
+        "calibrated_Fv": 2.314,
+        "Fc_change": "-58.1%",
+        "Fv_change": "+11470.8%"
+      },
+      {
+        "joint": 4,
+        "motor": 5,
+        "original_Fc": 0.4,
+        "calibrated_Fc": 0.455,
+        "original_Fv": 0.015,
+        "calibrated_Fv": 2.904,
+        "Fc_change": "+13.7%",
+        "Fv_change": "+19263.1%"
+      },
+      {
+        "joint": 5,
+        "motor": 6,
+        "original_Fc": 0.3,
+        "calibrated_Fc": 0.13,
+        "original_Fv": 0.01,
+        "calibrated_Fv": 0.649,
+        "Fc_change": "-56.5%",
+        "Fv_change": "+6387.8%"
+      }
+    ]
+  }
+}

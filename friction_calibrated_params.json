@@ -1,0 +1,45 @@
+{
+  "enable_friction": true,
+  "enable_gravity": true,
+  "velocity_damping": 0.1,
+  "smooth_transition": true,
+  "sgn_threshold": 0.01,
+  "friction_params": [
+    {
+      "joint": 0,
+      "Fc": 0.5250398032802224,
+      "Fv": 6.415653874826899,
+      "velocity_threshold": 0.02
+    },
+    {
+      "joint": 1,
+      "Fc": 0.1528686826893128,
+      "Fv": 2.9022120824033433,
+      "velocity_threshold": 0.02
+    },
+    {
+      "joint": 2,
+      "Fc": 0.8849241046755577,
+      "Fv": 0.8850128716952436,
+      "velocity_threshold": 0.02
+    },
+    {
+      "joint": 3,
+      "Fc": 0.7306476634822838,
+      "Fv": 0.8841350308613434,
+      "velocity_threshold": 0.1
+    },
+    {
+      "joint": 4,
+      "Fc": 1.068177988819209,
+      "Fv": 1.0800634178331772,
+      "velocity_threshold": 0.2
+    },
+    {
+      "joint": 5,
+      "Fc": 0.2515696481359744,
+      "Fv": 0.16068234237561224,
+      "velocity_threshold": 0.1
+    }
+  ]
+}

@@ -138,11 +138,26 @@ public:
       // Start data capture
       std::cout << "🔄 Starting data capture..." << std::endl;
       uint8_t capture_result = device_->USB_CMD_START_CAP();
-      if (capture_result == 0) {
-        std::cout << "✅ SUCCESS: Data capture started" << std::endl;
-      } else {
-        std::cout << "⚠️  WARNING: Data capture start returned "
+      if (capture_result != 0) {
+        std::cout << "❌ FAILED: Data capture start returned "
                   << (int)capture_result << std::endl;
+        return false;
+      }
+
+      // Test if callback is working by sending a refresh command
+      std::cout << "🧪 Testing CAN communication..." << std::endl;
+      bool test_success = refresh_all();
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+      if (receive_count_.load() == 0) {
+        std::cout << "❌ WARNING: No CAN frames received during test"
+                  << std::endl;
+        std::cout << "   - Check device connection" << std::endl;
+        std::cout << "   - Verify CAN bus termination" << std::endl;
+        std::cout << "   - Check motor power supply" << std::endl;
+      } else {
+        std::cout << "✅ SUCCESS: Received " << receive_count_.load()
+                  << " CAN frames during test" << std::endl;
       }
 
       connected_ = true;
@@ -454,7 +469,8 @@ public:
 
     bool all_success = true;
     for (int motor_id = 1; motor_id <= 9; motor_id++) {
-      device_->fdcanFrameSend(enable_cmd, motor_id);
+      send_can_frame(motor_id, enable_cmd,
+                     false); // Standard frame for all motors
       std::cout << "   ✅ Motor " << motor_id << " enabled" << std::endl;
       usleep(100000); // 100ms between enables
     }
@@ -474,7 +490,8 @@ public:
                                         0xFF, 0xFF, 0xFF, 0xFD};
 
     for (int motor_id = 1; motor_id <= 9; motor_id++) {
-      device_->fdcanFrameSend(disable_cmd, motor_id);
+      send_can_frame(motor_id, disable_cmd,
+                     false); // Standard frame for all motors
     }
 
     std::cout << "✅ All motors disabled" << std::endl;
@@ -529,8 +546,8 @@ public:
               << " (CAN ID: " << std::hex << "0x" << can_id << std::dec << ")"
               << std::endl;
 
-    // Send the raw CAN command
-    device_->fdcanFrameSend(zero_cmd, can_id);
+    // Send the raw CAN command using universal function
+    send_can_frame(can_id, zero_cmd, false); // Standard frame
 
     std::cout << "✅ Zero calibration command sent to Motor " << motor_id
               << std::endl;
@@ -556,7 +573,8 @@ public:
       // Refresh Damiao motors 1-6 with individual status requests
       for (int motor_id = 1; motor_id <= 6; motor_id++) {
         std::vector<uint8_t> status_cmd = {uint8_t(motor_id), 0x00, 0xCC, 0x00};
-        device_->fdcanFrameSend(status_cmd, motor_id);
+        send_can_frame(motor_id, status_cmd,
+                       false); // Standard frame for Damiao
         if (debug_enabled_) {
           std::cout << "📤 Sent status request to DM motor " << motor_id
                     << std::endl;
@@ -569,7 +587,7 @@ public:
 
       // Refresh servo motor 9
       std::vector<uint8_t> servo_status_cmd = {0x09, 0x00, 0xCC, 0x00};
-      device_->fdcanFrameSend(servo_status_cmd, 9);
+      send_can_frame(9, servo_status_cmd, false); // Standard frame for servo
 
       if (debug_enabled_) {
         std::cout << "📤 Sent status request to servo motor 9" << std::endl;
@@ -1649,11 +1667,14 @@ private:
 
   void handle_can_frame(can_value_type &frame) {
     uint32_t can_id = frame.head.id;
-    // Track receive frequency
-    if (can_id == 0x11)
-      receive_count_++;
+    // Track receive frequency - count ALL frames
+    receive_count_++;
     total_bytes_received_ += frame.head.dlc;
-    std::cout << " running recv " << std::endl;
+
+    if (debug_enabled_) {
+      std::cout << "📥 RECV: ID=0x" << std::hex << can_id << std::dec << " ("
+                << receive_count_.load() << " total)" << std::endl;
+    }
     // Debug: Print ALL received CAN frames when debug mode is enabled
     if (debug_enabled_) {
       std::cout << "📥 CAN RECV: ID=0x" << std::hex << can_id << std::dec
@@ -1828,7 +1849,6 @@ private:
                            double torque, double kp, double kd) {
     // Track send frequency
     /*std::cout << motor_id << std::endl;*/
-    total_bytes_sent_ += 8; // DM command is 8 bytes
     auto float_to_uint = [](double x, double min, double max,
                             int bits) -> uint16_t {
       double span = max - min;
@@ -1875,9 +1895,11 @@ private:
     data[5] = kd_uint >> 4;
     data[6] = ((kd_uint & 0xF) << 4) | ((tau_uint >> 8) & 0xF);
     data[7] = tau_uint & 0xFF;
-    /*print_send_info(motor_id, data);*/
 
-    device_->fdcanFrameSend(data, motor_id);
+    // Send using universal CAN frame function (standard frame for Damiao)
+    send_can_frame(motor_id, data, false);
+
+    /*print_send_info(motor_id, data);*/
     /*usleep(200);*/
   }
   void print_send_info(int motor_id, const std::vector<uint8_t> &data) {
@@ -1915,7 +1937,7 @@ private:
         std::cout << std::dec << std::endl;
       }
 
-      device_->fdcanFrameSend(data, can_id);
+      send_can_frame(can_id, data, true); // Extended frame for HT brake
       if (debug_enabled_) {
         std::cout << "   ✅ HT BRAKE command sent to motor " << motor_id
                   << " successfully" << std::endl;
@@ -1930,14 +1952,17 @@ private:
     /*std::vector<unsigned char> cmd = {0x01, 0x00, 0x00, 0x11, 0x00, 0x1f,*/
     /*                                  0x01, 0x13, 0x0d, 0x50, 0x50, 0x50};*/
     /*std::vector<unsigned char> cmd = {0x15, 0x05, 0x02};*/
-    std::vector<unsigned char> cmd = {0x17, 0x01, 0x00, 0x00};
+    std::vector<unsigned char> cmd = {0x17, 0x01, 0x00, 0x00,
+                                      0x00, 0x00, 0x00, 0x00};
 
     // Send to HT motor 7 (CAN ID: 0x8707)
-    device_->fdcanFrameSend(cmd, 0x8007);
-
+    send_can_frame(0x8007, cmd, true); // Extended frame for HT
+    //
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
     // Send to HT motor 8 (CAN ID: 0x8808)
-    device_->fdcanFrameSend(cmd, 0x8008);
+    send_can_frame(0x8008, cmd, true); // Extended frame for HT
 
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
     if (debug_enabled_) {
       std::cout << "   📤 CAN SEND: ID=0x8007, DLC=8, Data: ";
       for (size_t i = 0; i < cmd.size(); i++) {
@@ -1970,6 +1995,47 @@ private:
     std::cout << "📤 HT set zero command called (placeholder)" << std::endl;
     // This would need to be implemented based on your specific HT motor
     // protocol
+  }
+
+  // Universal CAN frame sending function
+  void send_can_frame(uint32_t can_id, const std::vector<uint8_t> &data,
+                      bool is_extended_frame = false) {
+    if (!device_) {
+      std::cout << "❌ Device not initialized for CAN frame sending"
+                << std::endl;
+      return;
+    }
+
+    can_tx_type frame;
+    memset(&frame, 0, sizeof(can_tx_type));
+
+    // Configure frame
+    frame.can_id = can_id;
+    frame.can_type = 1; // 2.0/fd
+    frame.fd_acc = 1;
+    frame.fram_type = 1; // 数据帧
+    frame.id_type =
+        is_extended_frame ? 1 : 0; // 扩展帧 for HT, 标准帧 for Damiao
+    frame.id_increase = 0;
+    frame.data_increase = 0;
+    frame.cmd = 0; // 0是开始
+    frame.send_time = 1;
+    frame.interval = 0;
+
+    // Copy data to frame
+    uint8_t *dest = frame.data;
+    uint8_t *src = const_cast<uint8_t *>(data.data());
+    int dataLength = static_cast<int>(data.size());
+    int copySize =
+        (dataLength > sizeof(frame.data)) ? sizeof(frame.data) : dataLength;
+    memcpy(dest, src, copySize);
+    frame.dlc = dataLength;
+
+    // Send frame using device's methods
+    device_->set_tx_frame(&frame);
+    device_->send_data();
+
+    total_bytes_sent_ += dataLength;
   }
 
   void send_ht_mit_command_with_movement(double m7_position, double m7_velocity,
@@ -2062,7 +2128,8 @@ private:
                 << (int)data[23] << std::dec << std::endl;
     }
 
-    device_->fdcanFrameSend(data, 0x8094); // HT uses fixed ID 0x8094
+    // Send using universal CAN frame function (extended frame for HT)
+    send_can_frame(0x8094, data, true); // HT uses extended frame
   }
 
   std::string device_sn_;

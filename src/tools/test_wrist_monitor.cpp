@@ -85,6 +85,13 @@ int main(int argc, char *argv[]) {
       std::cout << "✅ All motors enabled" << std::endl;
     }
 
+    // Test initial communication
+    std::cout << "🧪 Testing CAN communication before monitoring..." << std::endl;
+    if (!ic_can.refresh_all()) {
+      std::cout << "⚠️ Warning: Initial refresh failed" << std::endl;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
     // Start wrist position monitoring
     std::cout << "🦾 Starting wrist position monitoring..." << std::endl;
     if (!ic_can.start_wrist_position_monitoring(monitor_frequency)) {

@@ -151,6 +151,18 @@ public:
                              double kp, double kd);
 
     /**
+     * @brief Send HT motor MIT command to a single motor
+     * @param motor_id Target motor ID (7 or 8 for HT motors)
+     * @param position Target position in radians
+     * @param velocity Target velocity in rad/s
+     * @param torque Target torque in Nm
+     * @param kp Position gain
+     * @param kd Velocity gain
+     */
+    void send_ht_mit_command_single(int motor_id, double position, double velocity,
+                                    double torque, double kp, double kd);
+
+    /**
      * @brief Send HT motor MIT command for actual movement
      * @param m7_position Target position for motor 7 in radians
      * @param m7_velocity Target velocity for motor 7 in rad/s

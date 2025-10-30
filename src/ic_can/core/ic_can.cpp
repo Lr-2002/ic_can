@@ -57,6 +57,23 @@ struct FrictionParams {
   double velocity_threshold = 0.1; // Velocity threshold for friction activation
 };
 
+// HT Motor MIT Command Frame Structure
+#pragma pack(push, 1)
+struct HTMotorFrame {
+  uint8_t head[4] = {0x01, 0x00, 0x0A, 0x0F};             // Header
+  uint8_t mode = 0x20;                                    // Mode
+  float pos = 0.2f;                                       // Position (rev)
+  float vel = 0.0f;                                       // Velocity
+  float torque = 0.4f;                                    // Torque
+  uint8_t magic[2] = {0x0E, 0x2B};                        // Fixed bytes
+  float kp = 50.0f;                                       // Kp
+  float kd = 0.8f;                                        // Kd
+  uint8_t tail[6] = {0x11, 0x00, 0x1F, 0x01, 0x13, 0x0D}; // Tail
+  uint8_t pad[15]; // Padding to reach 48 bytes total
+  HTMotorFrame() { std::memset(pad, 0x50, sizeof(pad)); }
+};
+#pragma pack(pop)
+
 // ArmComponent is now defined in arm_component.hpp
 
 // Use the actual component implementations
@@ -1979,13 +1996,58 @@ private:
     }
   }
 
+  void send_ht_mit_command_single(int motor_id, double position,
+                                  double velocity, double torque, double kp,
+                                  double kd) {
+    if (!device_) {
+      std::cout << "❌ Device not initialized for HT MIT command" << std::endl;
+      return;
+    }
+
+    if (motor_id != 7 && motor_id != 8) {
+      std::cout << "❌ Invalid HT motor ID: " << motor_id << " (must be 7 or 8)"
+                << std::endl;
+      return;
+    }
+
+    // Create HT motor frame
+    HTMotorFrame frame;
+
+    // Convert position from radians to revolutions
+    const double RAD_TO_REV = 1.0 / (2.0 * M_PI);
+    frame.pos = static_cast<float>(position * RAD_TO_REV);
+    frame.vel = static_cast<float>(velocity * RAD_TO_REV);
+    frame.torque = static_cast<float>(torque);
+    frame.kp = static_cast<float>(kp);
+    frame.kd = static_cast<float>(kd);
+
+    // Convert frame to byte array
+    uint8_t *frame_data = reinterpret_cast<uint8_t *>(&frame);
+    std::vector<uint8_t> data(frame_data, frame_data + sizeof(HTMotorFrame));
+
+    if (debug_enabled_) {
+      std::cout << "📤 Sending HT MIT Command to Motor " << motor_id << ":"
+                << std::endl;
+      std::cout << "   Position: " << position << " rad (" << frame.pos
+                << " rev)" << std::endl;
+      std::cout << "   Velocity: " << velocity << " rad/s (" << frame.vel
+                << " rev/s)" << std::endl;
+      std::cout << "   Torque: " << torque << " Nm" << std::endl;
+      std::cout << "   Kp: " << kp << ", Kd: " << kd << std::endl;
+      std::cout << "   Frame size: " << sizeof(HTMotorFrame) << " bytes"
+                << std::endl;
+    }
+
+    // Send to specific HT motor (extended frame)
+    uint32_t can_id = (motor_id == 7) ? 0x8007 : 0x8008;
+    send_can_frame(can_id, data, true);
+  }
+
   void send_ht_mit_command(double position, double velocity, double torque,
                            double kp, double kd) {
-    // Placeholder implementation for HT MIT command (single motor interface)
-    std::cout << "📤 HT MIT command called (placeholder) - pos=" << position
-              << ", vel=" << velocity << ", tau=" << torque << std::endl;
-    // This would need to be implemented based on your specific HT motor
-    // protocol
+    // Send to both HT motors with same command
+    send_ht_mit_command_single(7, position, velocity, torque, kp, kd);
+    send_ht_mit_command_single(8, position, velocity, torque, kp, kd);
   }
 
   void send_ht_set_zero_command() {
@@ -2043,90 +2105,19 @@ private:
     std::cout
         << "📤 Sending HT MIT command - Movement mode (Independent motors)"
         << std::endl;
-    total_bytes_sent_ += 24; // HT command is 24 bytes
-    // HT motor conversion constants
-    const double RAD_TO_TURN = 1.0 / (2.0 * M_PI);
-    const double torque_k = 0.004855;
-    const double torque_d = -0.083;
 
-    // Convert Motor 7 to motor units
-    double m7_pos_turns = m7_position * RAD_TO_TURN;
-    double m7_vel_turns = m7_velocity * RAD_TO_TURN;
-    int16_t m7_pos_int = static_cast<int16_t>(m7_pos_turns / 0.0001);
-    int16_t m7_vel_int = static_cast<int16_t>(m7_vel_turns / 0.00025);
-    int16_t m7_torque_int =
-        static_cast<int16_t>((m7_torque - torque_d) / torque_k);
-
-    // Convert Motor 8 to motor units
-    double m8_pos_turns = m8_position * RAD_TO_TURN;
-    double m8_vel_turns = m8_velocity * RAD_TO_TURN;
-    int16_t m8_pos_int = static_cast<int16_t>(m8_pos_turns / 0.0001);
-    int16_t m8_vel_int = static_cast<int16_t>(m8_vel_turns / 0.00025);
-    int16_t m8_torque_int =
-        static_cast<int16_t>((m8_torque - torque_d) / torque_k);
-
-    // Convert gains to int16 format (same for both motors)
-    int16_t kp_int = static_cast<int16_t>(kp * 10);
-    int16_t kd_int = static_cast<int16_t>(kd * 10);
-
-    // Pack HT MIT command (24 bytes split correctly)
-    std::vector<uint8_t> data(24, 0);
-
-    // First 10 bytes: Motor 7 MIT command
-    data[0] = m7_pos_int & 0xFF;           // Motor 7 Position LSB
-    data[1] = (m7_pos_int >> 8) & 0xFF;    // Motor 7 Position MSB
-    data[2] = m7_vel_int & 0xFF;           // Motor 7 Velocity LSB
-    data[3] = (m7_vel_int >> 8) & 0xFF;    // Motor 7 Velocity MSB
-    data[4] = m7_torque_int & 0xFF;        // Motor 7 Torque LSB
-    data[5] = (m7_torque_int >> 8) & 0xFF; // Motor 7 Torque MSB
-    data[6] = kp_int & 0xFF;               // Motor 7 Kp LSB
-    data[7] = (kp_int >> 8) & 0xFF;        // Motor 7 Kp MSB
-    data[8] = kd_int & 0xFF;               // Motor 7 Kd LSB
-    data[9] = (kd_int >> 8) & 0xFF;        // Motor 7 Kd MSB
-
-    // Next 10 bytes: Motor 8 MIT command (independent data)
-    data[10] = m8_pos_int & 0xFF;           // Motor 8 Position LSB
-    data[11] = (m8_pos_int >> 8) & 0xFF;    // Motor 8 Position MSB
-    data[12] = m8_vel_int & 0xFF;           // Motor 8 Velocity LSB
-    data[13] = (m8_vel_int >> 8) & 0xFF;    // Motor 8 Velocity MSB
-    data[14] = m8_torque_int & 0xFF;        // Motor 8 Torque LSB
-    data[15] = (m8_torque_int >> 8) & 0xFF; // Motor 8 Torque MSB
-    data[16] = kp_int & 0xFF;               // Motor 8 Kp LSB
-    data[17] = (kp_int >> 8) & 0xFF;        // Motor 8 Kp MSB
-    data[18] = kd_int & 0xFF;               // Motor 8 Kd LSB
-    data[19] = (kd_int >> 8) & 0xFF;        // Motor 8 Kd MSB
-
-    // Last 4 bytes: Position request flags
-    data[20] = 0x50;
-    data[21] = 0x50;
-    data[22] = 0x17;
-    data[23] = 0x01;
+    // Send independent commands to each HT motor
+    send_ht_mit_command_single(7, m7_position, m7_velocity, m7_torque, kp, kd);
+    send_ht_mit_command_single(8, m8_position, m8_velocity, m8_torque, kp, kd);
 
     if (debug_enabled_) {
       std::cout << "   Motor 7 - Position: " << m7_position << " rad ("
                 << (m7_position * 180.0 / M_PI) << "°)" << std::endl;
       std::cout << "   Motor 8 - Position: " << m8_position << " rad ("
                 << (m8_position * 180.0 / M_PI) << "°)" << std::endl;
-      std::cout << "   HT Command Structure:" << std::endl;
-      std::cout << "   - Motor 7 (bytes 0-9): ";
-      for (int i = 0; i < 10; i++) {
-        std::cout << std::hex << "0x" << std::setw(2) << std::setfill('0')
-                  << (int)data[i] << " ";
-      }
-      std::cout << std::dec << std::endl;
-      std::cout << "   - Motor 8 (bytes 10-19): ";
-      for (int i = 10; i < 20; i++) {
-        std::cout << std::hex << "0x" << std::setw(2) << std::setfill('0')
-                  << (int)data[i] << " ";
-      }
-      std::cout << std::dec << std::endl;
-      std::cout << "   - Flags (bytes 20-23): 0x" << std::hex << (int)data[20]
-                << " 0x" << (int)data[21] << " 0x" << (int)data[22] << " 0x"
-                << (int)data[23] << std::dec << std::endl;
+      std::cout << "   Both motors sent with independent MIT frames"
+                << std::endl;
     }
-
-    // Send using universal CAN frame function (extended frame for HT)
-    send_can_frame(0x8094, data, true); // HT uses extended frame
   }
 
   std::string device_sn_;
@@ -2630,6 +2621,13 @@ bool IC_CAN::load_friction_params_from_file(const std::string &filename) {
 
 void IC_CAN::print_friction_compensation_status() {
   impl_->print_friction_compensation_status();
+}
+
+void IC_CAN::send_ht_mit_command_single(int motor_id, double position,
+                                        double velocity, double torque,
+                                        double kp, double kd) {
+  impl_->send_ht_mit_command_single(motor_id, position, velocity, torque, kp,
+                                    kd);
 }
 
 void IC_CAN::send_ht_mit_command(double position, double velocity,

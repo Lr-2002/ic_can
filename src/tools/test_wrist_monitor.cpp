@@ -116,6 +116,8 @@ int main(int argc, char *argv[]) {
     while (keep_running) {
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
+      ic_can.send_ht_mit_command_with_movement(1, 0, 0.4, 0, 0., 0.4, 50, 0.2);
+
       auto now = std::chrono::steady_clock::now();
 
       // Print detailed status every 5 seconds
@@ -153,12 +155,12 @@ int main(int argc, char *argv[]) {
                   << "Tau=" << wrist_tau[1] << " Nm" << std::endl;
 
         // Test refresh functionality
-        if (ic_can.refresh_wrist_motors_only()) {
-          std::cout << "✅ Wrist refresh successful" << std::endl;
-        } else {
-          std::cout << "❌ Wrist refresh failed" << std::endl;
-        }
-
+        /*if (ic_can.refresh_wrist_motors_only()) {*/
+        /*  std::cout << "✅ Wrist refresh successful" << std::endl;*/
+        /*} else {*/
+        /*  std::cout << "❌ Wrist refresh failed" << std::endl;*/
+        /*}*/
+        /**/
         last_status_time = now;
       }
 

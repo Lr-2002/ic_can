@@ -15,6 +15,7 @@
 #pragma once
 
 #include "base_motor.hpp"
+#include "ht_motor_frame.hpp"
 #include <cstdint>
 #include <vector>
 #include <iostream>
@@ -67,6 +68,8 @@ public:
     bool enable() override;
     bool disable() override;
     bool set_zero() override;
+    bool brake();
+    bool refresh();
     bool set_command(const MotorCommand& command) override;
 
     // ========== HT电机专用控制接口 ==========
@@ -123,6 +126,12 @@ public:
     bool process_response(const std::vector<uint8_t>& data) override;
 
     /**
+     * @brief Get CAN receive ID for this motor
+     * @return CAN ID for receiving responses
+     */
+    uint32_t get_can_receive_id() const;
+
+    /**
      * @brief 获取当前力值
      * @return 当前力 (牛顿)
      */
@@ -164,6 +173,33 @@ public:
      */
     void set_ht_params(double kp, double kd, double max_torque);
 
+    // ========== New Frame-based Communication Methods ==========
+
+    /**
+     * @brief Create HT motor frame for communication
+     * @param position Target position in radians
+     * @param velocity Target velocity in rad/s
+     * @param torque Target torque in Nm
+     * @param kp Position gain
+     * @param kd Velocity gain
+     * @return HT motor frame structure
+     */
+    HTMotorFrame create_frame(double position, double velocity, double torque, double kp, double kd);
+
+    /**
+     * @brief Get command data from frame
+     * @return Vector of bytes for CAN transmission
+     */
+    std::vector<uint8_t> get_frame_command_data();
+
+    /**
+     * @brief Process received frame data
+     * @param data Received frame data (48 bytes)
+     * @return true if processing successful
+     */
+    bool process_frame_response(const std::vector<uint8_t>& data);
+
+  
 private:
     // ========== 私有成员变量 ==========
 
@@ -199,6 +235,9 @@ private:
 
     // Command data
     std::vector<uint8_t> command_data_;
+
+    // New frame-based communication
+    HTMotorFrame current_frame_;
 
     // ========== 私有方法 ==========
 

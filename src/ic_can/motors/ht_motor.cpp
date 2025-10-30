@@ -14,6 +14,7 @@
 
 #include <ic_can/motors/ht_motor.hpp>
 #include <iostream>
+#include <iomanip>
 #include <cstring>
 #include <cmath>
 #include <algorithm>
@@ -42,7 +43,7 @@ HTMotor::HTMotor(int motor_id, uint32_t can_send_id, uint32_t can_recv_id,
     velocity_limit_max_ = 15.0;   // Conservative limit for HT motor
     torque_limit_max_ = 18.0;     // Conservative torque limit
 
-    command_data_.resize(12, 0); // HT MIT command is 12 bytes
+    command_data_.resize(12, 0); // HT commands are 12 bytes (MIT, refresh, etc.)
     debug_print("HT motor created: ID=" + std::to_string(motor_id) +
                 ", SendID=0x" + std::to_string(can_send_id) +
                 ", RecvID=0x" + std::to_string(can_recv_id) +
@@ -69,8 +70,28 @@ bool HTMotor::disable() {
 
 bool HTMotor::set_zero() {
     debug_print("Setting zero position for HT motor");
-    // HT zero position command (using DM format for now)
-    command_data_ = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE};
+    // HT zero position command based on Python implementation
+    // Format: [0x40, 0x01, 0x04, 0x64, 0x20, 0x63, 0x0a]
+    command_data_ = {0x40, 0x01, 0x04, 0x64, 0x20, 0x63, 0x0a};
+    debug_print("HT zero position command prepared");
+    return true;
+}
+
+bool HTMotor::brake() {
+    debug_print("Applying brake to HT motor");
+    // HT brake command based on Python implementation
+    // Format: [0x01, 0x00, 0x0f, 0x00, 0x00, 0x00, 0x00, 0x00]
+    command_data_ = {0x01, 0x00, 0x0f, 0x00, 0x00, 0x00, 0x00, 0x00};
+    debug_print("HT brake command prepared");
+    return true;
+}
+
+bool HTMotor::refresh() {
+    debug_print("Sending refresh command to HT motor");
+    // HT refresh command - 12 bytes
+    // Format: [0x01, 0x00, 0x00, 0x11, 0x00, 0x1f, 0x01, 0x13, 0x0d, 0x50, 0x50, 0x50]
+    command_data_ = {0x01, 0x00, 0x00, 0x11, 0x00, 0x1f, 0x01, 0x13, 0x0d, 0x50, 0x50, 0x50};
+    debug_print("HT refresh command prepared");
     return true;
 }
 
@@ -243,11 +264,23 @@ int HTMotor::get_motor_id() const {
 }
 
 uint32_t HTMotor::get_can_send_id() const {
-    return can_send_id_;
+    // Motor 7 uses 0x8007, Motor 8 uses 0x8008
+    if (motor_id_ == 7) {
+        return HTMotorCANIDs::MOTOR_7_SEND;
+    } else if (motor_id_ == 8) {
+        return HTMotorCANIDs::MOTOR_8_SEND;
+    }
+    return can_send_id_; // Fallback to original ID
 }
 
 uint32_t HTMotor::get_can_recv_id() const {
-    return can_recv_id_;
+    // Motor 7 uses 0x700, Motor 8 uses 0x800
+    if (motor_id_ == 7) {
+        return HTMotorCANIDs::MOTOR_7_RECV;
+    } else if (motor_id_ == 8) {
+        return HTMotorCANIDs::MOTOR_8_RECV;
+    }
+    return can_recv_id_; // Fallback to original ID
 }
 
 std::vector<uint8_t> HTMotor::get_command_data() const {
@@ -420,6 +453,81 @@ void HTMotor::debug_print(const std::string& message) {
             std::chrono::steady_clock::now().time_since_epoch()).count();
         std::cout << "[" << timestamp << "] [HT-MOTOR-" << motor_id_ << "] " << message << std::endl;
     }
+}
+
+// ========== New Frame-based Communication Methods ==========
+
+HTMotorFrame HTMotor::create_frame(double position, double velocity, double torque, double kp, double kd) {
+    current_frame_ = HTMotorFrame();
+
+    // Convert position from radians to revolutions
+    float pos_rev = HTMotorFrame::rad_to_rev(position);
+
+    // Convert velocity from rad/s to rev/s
+    float vel_rev = HTMotorFrame::rad_to_rev(velocity);
+
+    // Set control parameters
+    current_frame_.set_control_params(pos_rev, vel_rev, torque, kp, kd);
+
+    if (debug_enabled_) {
+        debug_print("Created frame: pos=" + std::to_string(pos_rev) + " rev, " +
+                   "vel=" + std::to_string(vel_rev) + " rev/s, " +
+                   "torque=" + std::to_string(torque) + " Nm");
+    }
+
+    return current_frame_;
+}
+
+std::vector<uint8_t> HTMotor::get_frame_command_data() {
+    std::vector<uint8_t> data(current_frame_.get_data(),
+                             current_frame_.get_data() + current_frame_.get_size());
+
+    if (debug_enabled_) {
+        debug_print("Frame command data (" + std::to_string(data.size()) + " bytes)");
+        for (size_t i = 0; i < data.size(); ++i) {
+            std::cout << "  [" << i << "] = 0x" << std::hex << std::setw(2) << std::setfill('0')
+                      << (int)data[i] << std::dec;
+            if ((i + 1) % 8 == 0) std::cout << std::endl;
+        }
+        std::cout << std::endl;
+    }
+
+    return data;
+}
+
+bool HTMotor::process_frame_response(const std::vector<uint8_t>& data) {
+    if (data.size() < HTMotorFrame::get_size()) {
+        debug_print("Invalid frame response size: " + std::to_string(data.size()) +
+                   " (expected " + std::to_string(HTMotorFrame::get_size()) + ")");
+        return false;
+    }
+
+    // Copy received data to frame structure
+    std::memcpy(&current_frame_, data.data(), HTMotorFrame::get_size());
+
+    // Update motor state from frame
+    position_ = HTMotorFrame::rev_to_rad(current_frame_.pos);
+    velocity_ = HTMotorFrame::rev_to_rad(current_frame_.vel);
+    torque_ = current_frame_.torque;
+
+    if (debug_enabled_) {
+        debug_print("Frame response processed: pos=" + std::to_string(position_) + " rad, " +
+                   "vel=" + std::to_string(velocity_) + " rad/s, " +
+                   "torque=" + std::to_string(torque_) + " Nm");
+    }
+
+    return true;
+}
+
+
+uint32_t HTMotor::get_can_receive_id() const {
+    // Motor 7 uses 0x700, Motor 8 uses 0x800
+    if (motor_id_ == 7) {
+        return HTMotorCANIDs::MOTOR_7_RECV;
+    } else if (motor_id_ == 8) {
+        return HTMotorCANIDs::MOTOR_8_RECV;
+    }
+    return can_recv_id_; // Fallback to original ID
 }
 
 } // namespace ic_can

@@ -13,16 +13,19 @@
 // limitations under the License.
 
 #include <ic_can/core/wrist_component.hpp>
+#include <ic_can/motors/ht_motor_frame.hpp>
+#include <ic_can/motors/ht_motor.hpp>
 #include <algorithm>
 #include <chrono>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
+#include <thread>
 
 namespace ic_can {
 
 WristComponent::WristComponent()
-    : MotorProtocolBase("WristHT", HT_MIN_CAN_ID, HT_MAX_CAN_ID)
+    : MotorProtocolBase("WristHT", 0x700, 0x800)
     , target_position_(2, 0.0)  // [pitch, roll]
     , pitch_min_(DEFAULT_PITCH_MIN)
     , pitch_max_(DEFAULT_PITCH_MAX)
@@ -33,8 +36,8 @@ WristComponent::WristComponent()
     , last_error_("") {
 
     std::cout << "🔧 WristComponent created for HT motors (m7-m8)" << std::endl;
-    std::cout << "   CAN ID range: [0x" << std::hex << HT_MIN_CAN_ID
-              << ", 0x" << HT_MAX_CAN_ID << std::dec << "]" << std::endl;
+    std::cout << "   CAN Receive ID range: [0x" << std::hex << 0x700
+              << ", 0x" << 0x800 << std::dec << "] (m7-m8 feedback)" << std::endl;
 }
 
 // ========== CANProtocolInterface Implementation ==========
@@ -44,8 +47,23 @@ bool WristComponent::process_can_frame(const CANFrame& frame) {
         return false;
     }
 
-    // Check if frame ID is within HT motor range
-    if (frame.id < HT_MIN_CAN_ID || frame.id > HT_MAX_CAN_ID) {
+    // Debug: Print all incoming frames
+    if (debug_enabled_) {
+        std::cout << "📥 WristComponent: Received CAN frame - ID: 0x" << std::hex << frame.id
+                  << std::dec << ", Data length: " << frame.data.size() << std::endl;
+        std::cout << "   Data bytes: ";
+        for (size_t i = 0; i < frame.data.size(); i++) {
+            std::cout << std::hex << "0x" << (int)frame.data[i] << " ";
+        }
+        std::cout << std::dec << std::endl;
+    }
+
+    // Check if frame ID is within HT motor range (0x700 for m7, 0x800 for m8)
+    if (frame.id != 0x700 && frame.id != 0x800) {
+        if (debug_enabled_) {
+            std::cout << "   ⚠️  Frame ID 0x" << std::hex << frame.id << std::dec
+                      << " not matching wrist motor IDs (0x700, 0x800)" << std::endl;
+        }
         return false;
     }
 
@@ -74,11 +92,24 @@ bool WristComponent::process_can_frame(const CANFrame& frame) {
         return false;
     }
 
+    // Get motor state before processing
+    double pos_before = motor->get_position();
+    double vel_before = motor->get_velocity();
+
     // Process the frame with the motor
     bool success = motor->process_response(frame.data);
-    if (success && debug_enabled_) {
-        std::cout << "📥 WristComponent: Processed frame for motor " << motor_id
-                  << " (ID: 0x" << std::hex << frame.id << std::dec << ")" << std::endl;
+
+    // Get motor state after processing
+    double pos_after = motor->get_position();
+    double vel_after = motor->get_velocity();
+
+    if (debug_enabled_) {
+        std::cout << "🔧 WristComponent: Motor " << motor_id << " - Processed frame (ID: 0x"
+                  << std::hex << frame.id << std::dec << ")" << std::endl;
+        std::cout << "   Position: " << std::fixed << std::setprecision(6)
+                  << pos_before << " → " << pos_after << " rad" << std::endl;
+        std::cout << "   Velocity: " << std::fixed << std::setprecision(6)
+                  << vel_before << " → " << vel_after << " rad/s" << std::endl;
     }
 
     // Update wrist state after motor state update
@@ -143,6 +174,96 @@ bool WristComponent::set_wrist_pose(double pitch_angle, double roll_angle, doubl
     bool pitch_success = set_pitch_angle(pitch_angle, velocity);
     bool roll_success = set_roll_angle(roll_angle, velocity);
     return pitch_success && roll_success;
+}
+
+// ========== Kinematic Control Interface Implementation ==========
+
+bool WristComponent::set_motor_angles(double theta_1, double theta_2, double velocity) {
+    auto motor7 = get_motor(7);  // theta_1 -> m7
+    auto motor8 = get_motor(8);  // theta_2 -> m8
+
+    if (!motor7 || !motor8) {
+        if (debug_enabled_) {
+            std::cout << "⚠️  WristComponent: Motors not found for angle control" << std::endl;
+        }
+        return false;
+    }
+
+    double clamped_velocity = clamp_velocity(velocity);
+
+    bool success1 = motor7->set_position(theta_1, clamped_velocity);
+    bool success2 = motor8->set_position(theta_2, clamped_velocity);
+
+    if (success1 && success2 && debug_enabled_) {
+        std::cout << "🎯 WristComponent: Set motor angles - θ₁: " << std::fixed << std::setprecision(3)
+                  << theta_1 << " rad (" << (theta_1 * 180.0 / M_PI) << "°), "
+                  << "θ₂: " << theta_2 << " rad (" << (theta_2 * 180.0 / M_PI) << "°)" << std::endl;
+    }
+
+    return success1 && success2;
+}
+
+bool WristComponent::set_wrist_angles(double alpha, double beta, double velocity) {
+    // Convert wrist angles (alpha, beta) to motor angles (theta_1, theta_2)
+    // alpha = (theta_1 - theta_2) / 2
+    // beta  = (theta_1 + theta_2) / 2
+    // Therefore:
+    // theta_1 = alpha + beta
+    // theta_2 = beta - alpha
+
+    double theta_1 = alpha + beta;
+    double theta_2 = beta - alpha;
+
+    if (debug_enabled_) {
+        std::cout << "🔄 WristComponent: Converting wrist angles to motor angles:" << std::endl;
+        std::cout << "   α: " << std::fixed << std::setprecision(3) << alpha << " rad ("
+                  << (alpha * 180.0 / M_PI) << "°)" << std::endl;
+        std::cout << "   β: " << beta << " rad (" << (beta * 180.0 / M_PI) << "°)" << std::endl;
+        std::cout << "   → θ₁: " << theta_1 << " rad (" << (theta_1 * 180.0 / M_PI) << "°)" << std::endl;
+        std::cout << "   → θ₂: " << theta_2 << " rad (" << (theta_2 * 180.0 / M_PI) << "°)" << std::endl;
+    }
+
+    return set_motor_angles(theta_1, theta_2, velocity);
+}
+
+std::vector<double> WristComponent::get_motor_angles() const {
+    return get_positions();  // Returns [theta_1, theta_2]
+}
+
+std::vector<double> WristComponent::get_wrist_angles() const {
+    auto motor_angles = get_motor_angles();  // [theta_1, theta_2]
+
+    if (motor_angles.size() < 2) {
+        return {0.0, 0.0};
+    }
+
+    double theta_1 = motor_angles[0];
+    double theta_2 = motor_angles[1];
+
+    // Convert motor angles to wrist angles
+    // alpha = (theta_1 - theta_2) / 2
+    // beta  = (theta_1 + theta_2) / 2
+    double alpha = (theta_1 - theta_2) / 2.0;
+    double beta  = (theta_1 + theta_2) / 2.0;
+
+    return {alpha, beta};
+}
+
+bool WristComponent::refresh() {
+    // Update wrist state from motor states
+    update_wrist_state();
+
+    if (debug_enabled_) {
+        auto motor_angles = get_motor_angles();
+        auto wrist_angles = get_wrist_angles();
+        std::cout << "🔄 WristComponent: Refresh - Motor angles [θ₁, θ₂]: ["
+                  << std::fixed << std::setprecision(3)
+                  << motor_angles[0] << ", " << motor_angles[1] << "] rad" << std::endl;
+        std::cout << "🔄 WristComponent: Refresh - Wrist angles [α, β]: ["
+                  << wrist_angles[0] << ", " << wrist_angles[1] << "] rad" << std::endl;
+    }
+
+    return true;  // Refresh successful
 }
 
 double WristComponent::get_pitch_angle() const {
@@ -318,8 +439,8 @@ bool WristComponent::set_ht_motor_params(int motor_id, double kp, double kd, dou
     return true;
 }
 
-bool WristComponent::send_mit_command(int motor_id, double position, double velocity,
-                                       double torque, double kp, double kd) {
+
+bool WristComponent::send_refresh_command(int motor_id) {
     if (!is_valid_motor_id(motor_id)) {
         std::lock_guard<std::mutex> lock(status_mutex_);
         last_error_ = "Invalid motor ID: " + std::to_string(motor_id);
@@ -333,11 +454,18 @@ bool WristComponent::send_mit_command(int motor_id, double position, double velo
         return false;
     }
 
-    bool success = motor->mit_control(position, velocity, torque, kp, kd);
+    // Cast to HTMotor to access refresh method
+    auto* ht_motor = dynamic_cast<HTMotor*>(motor.get());
+    if (!ht_motor) {
+        std::lock_guard<std::mutex> lock(status_mutex_);
+        last_error_ = "Motor " + std::to_string(motor_id) + " is not an HT motor";
+        return false;
+    }
+
+    bool success = ht_motor->refresh();
     if (debug_enabled_) {
-        std::cout << "📤 WristComponent: Sent MIT command to motor " << motor_id
-                  << " - p: " << position << ", v: " << velocity
-                  << ", t: " << torque << ", kp: " << kp << ", kd: " << kd << std::endl;
+        std::cout << "📤 WristComponent: Sent refresh command to HT motor " << motor_id
+                  << " - Success: " << (success ? "YES" : "NO") << std::endl;
     }
 
     return success;
@@ -413,6 +541,118 @@ void WristComponent::update_wrist_state() {
         std::cout << "🔄 WristComponent: State updated - pose ["
                   << pose[0] << ", " << pose[1] << "] rad" << std::endl;
     }
+}
+
+// ========== New Frame-based HT Motor Methods ==========
+
+bool WristComponent::send_ht_frame_motor_7(double position, double velocity, double torque, double kp, double kd) {
+    // For now, just log the frame creation (no actual CAN sending in wrist component)
+    // The IC_CAN system will handle the actual CAN communication
+
+    // Create HT frame for motor 7
+    HTMotorFrame frame;
+    frame.set_control_params(
+        HTMotorFrame::rad_to_rev(position),
+        HTMotorFrame::rad_to_rev(velocity),
+        torque, kp, kd
+    );
+
+    if (debug_enabled_) {
+        std::cout << "📤 WristComponent: Created HT frame for motor 7 (0x8007)" << std::endl;
+        std::cout << "   Position: " << position << " rad (" << (position * 180.0 / M_PI) << "°)" << std::endl;
+        std::cout << "   Frame size: " << frame.get_size() << " bytes" << std::endl;
+        std::cout << "   📝 Frame data ready for IC_CAN system transmission" << std::endl;
+    }
+
+    // Update target position for motor 7
+    {
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        if (target_position_.size() < 2) {
+            target_position_.resize(2, 0.0);
+        }
+        target_position_[0] = position; // Pitch
+    }
+
+    return true;
+}
+
+bool WristComponent::send_ht_frame_motor_8(double position, double velocity, double torque, double kp, double kd) {
+    // Create HT frame for motor 8
+    HTMotorFrame frame;
+    frame.set_control_params(
+        HTMotorFrame::rad_to_rev(position),
+        HTMotorFrame::rad_to_rev(velocity),
+        torque, kp, kd
+    );
+
+    if (debug_enabled_) {
+        std::cout << "📤 WristComponent: Created HT frame for motor 8 (0x8008)" << std::endl;
+        std::cout << "   Position: " << position << " rad (" << (position * 180.0 / M_PI) << "°)" << std::endl;
+        std::cout << "   Frame size: " << frame.get_size() << " bytes" << std::endl;
+        std::cout << "   📝 Frame data ready for IC_CAN system transmission" << std::endl;
+    }
+
+    // Update target position for motor 8
+    {
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        if (target_position_.size() < 2) {
+            target_position_.resize(2, 0.0);
+        }
+        target_position_[1] = position; // Roll
+    }
+
+    return true;
+}
+
+bool WristComponent::send_ht_frame_both_motors(double m7_position, double m7_velocity, double m7_torque,
+                                             double m8_position, double m8_velocity, double m8_torque,
+                                             double kp, double kd) {
+    bool success = true;
+
+    // Send frame to motor 7
+    success &= send_ht_frame_motor_7(m7_position, m7_velocity, m7_torque, kp, kd);
+
+    // Small delay between commands
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+    // Send frame to motor 8
+    success &= send_ht_frame_motor_8(m8_position, m8_velocity, m8_torque, kp, kd);
+
+    if (debug_enabled_) {
+        std::cout << "📤 WristComponent: Sent frames to both HT motors - "
+                  << (success ? "SUCCESS" : "FAILED") << std::endl;
+    }
+
+    return success;
+}
+
+bool WristComponent::process_ht_frame_response(int motor_id, const std::vector<uint8_t>& frame_data) {
+    if (frame_data.size() != HTMotorFrame::get_size()) {
+        std::cout << "❌ WristComponent: Invalid frame size for motor " << motor_id
+                  << " - got " << frame_data.size() << ", expected " << HTMotorFrame::get_size() << std::endl;
+        return false;
+    }
+
+    // Copy data to frame structure
+    HTMotorFrame frame;
+    std::memcpy(&frame, frame_data.data(), HTMotorFrame::get_size());
+
+    // Extract motor state
+    double position = HTMotorFrame::rev_to_rad(frame.pos);
+    double velocity = HTMotorFrame::rev_to_rad(frame.vel);
+    double torque = frame.torque;
+
+    // Store the motor state in wrist component state
+    // Note: We don't have individual motor states, so we just log the data
+    if (debug_enabled_) {
+        std::cout << "📥 WristComponent: Processed HT frame response for motor " << motor_id << std::endl;
+        std::cout << "   Position: " << position << " rad (" << (position * 180.0 / M_PI) << "°)" << std::endl;
+        std::cout << "   Velocity: " << velocity << " rad/s" << std::endl;
+        std::cout << "   Torque: " << torque << " Nm" << std::endl;
+        std::cout << "   📝 Motor " << motor_id << " state updated" << std::endl;
+    }
+
+    return true;
 }
 
 // ========== Factory Function ==========

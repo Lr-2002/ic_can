@@ -14,8 +14,12 @@
 
 #include "ic_can/core/ic_can.hpp"
 // #include "ic_can/core/torque_predictor_unified.h"  // Temporarily disabled
-#include "ic_can/core/wrist_component.hpp"
 #include "ic_can/core/gripper_component.hpp"
+#include "ic_can/core/wrist_component.hpp"
+// #include "ic_can/core/can_frame_dispatcher.hpp"  // Temporarily disabled
+// #include "ic_can/core/usb2can_communication_adapter.hpp"  // Temporarily
+// disabled
+#include "ic_can/core/arm_component.hpp"
 
 // Include stub implementations
 #include "ic_can/core/torque_predictor_unified.h"
@@ -23,6 +27,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <ctime>
@@ -52,11 +57,7 @@ struct FrictionParams {
   double velocity_threshold = 0.1; // Velocity threshold for friction activation
 };
 
-// Forward declarations for component classes
-class ArmComponent {
-public:
-  void print_info() { std::cout << "Arm Component (placeholder)" << std::endl; }
-};
+// ArmComponent is now defined in arm_component.hpp
 
 // Use the actual component implementations
 
@@ -74,7 +75,8 @@ public:
         logging_running_(false), performance_monitoring_(false),
         gravity_compensation_enabled_(true),
         friction_compensation_enabled_(false), velocity_damping_(0.1),
-        smooth_transition_(true), sgn_threshold_(0.01) {
+        smooth_transition_(true), sgn_threshold_(0.01),
+        wrist_monitor_running_(false), wrist_monitor_frequency_(50.0) {
     // Initialize motor gains with default values
     load_default_motor_gains();
 
@@ -88,16 +90,25 @@ public:
     total_bytes_received_ = 0;
     performance_start_time_ = std::chrono::high_resolution_clock::now();
 
+    // Initialize wrist monitoring data
+    last_wrist_positions_ = {0.0, 0.0};
+    last_wrist_velocities_ = {0.0, 0.0};
+    last_wrist_torques_ = {0.0, 0.0};
+    last_wrist_update_time_ = std::chrono::steady_clock::now();
+
     // Initialize unified torque predictor - using stub implementation
-    std::cout << "🔧 Initializing torque predictor with stub implementation..." << std::endl;
+    std::cout << "🔧 Initializing torque predictor with stub implementation..."
+              << std::endl;
     torque_predictor_ = std::make_unique<TorquePredictorUnified>();
     std::cout << "✅ Torque predictor initialized (stub)" << std::endl;
 
     // Initialize components
     wrist_component_ = std::make_unique<WristComponent>();
     gripper_component_ = std::make_unique<GripperComponent>();
+    arm_component_ = std::make_unique<ArmComponent>();
 
-    std::cout << "✅ Wrist and Gripper components initialized" << std::endl;
+    std::cout << "✅ Arm, Wrist, and Gripper components initialized"
+              << std::endl;
   }
 
   ~Impl() { shutdown(); }
@@ -147,6 +158,7 @@ public:
     if (connected_ && device_) {
       stop_high_frequency_control();
       stop_control_loop();
+      stop_wrist_position_monitoring();
       stop_logging();
       disable_frequency_monitoring();
       device_->USB_CMD_STOP_CAP();
@@ -532,12 +544,43 @@ public:
   }
 
   bool refresh_all() {
-    // Send status request to trigger position feedback
-    for (int motor_id = 1; motor_id <= 9; motor_id++) {
-      std::vector<uint8_t> status_cmd = {uint8_t(motor_id), 0x00, 0xCC, 0x00};
-      device_->fdcanFrameSend(status_cmd, 0x7FF); // Broadcast status request
+    if (!connected_ || !device_) {
+      std::cout << "❌ Cannot refresh - not connected" << std::endl;
+      return false;
     }
-    return true;
+
+    // Send status request to trigger position feedback for all motor types
+    bool success = true;
+
+    try {
+      // Refresh Damiao motors 1-6 with individual status requests
+      for (int motor_id = 1; motor_id <= 6; motor_id++) {
+        std::vector<uint8_t> status_cmd = {uint8_t(motor_id), 0x00, 0xCC, 0x00};
+        device_->fdcanFrameSend(status_cmd, motor_id);
+        if (debug_enabled_) {
+          std::cout << "📤 Sent status request to DM motor " << motor_id
+                    << std::endl;
+        }
+        usleep(500); // Small delay between requests
+      }
+
+      // Refresh HT motors 7-8 with their specific protocol
+      send_ht_read_state();
+
+      // Refresh servo motor 9
+      std::vector<uint8_t> servo_status_cmd = {0x09, 0x00, 0xCC, 0x00};
+      device_->fdcanFrameSend(servo_status_cmd, 9);
+
+      if (debug_enabled_) {
+        std::cout << "📤 Sent status request to servo motor 9" << std::endl;
+      }
+
+    } catch (const std::exception &e) {
+      std::cout << "❌ Error during refresh: " << e.what() << std::endl;
+      success = false;
+    }
+
+    return success;
   }
 
   std::vector<double> get_joint_positions() {
@@ -671,35 +714,85 @@ public:
   }
 
   bool start_high_frequency_control() {
-    if (hf_control_running_)
+    if (hf_control_running_) {
+      std::cout << "⚠️ High-frequency control already running" << std::endl;
       return true;
+    }
+
+    if (!connected_ || !device_) {
+      std::cout << "❌ Cannot start high-frequency control - not connected"
+                << std::endl;
+      return false;
+    }
+
+    std::cout << "🚀 Starting high-frequency control at 500Hz..." << std::endl;
 
     hf_control_running_ = true;
     hf_control_thread_ = std::thread([this]() {
+      auto target_period = std::chrono::microseconds(2000); // 500Hz = 2ms
+      auto last_time = std::chrono::steady_clock::now();
+      uint64_t iteration_count = 0;
+      auto performance_report_time = last_time + std::chrono::seconds(5);
+
       while (hf_control_running_) {
         auto start_time = std::chrono::steady_clock::now();
 
-        // Send commands and receive data at 500Hz (2ms period)
-        refresh_all();
+        // Send refresh commands to all motors
+        bool refresh_success = refresh_all();
 
-        // Calculate time to sleep to maintain 500Hz
+        // Track performance
+        if (!refresh_success) {
+          std::cout << "⚠️ Refresh failed at iteration " << iteration_count
+                    << std::endl;
+        }
+
+        iteration_count++;
+
+        // Performance monitoring and reporting
+        auto current_time = std::chrono::steady_clock::now();
+        if (current_time >= performance_report_time) {
+          auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                             current_time - last_time)
+                             .count();
+          double actual_frequency =
+              static_cast<double>(iteration_count) / elapsed;
+
+          if (debug_enabled_) {
+            std::cout << "📊 HF Control Performance: " << std::fixed
+                      << std::setprecision(1) << actual_frequency
+                      << " Hz (target: 500Hz)" << std::endl;
+          }
+
+          // Reset counters
+          iteration_count = 0;
+          last_time = current_time;
+          performance_report_time = current_time + std::chrono::seconds(5);
+        }
+
+        // Calculate precise sleep time to maintain 500Hz
         auto elapsed = std::chrono::steady_clock::now() - start_time;
-        auto sleep_time = std::chrono::milliseconds(2) - elapsed;
+        auto sleep_time = target_period - elapsed;
 
         if (sleep_time.count() > 0) {
           std::this_thread::sleep_for(sleep_time);
+        } else if (sleep_time.count() < -1000) { // More than 1ms overtime
+          std::cout << "⚠️ HF control overtime: " << -sleep_time.count()
+                    << " microseconds" << std::endl;
         }
       }
     });
 
+    std::cout << "✅ High-frequency control thread started" << std::endl;
     return true;
   }
 
   void stop_high_frequency_control() {
+    std::cout << "🛑 Stopping high-frequency control..." << std::endl;
     hf_control_running_ = false;
     if (hf_control_thread_.joinable()) {
       hf_control_thread_.join();
     }
+    std::cout << "✅ High-frequency control stopped" << std::endl;
   }
 
   bool is_hf_control_running() const { return hf_control_running_; }
@@ -707,8 +800,15 @@ public:
   // Configurable control loop implementation with offline trajectory
   // generation
   bool start_control_loop(double frequency) {
-    if (control_running_)
+    if (control_running_) {
+      std::cout << "⚠️ Control loop already running" << std::endl;
       return true;
+    }
+
+    if (!connected_ || !device_) {
+      std::cout << "❌ Cannot start control loop - not connected" << std::endl;
+      return false;
+    }
 
     if (frequency <= 0 || frequency > 1000) {
       std::cout << "❌ Invalid frequency: " << frequency
@@ -736,10 +836,18 @@ public:
       // Get current and target positions
       current_positions_ = get_joint_positions();
 
+      if (target_positions_.empty()) {
+        std::cout << "⚠️ No target positions set, using current positions"
+                  << std::endl;
+        target_positions_ = current_positions_;
+      }
+
       // Pre-compute entire trajectory offline
-      std::cout << "📊 Pre-computing trajectory..." << std::endl;
-      std::cout << "📊 [DEBUG] Current target_positions_ size: "
-                << target_positions_.size() << std::endl;
+      std::cout << "📊 Pre-computing trajectory at " << frequency << "Hz..."
+                << std::endl;
+      std::cout << "📊 Target positions size: " << target_positions_.size()
+                << std::endl;
+
       trajectory_points_ =
           generate_trajectory_offline(current_positions_, target_positions_,
                                       1.0 / control_frequency_, max_velocity_);
@@ -749,14 +857,23 @@ public:
                 << " trajectory points" << std::endl;
     }
 
-    control_thread_ = std::thread([this]() {
-      auto period = std::chrono::duration<double>(1.0 / control_frequency_);
-      std::cout << "[Notice] sleep time is " << period.count() << std::endl;
+    control_thread_ = std::thread([this, frequency]() {
+      auto target_period =
+          std::chrono::duration<double>(1.0 / control_frequency_);
+      auto last_time = std::chrono::steady_clock::now();
+      uint64_t loop_iterations = 0;
+      auto performance_report_time = last_time + std::chrono::seconds(5);
+
+      std::cout << "🎮 Control loop started with period: "
+                << target_period.count() * 1000 << " ms" << std::endl;
+
       while (control_running_) {
         auto start_time = std::chrono::steady_clock::now();
 
         // Get next pre-computed position from trajectory
         std::vector<double> next_position;
+        bool trajectory_complete = false;
+
         {
           std::lock_guard<std::mutex> lock(interpolation_mutex_);
 
@@ -764,33 +881,74 @@ public:
             next_position = trajectory_points_[current_trajectory_index_];
             current_trajectory_index_++;
 
-            /*std::cout << "🎯 Step " << current_trajectory_index_ << "/"*/
-            /*          << trajectory_points_.size() << ": ";*/
-            /*for (int i = 0; i < 9; i++) {*/
-            /*  std::cout << std::fixed << std::setprecision(3)*/
-            /*            << next_position[i] << " ";*/
-            /*}*/
-            /*std::cout << std::endl;*/
+            if (debug_enabled_ && (loop_iterations % 100 == 0)) {
+              std::cout << "🎯 Step " << current_trajectory_index_ << "/"
+                        << trajectory_points_.size() << ": ";
+              for (int i = 0; i < std::min(9, (int)next_position.size()); i++) {
+                std::cout << std::fixed << std::setprecision(3)
+                          << next_position[i] << " ";
+              }
+              std::cout << std::endl;
+            }
           } else {
             // Trajectory completed, hold final position
             next_position = trajectory_points_.back();
-            /*std::cout << "🏁 Trajectory completed, holding position"*/
-            /*          << std::endl;*/
+            trajectory_complete = true;
+
+            if (loop_iterations % 500 == 0) {
+              std::cout << "🏁 Trajectory completed, holding position"
+                        << std::endl;
+            }
           }
         }
 
-        // Send position to motors
-        set_joint_positions(next_position, {}, {});
+        // Send position to motors with error handling
+        bool command_success = set_joint_positions(next_position, {}, {});
+        if (!command_success) {
+          std::cout << "⚠️ Failed to send position command at iteration "
+                    << loop_iterations << std::endl;
+        }
 
-        // Request status updates
-        /*refresh_all();*/
+        // Optionally request status updates (can be disabled for performance)
+        if (control_frequency_ <= 100) { // Only refresh at lower frequencies
+          refresh_all();
+        }
 
-        // Calculate sleep time to maintain frequency
+        loop_iterations++;
+
+        // Performance monitoring
+        auto current_time = std::chrono::steady_clock::now();
+        if (current_time >= performance_report_time) {
+          auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                             current_time - last_time)
+                             .count();
+          double actual_frequency =
+              static_cast<double>(loop_iterations) / elapsed;
+
+          std::cout << "📊 Control Loop Performance: " << std::fixed
+                    << std::setprecision(1) << actual_frequency
+                    << " Hz (target: " << control_frequency_ << "Hz)"
+                    << std::endl;
+          if (trajectory_complete) {
+            std::cout << "📍 Status: Holding final position" << std::endl;
+          }
+
+          // Reset counters
+          loop_iterations = 0;
+          last_time = current_time;
+          performance_report_time = current_time + std::chrono::seconds(5);
+        }
+
+        // Calculate precise sleep time to maintain frequency
         auto elapsed = std::chrono::steady_clock::now() - start_time;
-        auto sleep_time = period - elapsed;
+        auto sleep_time = target_period - elapsed;
 
         if (sleep_time.count() > 0) {
           std::this_thread::sleep_for(sleep_time);
+        } else if (sleep_time.count() <
+                   -target_period.count() * 0.5) { // More than 50% overtime
+          std::cout << "⚠️ Control loop significant overtime: "
+                    << -sleep_time.count() * 1000 << " ms" << std::endl;
         }
       }
     });
@@ -801,12 +959,276 @@ public:
   }
 
   void stop_control_loop() {
+    std::cout << "🛑 Stopping control loop..." << std::endl;
     control_running_ = false;
     if (control_thread_.joinable()) {
       control_thread_.join();
     }
     std::cout << "✅ Control loop stopped" << std::endl;
   }
+
+  // Emergency stop method for safety
+  bool emergency_stop() {
+    std::cout << "🚨 EMERGENCY STOP ACTIVATED!" << std::endl;
+
+    // Stop all control loops immediately
+    hf_control_running_ = false;
+    control_running_ = false;
+
+    // Wait for threads to finish
+    if (hf_control_thread_.joinable()) {
+      hf_control_thread_.join();
+    }
+    if (control_thread_.joinable()) {
+      control_thread_.join();
+    }
+
+    // Send zero torque commands to all motors
+    bool success = true;
+    try {
+      std::vector<double> zero_torques(9, 0.0);
+      std::vector<double> dummy_positions(9, 0.0);
+      std::vector<double> dummy_velocities(9, 0.0);
+      success =
+          set_joint_positions(dummy_positions, dummy_velocities, zero_torques);
+
+      // Hold current positions with minimal gains
+      auto current_pos = get_joint_positions();
+      std::vector<double> min_gains(9, 0.1);
+      std::vector<double> min_dgains(9, 0.01);
+      set_all_motor_gains(min_gains, min_dgains);
+      set_joint_positions(current_pos, {}, {});
+
+      std::cout << "🛑 Emergency stop completed - motors in safe hold mode"
+                << std::endl;
+    } catch (const std::exception &e) {
+      std::cout << "❌ Emergency stop error: " << e.what() << std::endl;
+      success = false;
+    }
+
+    return success;
+  }
+
+  // Safety check method
+  bool check_system_safety() {
+    if (!connected_ || !device_) {
+      std::cout << "❌ Safety check failed: Not connected" << std::endl;
+      return false;
+    }
+
+    // Check motor feedback freshness
+    auto now = std::chrono::steady_clock::now();
+    auto time_since_last_feedback =
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - std::chrono::steady_clock::time_point(
+                      performance_start_time_.time_since_epoch()))
+            .count();
+
+    if (time_since_last_feedback > 1000) { // No feedback for more than 1 second
+      std::cout << "⚠️ Safety warning: No motor feedback for "
+                << time_since_last_feedback << " ms" << std::endl;
+      return false;
+    }
+
+    // Check motor positions are within reasonable bounds
+    auto positions = get_joint_positions();
+    for (int i = 0; i < 6; i++) {                 // Check arm motors
+      if (std::abs(positions[i]) > 3.14159 * 2) { // More than 360 degrees
+        std::cout << "⚠️ Safety warning: Motor " << (i + 1)
+                  << " position out of bounds: " << positions[i] << " rad"
+                  << std::endl;
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  // Wrist position monitoring methods
+  bool start_wrist_position_monitoring(double frequency = 50.0) {
+    if (wrist_monitor_running_) {
+      std::cout << "⚠️ Wrist position monitoring already running" << std::endl;
+      return true;
+    }
+
+    if (!connected_ || !device_) {
+      std::cout << "❌ Cannot start wrist monitoring - not connected"
+                << std::endl;
+      return false;
+    }
+
+    if (frequency <= 0 || frequency > 1000) {
+      std::cout << "❌ Invalid wrist monitoring frequency: " << frequency
+                << " Hz (must be 0-1000 Hz)" << std::endl;
+      return false;
+    }
+
+    std::cout << "🦾 Starting wrist position monitoring at " << frequency
+              << "Hz..." << std::endl;
+
+    wrist_monitor_running_ = true;
+    wrist_monitor_frequency_ = frequency;
+    wrist_monitor_thread_ = std::thread([this]() {
+      auto target_period =
+          std::chrono::duration<double>(1.0 / wrist_monitor_frequency_);
+      auto last_time = std::chrono::steady_clock::now();
+      uint64_t monitor_iterations = 0;
+      auto report_time = last_time + std::chrono::seconds(5);
+
+      while (wrist_monitor_running_) {
+        auto start_time = std::chrono::steady_clock::now();
+
+        // Refresh wrist motors only (motors 7 and 8)
+        refresh_wrist_motors_only();
+
+        // Get wrist positions
+        auto wrist_positions = get_wrist_positions();
+        auto wrist_velocities = get_wrist_velocities();
+        auto wrist_torques = get_wrist_torques();
+
+        // Log wrist data at reduced rate
+        if (debug_enabled_ && (monitor_iterations % 25 == 0)) {
+          std::cout << "🦾 Wrist [" << monitor_iterations << "]: ";
+          std::cout << "Pos[7]=" << std::fixed << std::setprecision(3)
+                    << wrist_positions[0] << " ("
+                    << (wrist_positions[0] * 180.0 / M_PI) << "°), ";
+          std::cout << "Pos[8]=" << wrist_positions[1] << " ("
+                    << (wrist_positions[1] * 180.0 / M_PI) << "°)";
+          std::cout << std::endl;
+        }
+
+        // Store wrist monitoring data
+        {
+          std::lock_guard<std::mutex> lock(wrist_monitor_mutex_);
+          last_wrist_positions_ = wrist_positions;
+          last_wrist_velocities_ = wrist_velocities;
+          last_wrist_torques_ = wrist_torques;
+          last_wrist_update_time_ = std::chrono::steady_clock::now();
+        }
+
+        monitor_iterations++;
+
+        // Performance reporting
+        auto current_time = std::chrono::steady_clock::now();
+        if (current_time >= report_time) {
+          auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                             current_time - last_time)
+                             .count();
+          double actual_frequency =
+              static_cast<double>(monitor_iterations) / elapsed;
+
+          std::cout << "🦾 Wrist Monitor Performance: " << std::fixed
+                    << std::setprecision(1) << actual_frequency
+                    << " Hz (target: " << wrist_monitor_frequency_ << "Hz)"
+                    << std::endl;
+
+          monitor_iterations = 0;
+          last_time = current_time;
+          report_time = current_time + std::chrono::seconds(5);
+        }
+
+        // Sleep to maintain frequency
+        auto elapsed = std::chrono::steady_clock::now() - start_time;
+        auto sleep_time = target_period - elapsed;
+
+        if (sleep_time.count() > 0) {
+          std::this_thread::sleep_for(sleep_time);
+        }
+      }
+    });
+
+    std::cout << "✅ Wrist position monitoring started" << std::endl;
+    return true;
+  }
+
+  void stop_wrist_position_monitoring() {
+    std::cout << "🛑 Stopping wrist position monitoring..." << std::endl;
+    wrist_monitor_running_ = false;
+    if (wrist_monitor_thread_.joinable()) {
+      wrist_monitor_thread_.join();
+    }
+    std::cout << "✅ Wrist position monitoring stopped" << std::endl;
+  }
+
+  bool refresh_wrist_motors_only() {
+    if (!connected_ || !device_) {
+      return false;
+    }
+
+    try {
+      // Send HT read state command to refresh wrist motors 7 and 8
+      send_ht_read_state();
+
+      if (debug_enabled_) {
+        std::cout << "📤 Refreshed wrist motors (7, 8)" << std::endl;
+      }
+
+      return true;
+    } catch (const std::exception &e) {
+      std::cout << "❌ Error refreshing wrist motors: " << e.what()
+                << std::endl;
+      return false;
+    }
+  }
+
+  std::vector<double> get_wrist_positions() {
+    auto all_positions = get_joint_positions();
+    return {all_positions[6],
+            all_positions[7]}; // Motors 7 and 8 (0-indexed as 6, 7)
+  }
+
+  std::vector<double> get_wrist_velocities() {
+    auto all_velocities = get_joint_velocities();
+    return {all_velocities[6], all_velocities[7]};
+  }
+
+  std::vector<double> get_wrist_torques() {
+    auto all_torques = get_joint_torques();
+    return {all_torques[6], all_torques[7]};
+  }
+
+  std::map<std::string, std::vector<double>> get_wrist_monitoring_data() {
+    std::lock_guard<std::mutex> lock(wrist_monitor_mutex_);
+
+    auto now = std::chrono::steady_clock::now();
+    auto time_since_update =
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - last_wrist_update_time_)
+            .count();
+
+    return {{"positions", last_wrist_positions_},
+            {"velocities", last_wrist_velocities_},
+            {"torques", last_wrist_torques_},
+            {"update_age_ms", {static_cast<double>(time_since_update)}}};
+  }
+
+  void print_wrist_status() {
+    auto wrist_data = get_wrist_monitoring_data();
+    auto positions = wrist_data["positions"];
+    auto velocities = wrist_data["velocities"];
+    auto torques = wrist_data["torques"];
+    auto update_age = wrist_data["update_age_ms"][0];
+
+    std::cout << "\n=== Wrist Status Monitor ===" << std::endl;
+    std::cout << "Motor 7 (Pitch): " << std::fixed << std::setprecision(3)
+              << positions[0] << " rad (" << (positions[0] * 180.0 / M_PI)
+              << "°)" << std::endl;
+    std::cout << "Motor 8 (Roll):  " << std::fixed << std::setprecision(3)
+              << positions[1] << " rad (" << (positions[1] * 180.0 / M_PI)
+              << "°)" << std::endl;
+    std::cout << "Velocities: [" << velocities[0] << ", " << velocities[1]
+              << "] rad/s" << std::endl;
+    std::cout << "Torques: [" << torques[0] << ", " << torques[1] << "] Nm"
+              << std::endl;
+    std::cout << "Last update: " << update_age << " ms ago" << std::endl;
+
+    if (update_age > 100) {
+      std::cout << "⚠️ Warning: Stale wrist data!" << std::endl;
+    }
+    std::cout << "=========================" << std::endl;
+  }
+
+  bool is_wrist_monitoring_running() const { return wrist_monitor_running_; }
 
   bool is_control_running() const { return control_running_; }
 
@@ -911,7 +1333,8 @@ public:
   // Gravity compensation configuration
   bool enable_gravity_compensation() {
     if (!torque_predictor_ || !torque_predictor_->is_initialized()) {
-      std::cout << "❌ Cannot enable gravity compensation - torque predictor not initialized"
+      std::cout << "❌ Cannot enable gravity compensation - torque predictor "
+                   "not initialized"
                 << std::endl;
       return false;
     }
@@ -1206,6 +1629,11 @@ private:
   // Component instances
   std::unique_ptr<WristComponent> wrist_component_;
   std::unique_ptr<GripperComponent> gripper_component_;
+  std::unique_ptr<ArmComponent> arm_component_;
+
+  // Communication architecture (temporarily disabled)
+  // std::unique_ptr<USB2CANCommunicationAdapter> communication_adapter_;
+  // std::unique_ptr<CANFrameDispatcher> can_dispatcher_;
 
   // Torque predictor instance - using stub implementation
   std::unique_ptr<TorquePredictorUnified> torque_predictor_;
@@ -1225,8 +1653,52 @@ private:
     if (can_id == 0x11)
       receive_count_++;
     total_bytes_received_ += frame.head.dlc;
+    std::cout << " running recv " << std::endl;
+    // Debug: Print ALL received CAN frames when debug mode is enabled
+    if (debug_enabled_) {
+      std::cout << "📥 CAN RECV: ID=0x" << std::hex << can_id << std::dec
+                << ", DLC=" << (int)frame.head.dlc << ", Data: ";
 
-    /*std::cout << "receive from " << can_id << std::endl;*/
+      // Print ALL data bytes in the frame (up to 64 bytes for safety)
+      for (int i = 0; i < frame.head.dlc && i < 64; i++) {
+        std::cout << std::hex << "0x" << std::setw(2) << std::setfill('0')
+                  << (int)frame.data[i] << " ";
+      }
+      std::cout << std::dec << std::endl;
+
+      // Print frame timestamp and additional details
+      auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
+                           std::chrono::steady_clock::now().time_since_epoch())
+                           .count();
+      std::cout << "   Timestamp: " << timestamp << " ms" << std::endl;
+
+      // Print raw frame structure details
+      std::cout << "   Frame Structure:" << std::endl;
+      std::cout << "     CAN ID: 0x" << std::hex << can_id << std::dec << " ("
+                << can_id << ")" << std::endl;
+      std::cout << "     DLC: " << (int)frame.head.dlc << " bytes" << std::endl;
+      std::cout << "     Data Bytes (" << frame.head.dlc << "): ";
+      for (int i = 0; i < frame.head.dlc && i < 8; i++) {
+        std::cout << "[" << i << "]=0x" << std::hex << std::setw(2)
+                  << std::setfill('0') << (int)frame.data[i] << std::dec << " ";
+      }
+      std::cout << std::endl;
+
+      // Check if this is an HT motor frame
+      if (can_id == 0x700) {
+        std::cout << "   → This is HT motor 7 (pitch) feedback!" << std::endl;
+      } else if (can_id == 0x800) {
+        std::cout << "   → This is HT motor 8 (roll) feedback!" << std::endl;
+      } else if (can_id >= 0x11 && can_id <= 0x16) {
+        std::cout << "   → This is DM motor " << (can_id - 0x10) << " feedback!"
+                  << std::endl;
+      } else if (can_id == 0x19) {
+        std::cout << "   → This is Servo motor 9 feedback!" << std::endl;
+      } else {
+        std::cout << "   → Unknown CAN ID, not handled by any component!"
+                  << std::endl;
+      }
+    }
 
     // Handle Damiao motor feedback (motors 1-6)
     if (can_id >= 0x11 && can_id <= 0x16) {
@@ -1291,6 +1763,13 @@ private:
     if (frame.head.dlc < 7)
       return;
 
+    // Debug: Print HT motor processing
+    if (debug_enabled_) {
+      std::cout << "🔧 Processing HT motor feedback for motor idx: "
+                << motor_idx << " (actual motor " << (motor_idx + 1) << ")"
+                << std::endl;
+    }
+
     // Extract HT motor data (same as HT test)
     int16_t pos_int =
         static_cast<int16_t>(frame.data[1] | (frame.data[2] << 8));
@@ -1307,10 +1786,42 @@ private:
     const double torque_d = -0.083;
     double torque = torque_int * torque_k + torque_d;
 
+    if (debug_enabled_) {
+      std::cout << "   Raw pos_int: " << pos_int << " → position: " << position
+                << " rad (" << (position * 180.0 / M_PI) << "°)" << std::endl;
+      std::cout << "   Raw vel_int: " << vel_int << " → velocity: " << velocity
+                << " rad/s" << std::endl;
+      std::cout << "   Raw torque_int: " << torque_int
+                << " → torque: " << torque << " Nm" << std::endl;
+    }
+
     // Update atomic values
     positions_[motor_idx].store(position);
     velocities_[motor_idx].store(velocity);
     torques_[motor_idx].store(torque);
+
+    // Forward to wrist component if this is motor 7 or 8
+    if (wrist_component_ && (motor_idx == 6 || motor_idx == 7)) {
+      int wrist_motor_id =
+          (motor_idx == 6) ? 7 : 8; // Convert to wrist motor IDs
+
+      // Create CAN frame for wrist component
+      CANFrame wrist_frame;
+      wrist_frame.id = (motor_idx == 6) ? 0x700 : 0x800;
+      wrist_frame.data.resize(frame.head.dlc);
+      for (int i = 0; i < frame.head.dlc; i++) {
+        wrist_frame.data[i] = frame.data[i];
+      }
+
+      if (debug_enabled_) {
+        std::cout << "📤 Forwarding HT motor " << wrist_motor_id
+                  << " data to wrist component (CAN ID: 0x" << std::hex
+                  << wrist_frame.id << std::dec << ")" << std::endl;
+      }
+
+      // Send to wrist component
+      wrist_component_->process_can_frame(wrist_frame);
+    }
   }
 
   void send_dm_mit_command(int motor_id, double position, double velocity,
@@ -1379,41 +1890,177 @@ private:
     std::cout << std::dec << std::endl;
     return;
   }
+
+  void send_ht_brake_command() {
+    // Send HT brake command based on Python implementation
+    // Format: [0x01, 0x00, 0x0f, 0x00, 0x00, 0x00, 0x00, 0x00] (8 bytes)
+    // CAN ID: (0x80 | id) << 8 | id, where id is 7 or 8
+    std::vector<uint8_t> data = {0x01, 0x00, 0x0f, 0x00,
+                                 0x00, 0x00, 0x00, 0x00};
+
+    // Send to both HT motors 7 and 8
+    for (int motor_id = 7; motor_id <= 8; motor_id++) {
+      uint32_t can_id = ((0x80 | motor_id) << 8) | motor_id;
+
+      total_bytes_sent_ += 8;
+      std::cout << "📤 Sending HT BRAKE command to motor " << motor_id
+                << std::endl;
+
+      if (debug_enabled_) {
+        std::cout << "   📤 CAN SEND: ID=0x" << std::hex << can_id << std::dec
+                  << ", DLC=8, Data: ";
+        for (int i = 0; i < 8; i++) {
+          std::cout << std::hex << "0x" << (int)data[i] << " ";
+        }
+        std::cout << std::dec << std::endl;
+      }
+
+      device_->fdcanFrameSend(data, can_id);
+      if (debug_enabled_) {
+        std::cout << "   ✅ HT BRAKE command sent to motor " << motor_id
+                  << " successfully" << std::endl;
+      }
+    }
+  }
+
+  void send_ht_read_state() {
+    std::cout << "📤 Reading state of two HT motors" << std::endl;
+
+    // HT read state command format
+    /*std::vector<unsigned char> cmd = {0x01, 0x00, 0x00, 0x11, 0x00, 0x1f,*/
+    /*                                  0x01, 0x13, 0x0d, 0x50, 0x50, 0x50};*/
+    /*std::vector<unsigned char> cmd = {0x15, 0x05, 0x02};*/
+    std::vector<unsigned char> cmd = {0x17, 0x01, 0x00, 0x00};
+
+    // Send to HT motor 7 (CAN ID: 0x8707)
+    device_->fdcanFrameSend(cmd, 0x8007);
+
+    // Send to HT motor 8 (CAN ID: 0x8808)
+    device_->fdcanFrameSend(cmd, 0x8008);
+
+    if (debug_enabled_) {
+      std::cout << "   📤 CAN SEND: ID=0x8007, DLC=8, Data: ";
+      for (size_t i = 0; i < cmd.size(); i++) {
+        std::cout << std::hex << "0x" << (int)cmd[i] << " ";
+      }
+      std::cout << std::dec << " (HT Motor 7)" << std::endl;
+
+      std::cout << "   📤 CAN SEND: ID=0x8008, DLC=8, Data: ";
+      for (size_t i = 0; i < cmd.size(); i++) {
+        std::cout << std::hex << "0x" << (int)cmd[i] << " ";
+      }
+      std::cout << std::dec << " (HT Motor 8)" << std::endl;
+
+      std::cout << "   ✅ HT read state commands sent successfully"
+                << std::endl;
+    }
+  }
+
   void send_ht_mit_command(double position, double velocity, double torque,
                            double kp, double kd) {
+    // Placeholder implementation for HT MIT command (single motor interface)
+    std::cout << "📤 HT MIT command called (placeholder) - pos=" << position
+              << ", vel=" << velocity << ", tau=" << torque << std::endl;
+    // This would need to be implemented based on your specific HT motor
+    // protocol
+  }
+
+  void send_ht_set_zero_command() {
+    // Placeholder implementation for HT set zero command
+    std::cout << "📤 HT set zero command called (placeholder)" << std::endl;
+    // This would need to be implemented based on your specific HT motor
+    // protocol
+  }
+
+  void send_ht_mit_command_with_movement(double m7_position, double m7_velocity,
+                                         double m7_torque, double m8_position,
+                                         double m8_velocity, double m8_torque,
+                                         double kp, double kd) {
     // Track send frequency
-    std::cout << "-----------------------sennding ht " << std::endl;
-    total_bytes_sent_ += 12; // HT command is 12 bytes
+    std::cout
+        << "📤 Sending HT MIT command - Movement mode (Independent motors)"
+        << std::endl;
+    total_bytes_sent_ += 24; // HT command is 24 bytes
     // HT motor conversion constants
     const double RAD_TO_TURN = 1.0 / (2.0 * M_PI);
     const double torque_k = 0.004855;
     const double torque_d = -0.083;
 
-    // Convert to motor units
-    double pos_turns = position * RAD_TO_TURN;
-    double vel_turns = velocity * RAD_TO_TURN;
+    // Convert Motor 7 to motor units
+    double m7_pos_turns = m7_position * RAD_TO_TURN;
+    double m7_vel_turns = m7_velocity * RAD_TO_TURN;
+    int16_t m7_pos_int = static_cast<int16_t>(m7_pos_turns / 0.0001);
+    int16_t m7_vel_int = static_cast<int16_t>(m7_vel_turns / 0.00025);
+    int16_t m7_torque_int =
+        static_cast<int16_t>((m7_torque - torque_d) / torque_k);
 
-    // Convert to int16 format
-    int16_t pos_int = static_cast<int16_t>(pos_turns / 0.0001);
-    int16_t vel_int = static_cast<int16_t>(vel_turns / 0.00025);
+    // Convert Motor 8 to motor units
+    double m8_pos_turns = m8_position * RAD_TO_TURN;
+    double m8_vel_turns = m8_velocity * RAD_TO_TURN;
+    int16_t m8_pos_int = static_cast<int16_t>(m8_pos_turns / 0.0001);
+    int16_t m8_vel_int = static_cast<int16_t>(m8_vel_turns / 0.00025);
+    int16_t m8_torque_int =
+        static_cast<int16_t>((m8_torque - torque_d) / torque_k);
+
+    // Convert gains to int16 format (same for both motors)
     int16_t kp_int = static_cast<int16_t>(kp * 10);
     int16_t kd_int = static_cast<int16_t>(kd * 10);
-    int16_t torque_int = static_cast<int16_t>((torque - torque_d) / torque_k);
 
-    // Pack HT MIT command (12 bytes)
-    std::vector<uint8_t> data(12, 0);
-    data[0] = pos_int & 0xFF;
-    data[1] = (pos_int >> 8) & 0xFF;
-    data[2] = vel_int & 0xFF;
-    data[3] = (vel_int >> 8) & 0xFF;
-    data[4] = torque_int & 0xFF;
-    data[5] = (torque_int >> 8) & 0xFF;
-    data[6] = kp_int & 0xFF;
-    data[7] = (kp_int >> 8) & 0xFF;
-    data[8] = kd_int & 0xFF;
-    data[9] = (kd_int >> 8) & 0xFF;
-    data[10] = 0x00;
-    data[11] = 0x00;
+    // Pack HT MIT command (24 bytes split correctly)
+    std::vector<uint8_t> data(24, 0);
+
+    // First 10 bytes: Motor 7 MIT command
+    data[0] = m7_pos_int & 0xFF;           // Motor 7 Position LSB
+    data[1] = (m7_pos_int >> 8) & 0xFF;    // Motor 7 Position MSB
+    data[2] = m7_vel_int & 0xFF;           // Motor 7 Velocity LSB
+    data[3] = (m7_vel_int >> 8) & 0xFF;    // Motor 7 Velocity MSB
+    data[4] = m7_torque_int & 0xFF;        // Motor 7 Torque LSB
+    data[5] = (m7_torque_int >> 8) & 0xFF; // Motor 7 Torque MSB
+    data[6] = kp_int & 0xFF;               // Motor 7 Kp LSB
+    data[7] = (kp_int >> 8) & 0xFF;        // Motor 7 Kp MSB
+    data[8] = kd_int & 0xFF;               // Motor 7 Kd LSB
+    data[9] = (kd_int >> 8) & 0xFF;        // Motor 7 Kd MSB
+
+    // Next 10 bytes: Motor 8 MIT command (independent data)
+    data[10] = m8_pos_int & 0xFF;           // Motor 8 Position LSB
+    data[11] = (m8_pos_int >> 8) & 0xFF;    // Motor 8 Position MSB
+    data[12] = m8_vel_int & 0xFF;           // Motor 8 Velocity LSB
+    data[13] = (m8_vel_int >> 8) & 0xFF;    // Motor 8 Velocity MSB
+    data[14] = m8_torque_int & 0xFF;        // Motor 8 Torque LSB
+    data[15] = (m8_torque_int >> 8) & 0xFF; // Motor 8 Torque MSB
+    data[16] = kp_int & 0xFF;               // Motor 8 Kp LSB
+    data[17] = (kp_int >> 8) & 0xFF;        // Motor 8 Kp MSB
+    data[18] = kd_int & 0xFF;               // Motor 8 Kd LSB
+    data[19] = (kd_int >> 8) & 0xFF;        // Motor 8 Kd MSB
+
+    // Last 4 bytes: Position request flags
+    data[20] = 0x50;
+    data[21] = 0x50;
+    data[22] = 0x17;
+    data[23] = 0x01;
+
+    if (debug_enabled_) {
+      std::cout << "   Motor 7 - Position: " << m7_position << " rad ("
+                << (m7_position * 180.0 / M_PI) << "°)" << std::endl;
+      std::cout << "   Motor 8 - Position: " << m8_position << " rad ("
+                << (m8_position * 180.0 / M_PI) << "°)" << std::endl;
+      std::cout << "   HT Command Structure:" << std::endl;
+      std::cout << "   - Motor 7 (bytes 0-9): ";
+      for (int i = 0; i < 10; i++) {
+        std::cout << std::hex << "0x" << std::setw(2) << std::setfill('0')
+                  << (int)data[i] << " ";
+      }
+      std::cout << std::dec << std::endl;
+      std::cout << "   - Motor 8 (bytes 10-19): ";
+      for (int i = 10; i < 20; i++) {
+        std::cout << std::hex << "0x" << std::setw(2) << std::setfill('0')
+                  << (int)data[i] << " ";
+      }
+      std::cout << std::dec << std::endl;
+      std::cout << "   - Flags (bytes 20-23): 0x" << std::hex << (int)data[20]
+                << " 0x" << (int)data[21] << " 0x" << (int)data[22] << " 0x"
+                << (int)data[23] << std::dec << std::endl;
+    }
 
     device_->fdcanFrameSend(data, 0x8094); // HT uses fixed ID 0x8094
   }
@@ -1568,6 +2215,18 @@ private:
 
   // Performance monitor thread function
   void performance_monitor_thread_function();
+
+  // Wrist monitoring member variables
+  std::atomic<bool> wrist_monitor_running_;
+  std::thread wrist_monitor_thread_;
+  double wrist_monitor_frequency_;
+  std::mutex wrist_monitor_mutex_;
+
+  // Wrist monitoring data storage
+  std::vector<double> last_wrist_positions_;
+  std::vector<double> last_wrist_velocities_;
+  std::vector<double> last_wrist_torques_;
+  std::chrono::steady_clock::time_point last_wrist_update_time_;
 
   // Get current timestamp as ISO string
   std::string get_current_timestamp() {
@@ -1803,19 +2462,12 @@ std::map<std::string, std::string> IC_CAN::get_system_status() {
 }
 void IC_CAN::print_system_info() { impl_->print_system_info(); }
 
-// Placeholder implementations for components
-ArmComponent &IC_CAN::get_arm() {
-  static ArmComponent dummy_arm;
-  return dummy_arm;
-}
+// Component implementations
+ArmComponent &IC_CAN::get_arm() { return *impl_->arm_component_; }
 
-WristComponent &IC_CAN::get_wrist() {
-  return *impl_->wrist_component_;
-}
+WristComponent &IC_CAN::get_wrist() { return *impl_->wrist_component_; }
 
-GripperComponent &IC_CAN::get_gripper() {
-  return *impl_->gripper_component_;
-}
+GripperComponent &IC_CAN::get_gripper() { return *impl_->gripper_component_; }
 
 SafetyModule &IC_CAN::get_safety() {
   static SafetyModule dummy_safety;
@@ -1914,6 +2566,66 @@ bool IC_CAN::load_friction_params_from_file(const std::string &filename) {
 
 void IC_CAN::print_friction_compensation_status() {
   impl_->print_friction_compensation_status();
+}
+
+void IC_CAN::send_ht_mit_command(double position, double velocity,
+                                 double torque, double kp, double kd) {
+  impl_->send_ht_mit_command(position, velocity, torque, kp, kd);
+}
+
+void IC_CAN::send_ht_mit_command_with_movement(
+    double m7_position, double m7_velocity, double m7_torque,
+    double m8_position, double m8_velocity, double m8_torque, double kp,
+    double kd) {
+  impl_->send_ht_mit_command_with_movement(m7_position, m7_velocity, m7_torque,
+                                           m8_position, m8_velocity, m8_torque,
+                                           kp, kd);
+}
+
+void IC_CAN::send_ht_set_zero_command() { impl_->send_ht_set_zero_command(); }
+
+void IC_CAN::send_ht_brake_command() { impl_->send_ht_brake_command(); }
+
+void IC_CAN::send_ht_read_state() { impl_->send_ht_read_state(); }
+
+// Safety and emergency methods
+bool IC_CAN::emergency_stop() { return impl_->emergency_stop(); }
+
+bool IC_CAN::check_system_safety() { return impl_->check_system_safety(); }
+
+// Wrist position monitoring methods
+bool IC_CAN::start_wrist_position_monitoring(double frequency) {
+  return impl_->start_wrist_position_monitoring(frequency);
+}
+
+void IC_CAN::stop_wrist_position_monitoring() {
+  impl_->stop_wrist_position_monitoring();
+}
+
+bool IC_CAN::refresh_wrist_motors_only() {
+  return impl_->refresh_wrist_motors_only();
+}
+
+std::vector<double> IC_CAN::get_wrist_positions() {
+  return impl_->get_wrist_positions();
+}
+
+std::vector<double> IC_CAN::get_wrist_velocities() {
+  return impl_->get_wrist_velocities();
+}
+
+std::vector<double> IC_CAN::get_wrist_torques() {
+  return impl_->get_wrist_torques();
+}
+
+std::map<std::string, std::vector<double>> IC_CAN::get_wrist_monitoring_data() {
+  return impl_->get_wrist_monitoring_data();
+}
+
+void IC_CAN::print_wrist_status() { impl_->print_wrist_status(); }
+
+bool IC_CAN::is_wrist_monitoring_running() const {
+  return impl_->is_wrist_monitoring_running();
 }
 
 } // namespace ic_can

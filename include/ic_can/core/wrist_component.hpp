@@ -87,6 +87,44 @@ public:
      */
     bool set_wrist_pose(double pitch_angle, double roll_angle, double velocity = 2.0);
 
+    // ========== Kinematic Control Interface (theta_1, theta_2 -> alpha, beta) ==========
+
+    /**
+     * @brief Set motor control angles (theta_1, theta_2)
+     * @param theta_1 Motor 1 angle in radians (m7)
+     * @param theta_2 Motor 2 angle in radians (m8)
+     * @param velocity Maximum velocity in rad/s
+     * @return True if commands set successfully
+     */
+    bool set_motor_angles(double theta_1, double theta_2, double velocity = 2.0);
+
+    /**
+     * @brief Set wrist output angles (alpha, beta)
+     * @param alpha Wrist alpha angle in radians = (theta_1 - theta_2) / 2
+     * @param beta Wrist beta angle in radians = (theta_1 + theta_2) / 2
+     * @param velocity Maximum velocity in rad/s
+     * @return True if commands set successfully
+     */
+    bool set_wrist_angles(double alpha, double beta, double velocity = 2.0);
+
+    /**
+     * @brief Get current motor control angles (theta_1, theta_2)
+     * @return Vector [theta_1, theta_2] in radians
+     */
+    std::vector<double> get_motor_angles() const;
+
+    /**
+     * @brief Get current wrist output angles (alpha, beta)
+     * @return Vector [alpha, beta] in radians
+     */
+    std::vector<double> get_wrist_angles() const;
+
+    /**
+     * @brief Refresh/Update wrist component - send commands and update state
+     * @return True if refresh successful
+     */
+    bool refresh();
+
     /**
      * @brief Get current pitch angle
      * @return Pitch angle in radians
@@ -129,6 +167,54 @@ public:
      */
     std::vector<double> get_temperatures() const;
 
+    // ========== New Frame-based HT Motor Methods ==========
+
+    /**
+     * @brief Send frame-based command to HT motor 7 (pitch)
+     * @param position Target position in radians
+     * @param velocity Target velocity in rad/s
+     * @param torque Target torque in Nm
+     * @param kp Position gain
+     * @param kd Velocity gain
+     * @return True if command sent successfully
+     */
+    bool send_ht_frame_motor_7(double position, double velocity, double torque, double kp, double kd);
+
+    /**
+     * @brief Send frame-based command to HT motor 8 (roll)
+     * @param position Target position in radians
+     * @param velocity Target velocity in rad/s
+     * @param torque Target torque in Nm
+     * @param kp Position gain
+     * @param kd Velocity gain
+     * @return True if command sent successfully
+     */
+    bool send_ht_frame_motor_8(double position, double velocity, double torque, double kp, double kd);
+
+    /**
+     * @brief Send frame-based commands to both HT motors simultaneously
+     * @param m7_position Motor 7 target position in radians
+     * @param m7_velocity Motor 7 target velocity in rad/s
+     * @param m7_torque Motor 7 target torque in Nm
+     * @param m8_position Motor 8 target position in radians
+     * @param m8_velocity Motor 8 target velocity in rad/s
+     * @param m8_torque Motor 8 target torque in Nm
+     * @param kp Position gain (same for both motors)
+     * @param kd Velocity gain (same for both motors)
+     * @return True if commands sent successfully
+     */
+    bool send_ht_frame_both_motors(double m7_position, double m7_velocity, double m7_torque,
+                                  double m8_position, double m8_velocity, double m8_torque,
+                                  double kp, double kd);
+
+    /**
+     * @brief Process frame-based response from HT motor
+     * @param motor_id Motor ID (7 or 8)
+     * @param frame_data Received frame data (48 bytes)
+     * @return True if frame processed successfully
+     */
+    bool process_ht_frame_response(int motor_id, const std::vector<uint8_t>& frame_data);
+
     /**
      * @brief Check if wrist has reached target position
      * @param tolerance Position tolerance in radians
@@ -160,18 +246,13 @@ public:
      */
     bool set_ht_motor_params(int motor_id, double kp, double kd, double max_torque);
 
+    
     /**
-     * @brief Send MIT control command to HT motor
+     * @brief Send refresh command to HT motor
      * @param motor_id Motor ID (7 or 8)
-     * @param position Target position in radians
-     * @param velocity Target velocity in rad/s
-     * @param torque Feedforward torque in Nm
-     * @param kp Position gain
-     * @param kd Derivative gain
      * @return True if command sent successfully
      */
-    bool send_mit_command(int motor_id, double position, double velocity,
-                         double torque, double kp, double kd);
+    bool send_refresh_command(int motor_id);
 
     // ========== Configuration ==========
 
@@ -248,8 +329,8 @@ private:
     static constexpr double DEFAULT_POSITION_TOLERANCE = 0.01; // rad
 
     // HT Motor CAN ID ranges (based on Python implementation)
-    static constexpr uint32_t HT_MIN_CAN_ID = 0x700;
-    static constexpr uint32_t HT_MAX_CAN_ID = 0x8FF;
+    static constexpr uint32_t HT_MIN_CAN_ID = 0x700;  // m7 receive
+    static constexpr uint32_t HT_MAX_CAN_ID = 0x800;  // m8 receive
 
     // State variables
     std::vector<double> target_position_;    // [pitch, roll] in radians

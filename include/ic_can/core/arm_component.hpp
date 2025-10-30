@@ -14,77 +14,56 @@
 
 #pragma once
 
+#include "ic_can/core/motor_protocol_base.hpp"
+#include "ic_can/core/can_protocol_interface.hpp"
+#include "ic_can/motors/base_motor.hpp"
 #include <vector>
 #include <memory>
 #include <mutex>
 #include <map>
-#include "../motors/base_motor.hpp"
-#include "../protocols/usb2can_adapter.hpp"
+#include <atomic>
+#include <array>
+#include <cmath>
 
 namespace ic_can {
 
 /**
- * @brief 手臂组件类
+ * @brief 手臂组件类 with proper dependency inversion
  *
- * 管理机械臂的6个电机（m1-m6），提供统一的控制接口
- * m1: DM10010L
- * m2: DM6248
- * m3: DM6248
- * m4: DM4340
- * m5: DM4340
- * m6: DM4310
+ * 管理机械臂的6个DM电机（m1-m6），提供统一的手臂控制接口
+ * m1: DM 10010L
+ * m2: DM 6248
+ * m3: DM 6248
+ * m4: DM 4340
+ * m5: DM 4340
+ * m6: DM 4310
+ *
+ * 继承自MotorProtocolBase，使用依赖反转模式接收CAN通信服务
  */
-class ArmComponent {
+class ArmComponent : public MotorProtocolBase {
 public:
     /**
      * @brief 构造函数
-     * @param can_adapter CAN适配器引用
      */
-    explicit ArmComponent(USB2CANAdapter& can_adapter);
+    ArmComponent();
 
     /**
      * @brief 析构函数
      */
-    ~ArmComponent() = default;
+    virtual ~ArmComponent() = default;
 
     // 禁用拷贝构造和赋值
     ArmComponent(const ArmComponent&) = delete;
     ArmComponent& operator=(const ArmComponent&) = delete;
 
-    // ========== 电机管理接口 ==========
+    // ========== CANProtocolInterface Implementation ==========
 
     /**
-     * @brief 添加电机到组件
-     * @param motor 电机智能指针
-     * @return 添加是否成功
+     * @brief Process incoming CAN frame for DM motors
+     * @param frame Received CAN frame
+     * @return True if frame was processed successfully
      */
-    bool add_motor(std::shared_ptr<BaseMotor> motor);
-
-    /**
-     * @brief 移除电机
-     * @param motor_id 电机ID
-     * @return 移除是否成功
-     */
-    bool remove_motor(int motor_id);
-
-    /**
-     * @brief 获取电机
-     * @param motor_id 电机ID
-     * @return 电机智能指针
-     */
-    std::shared_ptr<BaseMotor> get_motor(int motor_id);
-
-    /**
-     * @brief 获取所有电机
-     * @return 电机映射表
-     */
-    std::map<int, std::shared_ptr<BaseMotor>> get_all_motors() const;
-
-    /**
-     * @brief 获取电机数量
-     * @return 电机数量
-     */
-    size_t get_motor_count() const;
+    bool process_can_frame(const CANFrame& frame) override;
 
     // ========== 批量控制接口 ==========
 
@@ -107,15 +86,10 @@ public:
     bool set_zero_all();
 
     /**
-     * @brief 更新所有电机状态
-     */
-    void update_all_states();
-
-    /**
-     * @brief 发送所有电机命令
+     * @brief 停止所有关节运动
      * @return 操作是否成功
      */
-    bool send_all_commands();
+    bool stop_all_motion();
 
     // ========== 位置控制接口 ==========
 
@@ -123,23 +97,19 @@ public:
      * @brief 设置所有关节位置
      * @param positions 目标位置数组（弧度）
      * @param velocities 目标速度数组（弧度/秒），可选
-     * @param torques 目标力矩数组（牛顿·米），可选
      * @return 操作是否成功
      */
     bool set_positions(const std::vector<double>& positions,
-                      const std::vector<double>& velocities = {},
-                      const std::vector<double>& torques = {});
+                      const std::vector<double>& velocities = {});
 
     /**
      * @brief 设置单个关节位置
-     * @param joint_index 关节索引 (0-5)
+     * @param joint_index 关节索引 (0-5)，对应电机ID (1-6)
      * @param position 目标位置（弧度）
      * @param velocity 目标速度（弧度/秒）
-     * @param torque 目标力矩（牛顿·米）
      * @return 操作是否成功
      */
-    bool set_single_position(int joint_index, double position,
-                            double velocity = 0.0, double torque = 0.0);
+    bool set_single_position(int joint_index, double position, double velocity = 0.0);
 
     /**
      * @brief 获取所有关节位置
@@ -159,11 +129,9 @@ public:
     /**
      * @brief 设置所有关节速度
      * @param velocities 目标速度数组（弧度/秒）
-     * @param torques 目标力矩数组（牛顿·米），可选
      * @return 操作是否成功
      */
-    bool set_velocities(const std::vector<double>& velocities,
-                       const std::vector<double>& torques = {});
+    bool set_velocities(const std::vector<double>& velocities);
 
     /**
      * @brief 获取所有关节速度
@@ -213,35 +181,6 @@ public:
      */
     bool home_to_zero(double speed = 0.5, double timeout = 30.0);
 
-    /**
-     * @brief 停止所有关节运动
-     * @return 操作是否成功
-     */
-    bool stop_all_motion();
-
-    // ========== 安全检查接口 ==========
-
-    /**
-     * @brief 检查位置限制
-     * @param positions 位置数组
-     * @return 是否都在限制范围内
-     */
-    bool check_position_limits(const std::vector<double>& positions);
-
-    /**
-     * @brief 检查速度限制
-     * @param velocities 速度数组
-     * @return 是否都在限制范围内
-     */
-    bool check_velocity_limits(const std::vector<double>& velocities);
-
-    /**
-     * @brief 检查力矩限制
-     * @param torques 力矩数组
-     * @return 是否都在限制范围内
-     */
-    bool check_torque_limits(const std::vector<double>& torques);
-
     // ========== 状态查询接口 ==========
 
     /**
@@ -263,30 +202,30 @@ public:
     std::vector<int> get_error_motor_ids();
 
     /**
+     * @brief 获取手臂状态摘要
+     * @return String with state information
+     */
+    std::string get_state_summary() const;
+
+    // ========== 辅助方法 ==========
+
+    /**
+     * @brief 检查是否所有电机都已使能
+     * @return 是否全部使能
+     */
+    bool is_fully_enabled() const;
+
+    /**
+     * @brief 检查是否有电机在运动
+     * @return 是否有运动
+     */
+    bool is_any_motor_moving() const;
+
+    /**
      * @brief 获取完整状态信息
      * @return 状态信息字典
      */
     std::map<std::string, std::vector<double>> get_complete_state();
-
-    // ========== 配置接口 ==========
-
-    /**
-     * @brief 设置关节增益
-     * @param joint_index 关节索引 (0-5)
-     * @param kp 位置增益
-     * @param kd 速度增益
-     * @return 设置是否成功
-     */
-    bool set_joint_gains(int joint_index, double kp, double kd);
-
-    /**
-     * @brief 设置所有关节增益
-     * @param kp_array 位置增益数组
-     * @param kd_array 速度增益数组
-     * @return 设置是否成功
-     */
-    bool set_all_gains(const std::vector<double>& kp_array,
-                      const std::vector<double>& kd_array);
 
     // ========== 诊断接口 ==========
 
@@ -301,76 +240,125 @@ public:
      */
     bool test_arm_functionality();
 
-private:
-    // ========== 私有成员变量 ==========
-
-    USB2CANAdapter& can_adapter_;              // CAN适配器引用
-    std::map<int, std::shared_ptr<BaseMotor>> motors_; // 电机映射表
-    mutable std::mutex motors_mutex_;           // 电机映射表互斥锁
-
-    // 预定义的关节电机ID映射
-    static const std::vector<int> ARM_MOTOR_IDS; // [1, 2, 3, 4, 5, 6]
-
-    // ========== 私有方法 ==========
+protected:
+    // ========== Helper Methods ==========
 
     /**
-     * @brief 验证关节索引
-     * @param joint_index 关节索引
-     * @return 是否有效
+     * @brief Check if motor ID is valid for arm component
+     * @param motor_id Motor ID to check
+     * @return True if valid arm motor ID
+     */
+    bool is_valid_motor_id(int motor_id) const override;
+
+    /**
+     * @brief Clamp position to safe limits for specific joint
+     * @param position Position to clamp
+     * @param joint_index Joint index (0-5)
+     * @return Clamped position
+     */
+    double clamp_position(double position, int joint_index) const;
+
+    /**
+     * @brief Clamp velocity to safe limits
+     * @param velocity Velocity to clamp
+     * @return Clamped velocity
+     */
+    double clamp_velocity(double velocity) const;
+
+    /**
+     * @brief Clamp torque to safe limits
+     * @param torque Torque to clamp
+     * @return Clamped torque
+     */
+    double clamp_torque(double torque) const;
+
+private:
+    // ========== Constants ==========
+
+    static constexpr size_t NUM_JOINTS = 6;           // Number of arm joints
+    static constexpr double DEFAULT_MAX_VELOCITY = 2.0;  // rad/s
+    static constexpr double DEFAULT_MAX_TORQUE = 10.0;   // Nm
+
+    // CAN ID ranges for DM motors (receive IDs)
+    static constexpr uint32_t DM_MIN_CAN_ID = 0x11;  // m1 receive
+    static constexpr uint32_t DM_MAX_CAN_ID = 0x16;  // m6 receive
+
+    // Joint position limits (radians) - conservative defaults
+    static constexpr std::array<double, NUM_JOINTS> MIN_POSITIONS = {
+        -M_PI,     // Joint 1
+        -M_PI/2,   // Joint 2
+        -M_PI/2,   // Joint 3
+        -M_PI,     // Joint 4
+        -M_PI/2,   // Joint 5
+        -M_PI      // Joint 6
+    };
+
+    static constexpr std::array<double, NUM_JOINTS> MAX_POSITIONS = {
+        M_PI,      // Joint 1
+        M_PI/2,    // Joint 2
+        M_PI/2,    // Joint 3
+        M_PI,      // Joint 4
+        M_PI/2,    // Joint 5
+        M_PI       // Joint 6
+    };
+
+    // Predefined joint to motor ID mapping
+    static constexpr std::array<int, NUM_JOINTS> JOINT_MOTOR_IDS = {1, 2, 3, 4, 5, 6};
+
+    // ========== State Variables ==========
+
+    std::atomic<bool> is_homing_{false};       // Homing status
+    double max_velocity_ = DEFAULT_MAX_VELOCITY;  // Maximum allowed velocity
+    double max_torque_ = DEFAULT_MAX_TORQUE;      // Maximum allowed torque
+
+    // ========== Private Methods ==========
+
+    /**
+     * @brief Validate joint index
+     * @param joint_index Joint index (0-5)
+     * @return True if valid
      */
     bool is_valid_joint_index(int joint_index) const;
 
     /**
-     * @brief 验证数组长度
-     * @param array 数组
-     * @param expected_length 期望长度
-     * @return 长度是否正确
+     * @brief Validate array length
+     * @param array Input array
+     * @param expected_length Expected length
+     * @return True if length matches
      */
-    bool is_valid_array_length(const std::vector<double>& array,
-                               size_t expected_length) const;
+    bool is_valid_array_length(const std::vector<double>& array, size_t expected_length) const;
 
     /**
-     * @brief 限制位置到安全范围
-     * @param position 原始位置
-     * @param joint_index 关节索引
-     * @return 限制后的位置
+     * @brief Convert joint index to motor ID
+     * @param joint_index Joint index (0-5)
+     * @return Motor ID (1-6)
      */
-    double clamp_position(double position, int joint_index);
+    int joint_to_motor_id(int joint_index) const;
 
     /**
-     * @brief 限制速度到安全范围
-     * @param velocity 原始速度
-     * @param joint_index 关节索引
-     * @return 限制后的速度
+     * @brief Convert motor ID to joint index
+     * @param motor_id Motor ID (1-6)
+     * @return Joint index (0-5)
      */
-    double clamp_velocity(double velocity, int joint_index);
+    int motor_to_joint_index(int motor_id) const;
 
     /**
-     * @brief 限制力矩到安全范围
-     * @param torque 原始力矩
-     * @param joint_index 关节索引
-     * @return 限制后的力矩
+     * @brief Update arm component state
      */
-    double clamp_torque(double torque, int joint_index);
+    void update_arm_state();
 
     /**
-     * @brief 执行平滑轨迹
-     * @param start_positions 起始位置
-     * @param end_positions 结束位置
-     * @param duration 持续时间（秒）
-     * @param frequency 控制频率（Hz）
-     * @return 执行是否成功
+     * @brief Debug print function
+     * @param message Debug message
      */
-    bool execute_smooth_trajectory(const std::vector<double>& start_positions,
-                                  const std::vector<double>& end_positions,
-                                  double duration, double frequency = 100.0);
+    void debug_print(const std::string& message);
 
     /**
-     * @brief 等待运动完成
-     * @param target_positions 目标位置
-     * @param tolerance 误差容限（弧度）
-     * @param timeout 超时时间（秒）
-     * @return 是否成功到达目标
+     * @brief Wait for motion completion
+     * @param target_positions Target positions
+     * @param tolerance Position tolerance
+     * @param timeout Timeout in seconds
+     * @return True if motion completed successfully
      */
     bool wait_for_motion_complete(const std::vector<double>& target_positions,
                                  double tolerance = 0.01, double timeout = 10.0);

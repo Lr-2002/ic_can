@@ -15,18 +15,18 @@
 cmake_minimum_required(VERSION 3.14)
 project(IC_CAN VERSION 1.0.0 LANGUAGES CXX)
 
-# Include FetchContent for external dependencies
-include(FetchContent)
+# ===================================
+# PROJECT CONFIGURATION
+# ===================================
 
-# 设置 C++ 标准
+# C++ Standard
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# 平台检测
+# Platform Detection
 if(APPLE)
     set(IC_CAN_PLATFORM "macOS")
-    # macOS 特定配置
     set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Minimum macOS version")
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
         set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "macOS architecture")
@@ -35,7 +35,6 @@ if(APPLE)
     endif()
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set(IC_CAN_PLATFORM "Linux")
-    # Linux 特定配置
     if(DEFINED ENV{JETSON_PLATFORM})
         set(IC_CAN_PLATFORM "Jetson")
         add_definitions(-DJETSON_PLATFORM)
@@ -49,7 +48,12 @@ endif()
 
 message(STATUS "Building for platform: ${IC_CAN_PLATFORM}")
 
-# 编译选项
+# Build Type
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release)
+endif()
+
+# Compiler Options
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0 -DDEBUG")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic")
@@ -60,12 +64,27 @@ else()
     endif()
 endif()
 
-# 构建类型
-if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Release)
-endif()
+# ===================================
+# BUILD OPTIONS
+# ===================================
 
-# 包含目录
+option(BUILD_TOOLS "Build IC_CAN tools" ON)
+option(BUILD_EXAMPLES "Build example programs" ON)
+option(BUILD_TESTS "Build test suite" ON)
+option(BUILD_PYTHON_BINDINGS "Build Python bindings" ON)
+option(BUILD_WITH_PINOCCHIO "Enable Pinocchio torque prediction" ON)
+option(BUILD_WITH_MATLAB "Enable MATLAB regressor libraries" OFF)
+option(BUILD_WITH_DM_TOOLS "Enable dm-tools SDK integration" ON)
+
+# ===================================
+# DEPENDENCY CONFIGURATION
+# ===================================
+
+# Find required packages
+find_package(PkgConfig REQUIRED)
+find_package(Threads REQUIRED)
+
+# Include directories (global)
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/dm-tools/C++/ubuntu/include
@@ -74,18 +93,62 @@ include_directories(
     ${CMAKE_CURRENT_BINARY_DIR}/nlohmann_json
 )
 
-# 添加 libusb 头文件路径 (macOS Homebrew)
-if(APPLE)
+# Pinocchio Configuration
+if(BUILD_WITH_PINOCCHIO)
+    set(PKG_CONFIG_PATH $ENV{PKG_CONFIG_PATH} /opt/openrobots/lib/pkgconfig)
+    set(CMAKE_PREFIX_PATH "/opt/openrobots/lib/pkgconfig/../../" ${CMAKE_PREFIX_PATH})
+
+    pkg_check_modules(PINOCCHIO pinocchio)
+    if(PINOCCHIO_FOUND)
+        message(STATUS "✅ Found Pinocchio: ${PINOCCHIO_VERSION}")
+        message(STATUS "Pinocchio include directories: ${PINOCCHIO_INCLUDE_DIRS}")
+        set(PINOCCHIO_INCLUDE_DIRS "/opt/openrobots/include" ${PINOCCHIO_INCLUDE_DIRS})
+        add_definitions(-DHAVE_PINOCCHIO)
+    else()
+        message(WARNING "❌ Pinocchio not found. Pinocchio-based torque predictor will not be available.")
+        set(PINOCCHIO_INCLUDE_DIRS "")
+        set(PINOCCHIO_LIBRARIES "")
+        add_definitions(-DPINOCCHIO_NOT_AVAILABLE)
+    endif()
+else()
+    message(STATUS "Pinocchio disabled by BUILD_WITH_PINOCCHIO=OFF")
+    set(PINOCCHIO_INCLUDE_DIRS "")
+    set(PINOCCHIO_LIBRARIES "")
+    add_definitions(-DPINOCCHIO_NOT_AVAILABLE)
+endif()
+
+# libusb Configuration
+if(BUILD_WITH_DM_TOOLS)
+    find_library(LIBUSB_LIBRARY
+        NAMES usb-1.0 libusb-1.0
+        PATHS /usr/lib /usr/local/lib /opt/homebrew/lib
+        DOC "libusb library for dm-tools SDK"
+    )
+
+    if(NOT LIBUSB_LIBRARY)
+        message(WARNING "libusb not found. dm-tools SDK integration will use simulation.")
+        set(LIBUSB_LIBRARY "")
+        add_definitions(-DSIMULATE_DM_TOOLS)
+    else()
+        message(STATUS "✅ Found libusb: ${LIBUSB_LIBRARY}")
+    endif()
+else()
+    message(STATUS "dm-tools SDK disabled by BUILD_WITH_DM_TOOLS=OFF")
+    set(LIBUSB_LIBRARY "")
+    add_definitions(-DSIMULATE_DM_TOOLS)
+endif()
+
+# Platform-specific libusb headers
+if(APPLE AND BUILD_WITH_DM_TOOLS)
     if(EXISTS "/opt/homebrew/include/libusb-1.0")
         include_directories(/opt/homebrew/include/libusb-1.0)
     elseif(EXISTS "/usr/local/include/libusb-1.0")
         include_directories(/usr/local/include/libusb-1.0)
     endif()
-    # 添加项目内的符号链接路径
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/include/libusb-1.0")
         include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include/libusb-1.0)
     endif()
-    # 添加boost包含路径
+    # Boost paths for macOS
     if(EXISTS "/opt/homebrew/include")
         include_directories(/opt/homebrew/include)
     elseif(EXISTS "/usr/local/include")
@@ -93,268 +156,67 @@ if(APPLE)
     endif()
 endif()
 
-# 查找依赖包
-find_package(PkgConfig REQUIRED)
-find_package(Threads REQUIRED)
+# ===================================
+# CORE LIBRARY
+# ===================================
 
-# nlohmann_json header is included via the build directory
+# Build the core library first
+add_subdirectory(src)
 
-# 查找 Pinocchio 库
-set(PKG_CONFIG_PATH $ENV{PKG_CONFIG_PATH} /opt/openrobots/lib/pkgconfig)
+# ===================================
+# OPTIONAL COMPONENTS
+# ===================================
 
-# Add Pinocchio paths to all targets
-set(CMAKE_PREFIX_PATH "/opt/openrobots/lib/pkgconfig/../../" ${CMAKE_PREFIX_PATH})
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(PINOCCHIO REQUIRED pinocchio)
-
-if(PINOCCHIO_FOUND)
-    message(STATUS "✅ Found Pinocchio: ${PINOCCHIO_VERSION}")
-    message(STATUS "Pinocchio include directories: ${PINOCCHIO_INCLUDE_DIRS}")
-    message(STATUS "Pinocchio libraries: ${PINOCCHIO_LIBRARIES}")
-else()
-    message(WARNING "❌ Pinocchio not found. Pinocchio-based torque predictor will not be available.")
-    set(PINOCCHIO_INCLUDE_DIRS "")
-    set(PINOCCHIO_LIBRARIES "")
-    add_definitions(-DPINOCCHIO_NOT_AVAILABLE)
+# Build tools
+if(BUILD_TOOLS)
+    add_subdirectory(tools)
 endif()
 
-# 手动设置正确的include路径
-if(PINOCCHIO_FOUND)
-    set(PINOCCHIO_INCLUDE_DIRS "/opt/openrobots/include" ${PINOCCHIO_INCLUDE_DIRS})
+# Build examples
+if(BUILD_EXAMPLES)
+    add_subdirectory(examples)
 endif()
 
-# 查找 libusb (可选，用于 dm-tools SDK)
-find_library(LIBUSB_LIBRARY
-    NAMES usb-1.0 libusb-1.0
-    PATHS /usr/lib /usr/local/lib /opt/homebrew/lib
-    DOC "libusb library for dm-tools SDK"
-)
-
-# 如果找不到 libusb，给出警告但不阻止构建
-if(NOT LIBUSB_LIBRARY)
-    message(WARNING "libusb not found. dm-tools SDK integration will use simulation.")
-    set(LIBUSB_LIBRARY "")
-    add_definitions(-DSIMULATE_DM_TOOLS)
-endif()
-
-# 收集源文件 - 检查实际存在的文件
-set(CORE_SOURCES)
-set(MOTORS_SOURCES)
-set(PROTOCOLS_SOURCES)
-set(SAFETY_SOURCES)
-
-# 检查核心源文件 - temporarily exclude problematic files
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/ic_can.cpp")
-    list(APPEND CORE_SOURCES "src/ic_can/core/ic_can.cpp")
-endif()
-# Temporarily exclude problematic files
-# if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/ic_can_real.cpp")
-#     list(APPEND CORE_SOURCES "src/ic_can/core/ic_can_real.cpp")
-# endif()
-# if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/arm_component.cpp")
-#     list(APPEND CORE_SOURCES "src/ic_can/core/arm_component.cpp")
-# endif()
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/gripper_component.cpp")
-  list(APPEND CORE_SOURCES "src/ic_can/core/gripper_component.cpp")
-endif()
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/wrist_component.cpp")
-    list(APPEND CORE_SOURCES "src/ic_can/core/wrist_component.cpp")
-endif()
-# if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/torque_predictor.cpp")
-#     list(APPEND CORE_SOURCES "src/ic_can/core/torque_predictor.cpp")
-# endif()
-# Temporarily disable due to MATLAB library path issues
-# if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/torque_predictor_pure_c.cpp")
-#     list(APPEND CORE_SOURCES "src/ic_can/core/torque_predictor_pure_c.cpp")
-# endif()
-# if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/torque_predictor_regressor.cpp")
-#     list(APPEND CORE_SOURCES "src/ic_can/core/torque_predictor_regressor.cpp")
-# endif()
-# Temporarily disable torque predictors to fix linking issues
-# if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/torque_predictor_config.cpp")
-#     list(APPEND CORE_SOURCES "src/ic_can/core/torque_predictor_config.cpp")
-# endif()
-# if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/torque_predictor_pinocchio.cpp")
-#     list(APPEND CORE_SOURCES "src/ic_can/core/torque_predictor_pinocchio.cpp")
-# endif()
-# if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/torque_predictor_unified.cpp")
-#     list(APPEND CORE_SOURCES "src/ic_can/core/torque_predictor_unified.cpp")
-# endif()
-
-# Add real torque predictor implementations
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/torque_predictor_pinocchio.cpp")
-    list(APPEND CORE_SOURCES "src/ic_can/core/torque_predictor_pinocchio.cpp")
-endif()
-# Remove Pure C predictor due to MATLAB dependency issues
-# if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/torque_predictor_pure_c.cpp")
-#     list(APPEND CORE_SOURCES "src/ic_can/core/torque_predictor_pure_c.cpp")
-# endif()
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/torque_predictor_unified.cpp")
-    list(APPEND CORE_SOURCES "src/ic_can/core/torque_predictor_unified.cpp")
-endif()
-
-# Add communication architecture files
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/core/can_frame_dispatcher.cpp")
-    list(APPEND CORE_SOURCES "src/ic_can/core/can_frame_dispatcher.cpp")
-endif()
-
-# 检查电机源文件
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/motors/base_motor.cpp")
-    list(APPEND CORE_SOURCES "src/ic_can/motors/base_motor.cpp")
-endif()
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/motors/dm_motor_real.cpp")
-    list(APPEND CORE_SOURCES "src/ic_can/motors/dm_motor_real.cpp")
-endif()
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/motors/ht_motor.cpp")
-    list(APPEND CORE_SOURCES "src/ic_can/motors/ht_motor.cpp")
-endif()
-
-# Temporarily disable protocol sources to fix compilation
-# if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/protocols/usb2can_real.cpp")
-#     list(APPEND CORE_SOURCES "src/ic_can/protocols/usb2can_real.cpp")
-# endif()
-
-# 检查安全源文件 - temporarily exclude all
-# if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ic_can/safety/safety_module.cpp")
-#     list(APPEND SAFETY_SOURCES "src/ic_can/safety/safety_module.cpp")
-# endif()
-
-set(IC_CAN_SOURCES
-    ${CORE_SOURCES}
-    ${MOTORS_SOURCES}
-    ${PROTOCOLS_SOURCES}
-    ${SAFETY_SOURCES}
-)
-
-
-# 创建核心库
-add_library(ic_can_core SHARED ${IC_CAN_SOURCES})
-
-# 设置库属性
-set_target_properties(ic_can_core PROPERTIES
-    VERSION ${PROJECT_VERSION}
-    SOVERSION ${PROJECT_VERSION_MAJOR}
-)
-
-
-# 链接库
-target_link_libraries(ic_can_core
-    Threads::Threads
-    ${LIBUSB_LIBRARY}
-    -L/opt/openrobots/lib
-    ${PINOCCHIO_LIBRARIES}
-    usb-1.0
-)
-
-# 链接 Pinocchio 包目录
-if(PINOCCHIO_FOUND)
-    target_include_directories(ic_can_core PRIVATE ${PINOCCHIO_INCLUDE_DIRS})
-    target_compile_options(ic_can_core PRIVATE ${PINOCCHIO_CFLAGS_OTHER})
-
-    # 添加 explicit library directory for Pinocchio
-    target_link_directories(ic_can_core PRIVATE /opt/openrobots/lib)
-
-    # 设置 RPATH 以便运行时找到库
-    set_target_properties(ic_can_core PROPERTIES
-        INSTALL_RPATH "/opt/openrobots/lib"
-        BUILD_WITH_INSTALL_RPATH TRUE
-    )
-endif()
-
-# 平台特定的链接库
-if(APPLE)
-    # macOS 特定库
-    find_library(FOUNDATION_FRAMEWORK Foundation)
-    find_library(IOKIT_FRAMEWORK IOKit)
-    target_link_libraries(ic_can_core ${FOUNDATION_FRAMEWORK} ${IOKIT_FRAMEWORK})
-elseif(WIN32)
-    # Windows 特定库
-    target_link_libraries(ic_can_core setupapi)
-endif()
-
-# 安装规则
-install(TARGETS ic_can_core
-    LIBRARY DESTINATION lib
-    ARCHIVE DESTINATION lib
-    RUNTIME DESTINATION bin
-)
-
-# 编译选项
-target_compile_options(ic_can_core PRIVATE -Wno-unused-parameter)
-
-# 添加 dm-tools SDK 头文件路径
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/lib/dm-tools")
-    target_include_directories(ic_can_core PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/lib/dm-tools/C++/ubuntu/include
-    )
-
-    # 添加 dm-tools SDK 库路径
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/lib/dm-tools/C++/ubuntu/lib/libu2canfd.a")
-        target_link_libraries(ic_can_core
-            ${CMAKE_CURRENT_SOURCE_DIR}/lib/dm-tools/C++/ubuntu/lib/libu2canfd.a
-        )
-        message(STATUS "Found dm-tools SDK library: ${CMAKE_CURRENT_SOURCE_DIR}/lib/dm-tools/C++/ubuntu/lib/libu2canfd.a")
-    elseif(APPLE AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/lib/dm-tools/C++/arm/lib/libu2canfd.a")
-        target_link_libraries(ic_can_core
-            ${CMAKE_CURRENT_SOURCE_DIR}/lib/dm-tools/C++/arm/lib/libu2canfd.a
-        )
-        message(STATUS "Found dm-tools SDK library: ${CMAKE_CURRENT_SOURCE_DIR}/lib/dm-tools/C++/arm/lib/libu2canfd.a")
-    endif()
-endif()
-
-# 测试选项
-option(BUILD_TESTS "Build tests" ON)
-option(BUILD_EXAMPLES "Build examples" ON)
-option(BUILD_PYTHON_BINDINGS "Build Python bindings" ON)
-
-# 构建测试
+# Build tests
 if(BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
 endif()
 
-# 构建示例
-if(BUILD_EXAMPLES)
-    add_subdirectory(examples)
-endif()
-
-# 构建工具
-option(BUILD_TOOLS "Build tools" ON)
-if(BUILD_TOOLS)
-    add_subdirectory(tools)
-endif()
-
-# 构建 Python 绑定
+# Build Python bindings
 if(BUILD_PYTHON_BINDINGS)
     add_subdirectory(python)
 endif()
 
-# 添加自定义目标用于代码格式化
-find_program(CLANG_FORMAT clang-format)
-if(CLANG_FORMAT)
-    add_custom_target(format
-        COMMAND ${CLANG_FORMAT}
-        -i
-        ${IC_CAN_SOURCES}
-        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-        COMMENT "Formatting code with clang-format"
-    )
-endif()
+# ===================================
+# CONFIGURATION SUMMARY
+# ===================================
 
-# 打印配置信息
+message(STATUS "")
 message(STATUS "=== IC_CAN Configuration ===")
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "C++ standard: ${CMAKE_CXX_STANDARD}")
+message(STATUS "Platform: ${IC_CAN_PLATFORM}")
 message(STATUS "Threads found: ${CMAKE_USE_PTHREADS_INIT}")
-message(STATUS "libusb found: ${LIBUSB_LIBRARY}")
-message(STATUS "nlohmann_json: ${NLOHMANN_JSON_TARGET}")
-message(STATUS "Build tests: ${BUILD_TESTS}")
-message(STATUS "Build examples: ${BUILD_EXAMPLES}")
 message(STATUS "Build tools: ${BUILD_TOOLS}")
+message(STATUS "Build examples: ${BUILD_EXAMPLES}")
+message(STATUS "Build tests: ${BUILD_TESTS}")
 message(STATUS "Build Python bindings: ${BUILD_PYTHON_BINDINGS}")
+message(STATUS "Build with Pinocchio: ${BUILD_WITH_PINOCCHIO}")
+message(STATUS "Build with MATLAB: ${BUILD_WITH_MATLAB}")
+message(STATUS "Build with dm-tools: ${BUILD_WITH_DM_TOOLS}")
+message(STATUS "libusb found: ${LIBUSB_LIBRARY}")
+if(BUILD_WITH_PINOCCHIO AND PINOCCHIO_FOUND)
+    message(STATUS "Pinocchio version: ${PINOCCHIO_VERSION}")
+endif()
 message(STATUS "=============================")
+message(STATUS "")
 
-# 创建 pkg-config 文件
+# ===================================
+# PACKAGING
+# ===================================
+
+# Create pkg-config file
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/ic_can.pc.in"
     "${CMAKE_CURRENT_BINARY_DIR}/ic_can.pc"
@@ -365,21 +227,16 @@ install(FILES ${CMAKE_CURRENT_BINARY_DIR}/ic_can.pc
     DESTINATION lib/pkgconfig
 )
 
-# 创建版本文件
+# Create version file
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/version.h.in"
     "${CMAKE_CURRENT_BINARY_DIR}/include/version.h"
     @ONLY
 )
 
-# 生成配置头文件
+# Generate configuration header file
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/config.h.in"
     "${CMAKE_CURRENT_BINARY_DIR}/include/config.h"
     @ONLY
-)
-
-# 包含生成的头文件
-target_include_directories(ic_can_core PRIVATE
-    ${CMAKE_CURRENT_BINARY_DIR}/include
 )

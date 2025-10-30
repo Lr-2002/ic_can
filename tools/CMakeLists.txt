@@ -1,258 +1,248 @@
-# CMakeLists.txt for IC_CAN Tools
-# Copyright 2025 IC_CAN Team
+# tools/CMakeLists.txt
+# IC_CAN Tools Configuration - DEPENDS ON PRE-BUILT CORE LIBRARY
 
-cmake_minimum_required(VERSION 3.16)
-project(IC_CAN_Tools)
+cmake_minimum_required(VERSION 3.14)
 
-# Set C++ standard
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# ===================================
+# DEPENDENCY CHECK
+# ===================================
 
-# Find required packages
-find_package(PkgConfig REQUIRED)
-find_package(Threads REQUIRED)
-
-# Set PKG_CONFIG_PATH for Pinocchio
-set(PKG_CONFIG_PATH $ENV{PKG_CONFIG_PATH} /opt/openrobots/lib/pkgconfig)
-
-# Find Pinocchio
-set(CMAKE_PREFIX_PATH "/opt/openrobots/lib/pkgconfig/../../" ${CMAKE_PREFIX_PATH})
-pkg_check_modules(PINOCCHIO REQUIRED pinocchio)
-
-if(PINOCCHIO_FOUND)
-    message(STATUS "✅ Found Pinocchio for tools: ${PINOCCHIO_VERSION}")
-    set(PINOCCHIO_INCLUDE_DIRS "/opt/openrobots/include" ${PINOCCHIO_INCLUDE_DIRS})
-else()
-    message(WARNING "❌ Pinocchio not found for tools. Pinocchio-based torque predictor will not be available.")
-    set(PINOCCHIO_INCLUDE_DIRS "")
-    set(PINOCCHIO_LIBRARIES "")
-    add_definitions(-DPINOCCHIO_NOT_AVAILABLE)
+# Tools depend on the core library being already built
+# The core library is built in src/ directory before this file is processed
+if(NOT TARGET ic_can_core)
+    message(FATAL_ERROR "❌ ic_can_core target not found. Core library must be built before tools.")
 endif()
 
-# Try to find libusb
-pkg_check_modules(USB1 libusb-1.0)
-if(NOT USB1_FOUND)
-    find_library(LIBUSB_LIBRARY NAMES usb-1.0 libusb-1.0)
-    if(LIBUSB_LIBRARY)
-        set(USB1_LIBRARIES ${LIBUSB_LIBRARY})
-        set(USB1_FOUND TRUE)
+message(STATUS "✅ Found ic_can_core target - building tools")
+
+# ===================================
+# TOOL CONFIGURATION
+# ===================================
+
+# Check for optional dependencies
+if(BUILD_WITH_DM_TOOLS)
+    # Find dm-tools objects
+    set(DM_TOOLS_OBJECTS)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../lib/dm-tools/C++/ubuntu/lib/usb_class.cpp.o")
+        list(APPEND DM_TOOLS_OBJECTS "${CMAKE_CURRENT_SOURCE_DIR}/../lib/dm-tools/C++/ubuntu/lib/usb_class.cpp.o")
     endif()
-endif()
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../lib/dm-tools/C++/ubuntu/lib/crc.cpp.o")
+        list(APPEND DM_TOOLS_OBJECTS "${CMAKE_CURRENT_SOURCE_DIR}/../lib/dm-tools/C++/ubuntu/lib/crc.cpp.o")
+    endif()
 
-# Set include directories
-include_directories(
-    ${CMAKE_CURRENT_SOURCE_DIR}/../include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../lib/dm-tools/C++/ubuntu/include
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/regressor
-    ${CMAKE_CURRENT_SOURCE_DIR}/../lib/regressor/lib
-    ${CMAKE_CURRENT_SOURCE_DIR}/../lib/regressor/lib/regressorWithMotorDynamics
-    ${CMAKE_CURRENT_SOURCE_DIR}/../lib/regressor/lib/frictionRegressor
-)
-
-# Common source files
-set(IC_CAN_SOURCE
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/ic_can/core/ic_can.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/ic_can/core/wrist_component.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/ic_can/core/gripper_component.cpp
-    # Real torque predictor implementations
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/ic_can/core/torque_predictor_pinocchio.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/ic_can/core/torque_predictor_unified.cpp
-)
-
-# Check for DM tools objects
-set(DM_TOOLS_OBJECTS)
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../lib/dm-tools/C++/ubuntu/lib/usb_class.cpp.o")
-    list(APPEND DM_TOOLS_OBJECTS "${CMAKE_CURRENT_SOURCE_DIR}/../lib/dm-tools/C++/ubuntu/lib/usb_class.cpp.o")
-endif()
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../lib/dm-tools/C++/ubuntu/lib/crc.cpp.o")
-    list(APPEND DM_TOOLS_OBJECTS "${CMAKE_CURRENT_SOURCE_DIR}/../lib/dm-tools/C++/ubuntu/lib/crc.cpp.o")
-endif()
-
-# Common libraries
-set(COMMON_LIBS
-    ${USB1_LIBRARIES}
-    Threads::Threads
-    ${PINOCCHIO_LIBRARIES}
-)
-
-# Add dm-tools library if available
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../lib/dm-tools/C++/ubuntu/lib/libu2canfd.a")
-    list(APPEND COMMON_LIBS "${CMAKE_CURRENT_SOURCE_DIR}/../lib/dm-tools/C++/ubuntu/lib/libu2canfd.a")
-endif()
-
-# Compiler flags
-add_compile_options(-Wall -Wextra)
-
-# Check for MATLAB regressor libraries
-file(GLOB PURE_C_OBJECTS
-    "${CMAKE_CURRENT_SOURCE_DIR}/../lib/matlab/lib/M_mtrx_fcn/*.o"
-    "${CMAKE_CURRENT_SOURCE_DIR}/../lib/matlab/lib/C_mtrx_fcn/*.o"
-    "${CMAKE_CURRENT_SOURCE_DIR}/../lib/matlab/lib/G_vctr_fcn/*.o"
-)
-
-# Check for regressor MATLAB libraries
-file(GLOB REGRESSOR_OBJECTS
-    "${CMAKE_CURRENT_SOURCE_DIR}/../lib/regressor/lib/frictionRegressor/*.o"
-    "${CMAKE_CURRENT_SOURCE_DIR}/../lib/regressor/lib/regressorWithMotorDynamics/*.o"
-)
-
-if(PURE_C_OBJECTS)
-    message(STATUS "Found pure C MATLAB objects")
-    add_definitions(-DHAVE_REGRESSOR_LIBS)
+    # Check for dm-tools static library
+    set(DM_TOOLS_LIBRARY)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../lib/dm-tools/C++/ubuntu/lib/libu2canfd.a")
+        set(DM_TOOLS_LIBRARY "${CMAKE_CURRENT_SOURCE_DIR}/../lib/dm-tools/C++/ubuntu/lib/libu2canfd.a")
+        message(STATUS "✅ Found dm-tools SDK library")
+    endif()
 else()
-    message(STATUS "Pure C MATLAB objects not found")
+    message(STATUS "dm-tools SDK disabled - tools will use simulation mode")
+    set(DM_TOOLS_OBJECTS)
+    set(DM_TOOLS_LIBRARY)
 endif()
 
-# Function to add a tool with common settings (all tools now in src/tools/)
-function(add_ic_can_tool_from_src name)
-    add_executable(${name}
-        "${CMAKE_CURRENT_SOURCE_DIR}/../src/tools/${name}.cpp"
-        ${IC_CAN_SOURCE}
+# Check for MATLAB objects (if enabled)
+set(MATLAB_OBJECTS)
+if(BUILD_WITH_MATLAB)
+    file(GLOB PURE_C_OBJECTS
+        "${CMAKE_CURRENT_SOURCE_DIR}/../lib/matlab/lib/M_mtrx_fcn/*.o"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../lib/matlab/lib/C_mtrx_fcn/*.o"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../lib/matlab/lib/G_vctr_fcn/*.o"
     )
-    target_link_libraries(${name} ${DM_TOOLS_OBJECTS} ${COMMON_LIBS})
 
-    # Add explicit library directory for Pinocchio
-    if(PINOCCHIO_FOUND)
-        target_link_directories(${name} PRIVATE /opt/openrobots/lib)
+    file(GLOB REGRESSOR_OBJECTS
+        "${CMAKE_CURRENT_SOURCE_DIR}/../lib/regressor/lib/frictionRegressor/*.o"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../lib/regressor/lib/regressorWithMotorDynamics/*.o"
+    )
+
+    if(PURE_C_OBJECTS)
+        message(STATUS "✅ Found MATLAB pure C objects for tools")
+        list(APPEND MATLAB_OBJECTS ${PURE_C_OBJECTS})
     endif()
+
+    if(REGRESSOR_OBJECTS)
+        message(STATUS "✅ Found MATLAB regressor objects for tools")
+        list(APPEND MATLAB_OBJECTS ${REGRESSOR_OBJECTS})
+    endif()
+endif()
+
+# Common libraries for all tools
+set(COMMON_LIBS
+    ic_can_core  # Link against the core library target
+    Threads::Threads
+)
+
+# Add dm-tools if available
+if(DM_TOOLS_LIBRARY)
+    list(APPEND COMMON_LIBS ${DM_TOOLS_LIBRARY})
+endif()
+
+# Add Pinocchio if available
+if(BUILD_WITH_PINOCCHIO AND PINOCCHIO_FOUND)
+    list(APPEND COMMON_LIBS ${PINOCCHIO_LIBRARIES})
+endif()
+
+# ===================================
+# TOOL BUILD FUNCTION
+# ===================================
+
+function(add_ic_can_tool name)
+    # Check if source file exists
+    set(source_file "${CMAKE_CURRENT_SOURCE_DIR}/../src/tools/${name}.cpp")
+    if(NOT EXISTS "${source_file}")
+        message(WARNING "Tool source file not found: ${source_file}")
+        return()
+    endif()
+
+    # Create executable
+    add_executable(${name} "${source_file}")
+
+    # Link against common libraries
+    target_link_libraries(${name} ${COMMON_LIBS})
+
+    # Add dm-tools objects if available
+    if(DM_TOOLS_OBJECTS)
+        target_sources(${name} PRIVATE ${DM_TOOLS_OBJECTS})
+    endif()
+
+    # Add MATLAB objects if available
+    if(MATLAB_OBJECTS)
+        target_sources(${name} PRIVATE ${MATLAB_OBJECTS})
+    endif()
+
+    # Include directories
     target_include_directories(${name} PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../include
         ${CMAKE_CURRENT_SOURCE_DIR}/../lib/dm-tools/C++/ubuntu/include
-        ${CMAKE_CURRENT_SOURCE_DIR}
-        ${CMAKE_CURRENT_SOURCE_DIR}/regressor
-        ${CMAKE_CURRENT_SOURCE_DIR}/../lib/regressor/lib
         ${CMAKE_CURRENT_SOURCE_DIR}/../lib/regressor/lib/regressorWithMotorDynamics
         ${CMAKE_CURRENT_SOURCE_DIR}/../lib/regressor/lib/frictionRegressor
-        ${PINOCCHIO_INCLUDE_DIRS}
     )
+
+    # Add Pinocchio include directories if available
+    if(BUILD_WITH_PINOCCHIO AND PINOCCHIO_FOUND)
+        target_include_directories(${name} PRIVATE ${PINOCCHIO_INCLUDE_DIRS})
+        target_link_directories(${name} PRIVATE /opt/openrobots/lib)
+    endif()
+
+    # Compiler options
     target_compile_options(${name} PRIVATE -Wall -Wextra)
 
-    # Add regressor objects if available
-    if(PURE_C_OBJECTS)
-        target_sources(${name} PRIVATE ${PURE_C_OBJECTS})
-    endif()
-    if(REGRESSOR_OBJECTS)
-        target_sources(${name} PRIVATE ${REGRESSOR_OBJECTS})
-    endif()
+    # Installation
+    install(TARGETS ${name} RUNTIME DESTINATION bin)
 
-    list(APPEND TOOL_LIST ${name})
-    set(TOOL_LIST ${TOOL_LIST} PARENT_SCOPE)
+    message(STATUS "✅ Added tool: ${name}")
 endfunction()
 
-# Build all tools that exist
-set(TOOL_LIST)
+# ===================================
+# BASIC TOOLS
+# ===================================
 
-# Basic tools
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../src/tools/set_motor_zero.cpp")
-    add_ic_can_tool_from_src(set_motor_zero)
-endif()
+set(BASIC_TOOLS
+    set_motor_zero
+    arm_position_monitor
+    wrist_motor_monitor
+    wrist_motor_only_monitor
+    home_to_zero
+    simple_motor_test
+)
 
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../src/tools/arm_position_monitor.cpp")
-    add_ic_can_tool_from_src(arm_position_monitor)
-endif()
+foreach(tool ${BASIC_TOOLS})
+    add_ic_can_tool(${tool})
+endforeach()
 
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../src/tools/wrist_motor_monitor.cpp")
-    add_ic_can_tool_from_src(wrist_motor_monitor)
-endif()
+# ===================================
+# LOGGING TOOLS
+# ===================================
 
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../src/tools/wrist_motor_only_monitor.cpp")
-    add_ic_can_tool_from_src(wrist_motor_only_monitor)
-endif()
+set(LOGGING_TOOLS
+    logging_demo
+    logging_demo_simple
+)
 
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../src/tools/home_to_zero.cpp")
-    add_ic_can_tool_from_src(home_to_zero)
-endif()
+foreach(tool ${LOGGING_TOOLS})
+    add_ic_can_tool(${tool})
+endforeach()
 
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../src/tools/simple_motor_test.cpp")
-    add_ic_can_tool_from_src(simple_motor_test)
-endif()
+# ===================================
+# TORQUE TOOLS (Conditional)
+# ===================================
 
-# Logging tools
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../src/tools/logging_demo.cpp")
-    add_ic_can_tool_from_src(logging_demo)
-endif()
+# Only build torque tools if we have torque predictors
+set(TORQUE_TOOLS
+    simple_arm_torque_demo  # Requires TorquePredictorPureC - may fail if MATLAB disabled
+    demo_real_arm_torques
+    test_torque_simple
+    test_torque_integration
+    test_torque_predictor_speed
+    test_torque_with_logging
+    test_regressor
+)
 
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../src/tools/logging_demo_simple.cpp")
-    add_ic_can_tool_from_src(logging_demo_simple)
-endif()
+foreach(tool ${TORQUE_TOOLS})
+    if(BUILD_WITH_MATLAB OR tool STREQUAL "demo_real_arm_torques" OR tool STREQUAL "test_torque_simple" OR tool STREQUAL "test_torque_integration")
+        add_ic_can_tool(${tool})
+    endif()
+endforeach()
 
-# Torque tools
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../src/tools/torque_predictor.cpp")
-    add_ic_can_tool_from_src(torque_predictor)
-endif()
+# ===================================
+# ADVANCED TOOLS
+# ===================================
 
+set(ADVANCED_TOOLS
+    trajectory_executor
+    friction_sweep
+    friction_compensated_controller
+    dynamic_identifier
+    regressor_wrapper
+)
 
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../src/tools/simple_arm_torque_demo.cpp")
-    add_ic_can_tool_from_src(simple_arm_torque_demo)
-endif()
+foreach(tool ${ADVANCED_TOOLS})
+    add_ic_can_tool(${tool})
+endforeach()
 
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../src/tools/demo_real_arm_torques.cpp")
-    add_ic_can_tool_from_src(demo_real_arm_torques)
-endif()
+# ===================================
+# MOTOR-SPECIFIC TOOLS
+# ===================================
 
-# Test tools
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../src/tools/test_regressor.cpp")
-    add_ic_can_tool_from_src(test_regressor)
-endif()
+set(MOTOR_TOOLS
+    wrist_kinematics_test
+    wrist_safe_monitor
+    ht_frame_test
+    wrist_motor_monitor_clean
+)
 
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../src/tools/test_torque_simple.cpp")
-    add_ic_can_tool_from_src(test_torque_simple)
-endif()
+foreach(tool ${MOTOR_TOOLS})
+    add_ic_can_tool(${tool})
+endforeach()
 
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../src/tools/test_torque_integration.cpp")
-    add_ic_can_tool_from_src(test_torque_integration)
-endif()
+# ===================================
+# MONITORING TEST TOOLS
+# ===================================
 
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../src/tools/test_torque_predictor_speed.cpp")
-    add_ic_can_tool_from_src(test_torque_predictor_speed)
-endif()
+set(TEST_TOOLS
+    test_wrist_monitor
+    test_wrist_monitor_simple
+    test_wrist_minimal
+    test_wrist_standalone
+)
 
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../src/tools/test_torque_with_logging.cpp")
-    add_ic_can_tool_from_src(test_torque_with_logging)
-endif()
+foreach(tool ${TEST_TOOLS})
+    add_ic_can_tool(${tool})
+endforeach()
 
-# Advanced tools
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../src/tools/trajectory_executor.cpp")
-    add_ic_can_tool_from_src(trajectory_executor)
-endif()
+# ===================================
+# CONFIGURATION SUMMARY
+# ===================================
 
-# Friction identification tools
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../src/tools/friction_sweep.cpp")
-    add_ic_can_tool_from_src(friction_sweep)
-endif()
-
-# Friction control tools
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../src/tools/friction_compensated_controller.cpp")
-    add_ic_can_tool_from_src(friction_compensated_controller)
-endif()
-
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../src/tools/dynamic_identifier.cpp")
-    add_ic_can_tool_from_src(dynamic_identifier)
-endif()
-
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../src/tools/regressor_wrapper.cpp")
-    add_ic_can_tool_from_src(regressor_wrapper)
-endif()
-
-# Custom target to build all tools
-if(TOOL_LIST)
-    add_custom_target(tools DEPENDS ${TOOL_LIST} COMMENT "Building all IC_CAN tools")
-
-    # Installation
-    install(TARGETS ${TOOL_LIST} RUNTIME DESTINATION bin)
-
-    message(STATUS "IC_CAN Tools to build: ${TOOL_LIST}")
-else()
-    message(WARNING "No tool source files found!")
-endif()
-
-# Print build information
-message(STATUS "IC_CAN Tools Configuration:")
-message(STATUS "  C++ Standard: ${CMAKE_CXX_STANDARD}")
-message(STATUS "  Include Directories: ${CMAKE_CURRENT_SOURCE_DIR}/../include")
-message(STATUS "  DM-Tools SDK: ${CMAKE_CURRENT_SOURCE_DIR}/../lib/dm-tools/C++/ubuntu/include")
-message(STATUS "  Libraries: ${COMMON_LIBS}")
-message(STATUS "  libusb found: ${USB1_FOUND}")
-message(STATUS "  MATLAB regressor libs: ${PURE_C_OBJECTS}")
-message(STATUS "  Regressor objects: ${REGRESSOR_OBJECTS}")
+message(STATUS "")
+message(STATUS "=== IC_CAN Tools Configuration ===")
+message(STATUS "Build with dm-tools: ${BUILD_WITH_DM_TOOLS}")
+message(STATUS "Build with MATLAB: ${BUILD_WITH_MATLAB}")
+message(STATUS "Build with Pinocchio: ${BUILD_WITH_PINOCCHIO}")
+list(LENGTH DM_TOOLS_OBJECTS NUM_DM_OBJECTS)
+list(LENGTH MATLAB_OBJECTS NUM_MATLAB_OBJECTS)
+message(STATUS "dm-tools objects found: ${NUM_DM_OBJECTS}")
+message(STATUS "MATLAB objects found: ${NUM_MATLAB_OBJECTS}")
+message(STATUS "=====================================")
+message(STATUS "")

@@ -1,0 +1,27 @@
+
+cmake_minimum_required(VERSION 3.10)
+project(FrictionCompensationDemo)
+
+# Set C++ standard
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Find required packages
+find_package(nlohmann_json REQUIRED)
+
+# Include directories
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/dm-tools/USB2FDCAN/SDK/C++)
+
+# Add executable
+add_executable(friction_demo friction_demo.cpp)
+
+# Link libraries
+target_link_libraries(friction_demo
+    ic_can
+    nlohmann_json::nlohmann_json
+    ${CMAKE_DL_LIBS}
+)
+
+# Compiler flags
+target_compile_options(friction_demo PRIVATE -Wall -Wextra)

@@ -29,6 +29,8 @@ class ArmComponent;
 class GripperComponent;
 class WristComponent;
 class SafetyModule;
+class CANFrameDispatcher;
+class USB2CANCommunicationAdapter;
 
 /**
  * @brief Main IC_CAN controller class
@@ -136,6 +138,52 @@ public:
      * @return true if successful
      */
     bool set_joint_torques(const std::vector<double>& torques);
+
+    /**
+     * @brief Send HT motor MIT command for position request only (no movement)
+     * @param position Target position in radians (ignored, for interface compatibility)
+     * @param velocity Target velocity in rad/s (ignored, for interface compatibility)
+     * @param torque Target torque in Nm (ignored, for interface compatibility)
+     * @param kp Position gain (ignored, for interface compatibility)
+     * @param kd Velocity gain (ignored, for interface compatibility)
+     */
+    void send_ht_mit_command(double position, double velocity, double torque,
+                             double kp, double kd);
+
+    /**
+     * @brief Send HT motor MIT command for actual movement
+     * @param m7_position Target position for motor 7 in radians
+     * @param m7_velocity Target velocity for motor 7 in rad/s
+     * @param m7_torque Target torque for motor 7 in Nm
+     * @param m8_position Target position for motor 8 in radians
+     * @param m8_velocity Target velocity for motor 8 in rad/s
+     * @param m8_torque Target torque for motor 8 in Nm
+     * @param kp Position gain
+     * @param kd Velocity gain
+     */
+    void send_ht_mit_command_with_movement(double m7_position, double m7_velocity, double m7_torque,
+                                          double m8_position, double m8_velocity, double m8_torque,
+                                          double kp, double kd);
+
+    /**
+     * @brief Send HT motor SET ZERO command
+     * Sets the current position as zero position for HT motors
+     */
+    void send_ht_set_zero_command();
+
+    /**
+     * @brief Send HT motor BRAKE command
+     * Applies brake to HT motors
+     */
+    void send_ht_brake_command();
+
+
+    /**
+     * @brief Send HT motor read state command
+     * Reads current state of both HT motors (7 and 8)
+     */
+    void send_ht_read_state();
+
 
     /**
      * @brief Start control loop with configurable frequency
@@ -376,6 +424,73 @@ public:
      * @brief Print friction compensation status and parameters
      */
     void print_friction_compensation_status();
+
+    // Safety and emergency methods
+    /**
+     * @brief Emergency stop - immediately stops all motion and puts motors in safe hold mode
+     * @return true if emergency stop was successful
+     */
+    bool emergency_stop();
+
+    /**
+     * @brief Check system safety status
+     * @return true if system is in safe operating condition
+     */
+    bool check_system_safety();
+
+    // Wrist position monitoring methods
+    /**
+     * @brief Start wrist position monitoring for motors 7 and 8 only
+     * @param frequency Monitoring frequency in Hz (default: 50Hz)
+     * @return true if monitoring started successfully
+     */
+    bool start_wrist_position_monitoring(double frequency = 50.0);
+
+    /**
+     * @brief Stop wrist position monitoring
+     */
+    void stop_wrist_position_monitoring();
+
+    /**
+     * @brief Refresh wrist motors only (motors 7 and 8)
+     * @return true if refresh successful
+     */
+    bool refresh_wrist_motors_only();
+
+    /**
+     * @brief Get current wrist positions (motors 7 and 8)
+     * @return Vector of positions [motor_7, motor_8] in radians
+     */
+    std::vector<double> get_wrist_positions();
+
+    /**
+     * @brief Get current wrist velocities (motors 7 and 8)
+     * @return Vector of velocities [motor_7, motor_8] in rad/s
+     */
+    std::vector<double> get_wrist_velocities();
+
+    /**
+     * @brief Get current wrist torques (motors 7 and 8)
+     * @return Vector of torques [motor_7, motor_8] in Nm
+     */
+    std::vector<double> get_wrist_torques();
+
+    /**
+     * @brief Get comprehensive wrist monitoring data
+     * @return Map containing positions, velocities, torques, and data age
+     */
+    std::map<std::string, std::vector<double>> get_wrist_monitoring_data();
+
+    /**
+     * @brief Print detailed wrist status information
+     */
+    void print_wrist_status();
+
+    /**
+     * @brief Check if wrist monitoring is currently running
+     * @return true if wrist monitoring is active
+     */
+    bool is_wrist_monitoring_running() const;
 
 private:
     class Impl;

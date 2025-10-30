@@ -1699,7 +1699,7 @@ private:
                 << can_id << ")" << std::endl;
       std::cout << "     DLC: " << (int)frame.head.dlc << " bytes" << std::endl;
       std::cout << "     Data Bytes (" << frame.head.dlc << "): ";
-      for (int i = 0; i < frame.head.dlc && i < 8; i++) {
+      for (int i = 0; i < frame.head.dlc; i++) {
         std::cout << "[" << i << "]=0x" << std::hex << std::setw(2)
                   << std::setfill('0') << (int)frame.data[i] << std::dec << " ";
       }
@@ -1793,11 +1793,11 @@ private:
 
     // Extract HT motor data (same as HT test)
     int16_t pos_int =
-        static_cast<int16_t>(frame.data[1] | (frame.data[2] << 8));
+        static_cast<int16_t>(frame.data[2] | (frame.data[3] << 8));
     int16_t vel_int =
-        static_cast<int16_t>(frame.data[3] | (frame.data[4] << 8));
+        static_cast<int16_t>(frame.data[4] | (frame.data[5] << 8));
     int16_t torque_int =
-        static_cast<int16_t>(frame.data[5] | (frame.data[6] << 8));
+        static_cast<int16_t>(frame.data[6] | (frame.data[7] << 8));
 
     // Convert to physical units (HT protocol)
     const double TURN_TO_RAD = 2.0 * M_PI;
@@ -1958,11 +1958,9 @@ private:
     // Send to HT motor 7 (CAN ID: 0x8707)
     send_can_frame(0x8007, cmd, true); // Extended frame for HT
     //
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
     // Send to HT motor 8 (CAN ID: 0x8808)
     send_can_frame(0x8008, cmd, true); // Extended frame for HT
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
     if (debug_enabled_) {
       std::cout << "   📤 CAN SEND: ID=0x8007, DLC=8, Data: ";
       for (size_t i = 0; i < cmd.size(); i++) {
@@ -1991,10 +1989,9 @@ private:
   }
 
   void send_ht_set_zero_command() {
-    // Placeholder implementation for HT set zero command
     std::cout << "📤 HT set zero command called (placeholder)" << std::endl;
-    // This would need to be implemented based on your specific HT motor
-    // protocol
+    send_can_frame(0x8007, {0x40, 0x01, 0x04, 0x64, 0x20, 0x63, 0x0A}, true);
+    send_can_frame(0x8008, {0x40, 0x01, 0x04, 0x64, 0x20, 0x63, 0x0A}, true);
   }
 
   // Universal CAN frame sending function

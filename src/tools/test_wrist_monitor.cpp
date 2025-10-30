@@ -86,7 +86,8 @@ int main(int argc, char *argv[]) {
     }
 
     // Test initial communication
-    std::cout << "🧪 Testing CAN communication before monitoring..." << std::endl;
+    std::cout << "🧪 Testing CAN communication before monitoring..."
+              << std::endl;
     if (!ic_can.refresh_all()) {
       std::cout << "⚠️ Warning: Initial refresh failed" << std::endl;
     }
@@ -108,6 +109,9 @@ int main(int argc, char *argv[]) {
 
     auto last_status_time = std::chrono::steady_clock::now();
     const auto status_interval = std::chrono::milliseconds(100);
+
+    std::cout << " set wrist to zero positions " << std::endl;
+    ic_can.send_ht_set_zero_command();
 
     while (keep_running) {
       std::this_thread::sleep_for(std::chrono::milliseconds(100));

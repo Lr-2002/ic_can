@@ -504,6 +504,28 @@ public:
      */
     bool is_wrist_monitoring_running() const;
 
+    /**
+     * @brief Wrist forward kinematics - calculate alpha and beta from motor angles
+     * @param theta1 Motor 7 angle in radians
+     * @param theta2 Motor 8 angle in radians
+     * @return Vector containing [alpha, beta] in radians
+     */
+    std::vector<double> wrist_forward_kinematics(double theta1, double theta2);
+
+    /**
+     * @brief Wrist inverse kinematics - calculate motor angles from alpha and beta
+     * @param alpha Alpha angle in radians
+     * @param beta Beta angle in radians
+     * @return Vector containing [theta1, theta2] in radians (motors 7, 8)
+     */
+    std::vector<double> wrist_inverse_kinematics(double alpha, double beta);
+
+    /**
+     * @brief Get current wrist angles (both motor angles and calculated alpha/beta)
+     * @return Map containing theta1, theta2, alpha, beta in radians
+     */
+    std::map<std::string, double> get_wrist_angles();
+
 private:
     class Impl;
     std::unique_ptr<Impl> impl_;

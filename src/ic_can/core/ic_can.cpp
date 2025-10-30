@@ -588,16 +588,17 @@ public:
 
     try {
       // Refresh Damiao motors 1-6 with individual status requests
-      for (int motor_id = 1; motor_id <= 6; motor_id++) {
-        std::vector<uint8_t> status_cmd = {uint8_t(motor_id), 0x00, 0xCC, 0x00};
-        send_can_frame(motor_id, status_cmd,
-                       false); // Standard frame for Damiao
-        if (debug_enabled_) {
-          std::cout << "📤 Sent status request to DM motor " << motor_id
-                    << std::endl;
-        }
-        usleep(500); // Small delay between requests
-      }
+      /*for (int motor_id = 1; motor_id <= 6; motor_id++) {*/
+      /*  std::vector<uint8_t> status_cmd = {uint8_t(motor_id), 0x00, 0xCC,
+       * 0x00};*/
+      /*  send_can_frame(motor_id, status_cmd,*/
+      /*                 false); // Standard frame for Damiao*/
+      /*  if (debug_enabled_) {*/
+      /*    std::cout << "📤 Sent status request to DM motor " << motor_id*/
+      /*              << std::endl;*/
+      /*  }*/
+      /*  usleep(500); // Small delay between requests*/
+      /*}*/
 
       // Refresh HT motors 7-8 with their specific protocol
       send_ht_read_state();
@@ -1235,6 +1236,70 @@ public:
             {"velocities", last_wrist_velocities_},
             {"torques", last_wrist_torques_},
             {"update_age_ms", {static_cast<double>(time_since_update)}}};
+  }
+
+  // Wrist kinematics functions
+  std::vector<double> wrist_forward_kinematics(double theta1, double theta2) {
+    // Calculate alpha and beta from motor angles
+    // alpha = (theta1 + theta2) / 2
+    // beta = (theta1 - theta2) / 2
+
+    double alpha = (theta1 + theta2) / 2.0;
+    double beta = (theta1 - theta2) / 2.0;
+
+    if (debug_enabled_) {
+      std::cout << "🔧 Wrist Forward Kinematics:" << std::endl;
+      std::cout << "   Motor 7 (theta1): " << theta1 << " rad ("
+                << (theta1 * 180.0 / M_PI) << "°)" << std::endl;
+      std::cout << "   Motor 8 (theta2): " << theta2 << " rad ("
+                << (theta2 * 180.0 / M_PI) << "°)" << std::endl;
+      std::cout << "   Alpha: " << alpha << " rad (" << (alpha * 180.0 / M_PI)
+                << "°)" << std::endl;
+      std::cout << "   Beta: " << beta << " rad (" << (beta * 180.0 / M_PI)
+                << "°)" << std::endl;
+    }
+
+    return {alpha, beta};
+  }
+
+  std::vector<double> wrist_inverse_kinematics(double alpha, double beta) {
+    // Calculate motor angles from alpha and beta
+    // theta1 = alpha + beta
+    // theta2 = alpha - beta
+
+    double theta1 = alpha + beta;
+    double theta2 = alpha - beta;
+
+    if (debug_enabled_) {
+      std::cout << "🔧 Wrist Inverse Kinematics:" << std::endl;
+      std::cout << "   Alpha: " << alpha << " rad (" << (alpha * 180.0 / M_PI)
+                << "°)" << std::endl;
+      std::cout << "   Beta: " << beta << " rad (" << (beta * 180.0 / M_PI)
+                << "°)" << std::endl;
+      std::cout << "   Motor 7 (theta1): " << theta1 << " rad ("
+                << (theta1 * 180.0 / M_PI) << "°)" << std::endl;
+      std::cout << "   Motor 8 (theta2): " << theta2 << " rad ("
+                << (theta2 * 180.0 / M_PI) << "°)" << std::endl;
+    }
+
+    return {theta1, theta2};
+  }
+
+  std::map<std::string, double> get_wrist_angles() {
+    // Get current motor positions for wrist (motors 7 and 8)
+    auto wrist_positions = get_wrist_positions();
+    double theta1 = wrist_positions[0]; // Motor 7
+    double theta2 = wrist_positions[1]; // Motor 8
+
+    // Calculate alpha and beta
+    auto angles = wrist_forward_kinematics(theta1, theta2);
+    double alpha = angles[0];
+    double beta = angles[1];
+
+    return {{"theta1", theta1},
+            {"theta2", theta2},
+            {"alpha", alpha},
+            {"beta", beta}};
   }
 
   void print_wrist_status() {
@@ -2688,6 +2753,20 @@ void IC_CAN::print_wrist_status() { impl_->print_wrist_status(); }
 
 bool IC_CAN::is_wrist_monitoring_running() const {
   return impl_->is_wrist_monitoring_running();
+}
+
+std::vector<double> IC_CAN::wrist_forward_kinematics(double theta1,
+                                                     double theta2) {
+  return impl_->wrist_forward_kinematics(theta1, theta2);
+}
+
+std::vector<double> IC_CAN::wrist_inverse_kinematics(double alpha,
+                                                     double beta) {
+  return impl_->wrist_inverse_kinematics(alpha, beta);
+}
+
+std::map<std::string, double> IC_CAN::get_wrist_angles() {
+  return impl_->get_wrist_angles();
 }
 
 } // namespace ic_can

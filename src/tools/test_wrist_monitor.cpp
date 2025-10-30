@@ -21,6 +21,10 @@
 #include <iostream>
 #include <thread>
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 // Global flag for graceful shutdown
 std::atomic<bool> keep_running(true);
 
@@ -154,6 +158,20 @@ int main(int argc, char *argv[]) {
                   << "Vel=" << wrist_vel[1] << " rad/s, "
                   << "Tau=" << wrist_tau[1] << " Nm" << std::endl;
 
+        // Calculate and display alpha and beta angles using built-in kinematics
+        auto wrist_angles = ic_can.get_wrist_angles();
+        double theta1 = wrist_angles["theta1"];
+        double theta2 = wrist_angles["theta2"];
+        double alpha = wrist_angles["alpha"];
+        double beta = wrist_angles["beta"];
+
+        std::cout << "Wrist Angles (using kinematics API):" << std::endl;
+        std::cout << "  Alpha: " << std::fixed << std::setprecision(3)
+                  << alpha << " rad (" << (alpha * 180.0 / M_PI) << "°)" << std::endl;
+        std::cout << "  Beta:  " << std::fixed << std::setprecision(3)
+                  << beta << " rad (" << (beta * 180.0 / M_PI) << "°)" << std::endl;
+        std::cout << "  (θ₁=" << theta1 << " rad, θ₂=" << theta2 << " rad)" << std::endl;
+
         // Test refresh functionality
         /*if (ic_can.refresh_wrist_motors_only()) {*/
         /*  std::cout << "✅ Wrist refresh successful" << std::endl;*/
@@ -166,11 +184,17 @@ int main(int argc, char *argv[]) {
 
       // Quick status indicator
       if (keep_running) {
-        auto wrist_data = ic_can.get_wrist_monitoring_data();
-        auto positions = wrist_data["positions"];
+        auto wrist_angles = ic_can.get_wrist_angles();
+        double theta1 = wrist_angles["theta1"];
+        double theta2 = wrist_angles["theta2"];
+        double alpha = wrist_angles["alpha"];
+        double beta = wrist_angles["beta"];
+
         std::cout << "\r🦾 Live: M7=" << std::fixed << std::setprecision(2)
-                  << (positions[0] * 180.0 / M_PI)
-                  << "° M8=" << (positions[1] * 180.0 / M_PI) << "°   "
+                  << (theta1 * 180.0 / M_PI)
+                  << "° M8=" << (theta2 * 180.0 / M_PI)
+                  << "° | α=" << (alpha * 180.0 / M_PI)
+                  << "° β=" << (beta * 180.0 / M_PI) << "°   "
                   << std::flush;
       }
     }

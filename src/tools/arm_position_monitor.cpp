@@ -180,7 +180,7 @@ int main(int argc, char *argv[]) {
     // Create IC_CAN controller
     auto controller =
         std::make_unique<ic_can::IC_CAN>("693D3DE86DF5940C8BC74A5B46A3CE2E",
-                                         false); // Debug off for cleaner output
+                                         true); // Debug off for cleaner output
 
     // Initialize system
     if (!controller->initialize()) {

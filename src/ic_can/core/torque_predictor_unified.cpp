@@ -62,9 +62,9 @@ bool TorquePredictorUnified::switch_method(TorquePredictionMethod method) {
     return false;
 }
 
-bool TorquePredictorUnified::predict_torques(const double q[6], const double dq[6], const double ddq[6],
-                                            double M_torque[6], double C_torque[6], double G_torque[6],
-                                            double total_torque[6]) {
+bool TorquePredictorUnified::predict_torques(const double* q, const double* dq, const double* ddq,
+                                            double* M_torque, double* C_torque, double* G_torque,
+                                            double* total_torque) {
     if (!initialized_) {
         std::cout << "❌ Unified torque predictor not initialized" << std::endl;
         return false;
@@ -77,8 +77,8 @@ bool TorquePredictorUnified::predict_torques(const double q[6], const double dq[
     return false;
 }
 
-bool TorquePredictorUnified::predict_total_torque(const double q[6], const double dq[6], const double ddq[6],
-                                                 double total_torque[6]) {
+bool TorquePredictorUnified::predict_total_torque(const double* q, const double* dq, const double* ddq,
+                                                 double* total_torque) {
     if (!initialized_) {
         std::cout << "❌ Unified torque predictor not initialized" << std::endl;
         return false;
@@ -91,7 +91,7 @@ bool TorquePredictorUnified::predict_total_torque(const double q[6], const doubl
     return false;
 }
 
-bool TorquePredictorUnified::predict_gravity_torque(const double q[6], double gravity_torque[6]) {
+bool TorquePredictorUnified::predict_gravity_torque(const double* q, double* gravity_torque) {
     if (!initialized_) {
         std::cout << "❌ Unified torque predictor not initialized" << std::endl;
         return false;
@@ -104,7 +104,7 @@ bool TorquePredictorUnified::predict_gravity_torque(const double q[6], double gr
     return false;
 }
 
-void TorquePredictorUnified::print_torque_breakdown(const double q[6], const double dq[6], const double ddq[6]) {
+void TorquePredictorUnified::print_torque_breakdown(const double* q, const double* dq, const double* ddq) {
     if (!initialized_) {
         std::cout << "❌ Unified torque predictor not initialized" << std::endl;
         return;
@@ -116,6 +116,13 @@ void TorquePredictorUnified::print_torque_breakdown(const double q[6], const dou
     }
 
     std::cout << "❌ No valid torque predictor available for breakdown" << std::endl;
+}
+
+int TorquePredictorUnified::get_dof() const {
+    if (current_method_ == TorquePredictionMethod::PINOCCHIO_URDF && pinocchio_predictor_) {
+        return pinocchio_predictor_->get_dof();
+    }
+    return 0;
 }
 
 void TorquePredictorUnified::print_method_status() {

@@ -63,45 +63,51 @@ public:
 
     /**
      * @brief Predict torque components for given joint state
-     * @param q Joint positions [6]
-     * @param dq Joint velocities [6]
-     * @param ddq Joint accelerations [6]
-     * @param M_torque Output mass/inertia torque component [6]
-     * @param C_torque Output Coriolis torque component [6]
-     * @param G_torque Output gravity torque component [6]
-     * @param total_torque Output total predicted torque [6]
+     * @param q Joint positions (size depends on DOF of loaded model)
+     * @param dq Joint velocities (size depends on DOF of loaded model)
+     * @param ddq Joint accelerations (size depends on DOF of loaded model)
+     * @param M_torque Output mass/inertia torque component (size depends on DOF)
+     * @param C_torque Output Coriolis torque component (size depends on DOF)
+     * @param G_torque Output gravity torque component (size depends on DOF)
+     * @param total_torque Output total predicted torque (size depends on DOF)
      * @return true if prediction successful
      */
-    bool predict_torques(const double q[6], const double dq[6], const double ddq[6],
-                        double M_torque[6], double C_torque[6], double G_torque[6],
-                        double total_torque[6]);
+    bool predict_torques(const double* q, const double* dq, const double* ddq,
+                        double* M_torque, double* C_torque, double* G_torque,
+                        double* total_torque);
 
     /**
      * @brief Predict total torque for given joint state
-     * @param q Joint positions [6]
-     * @param dq Joint velocities [6]
-     * @param ddq Joint accelerations [6]
-     * @param total_torque Output total predicted torque [6]
+     * @param q Joint positions (size depends on DOF of loaded model)
+     * @param dq Joint velocities (size depends on DOF of loaded model)
+     * @param ddq Joint accelerations (size depends on DOF of loaded model)
+     * @param total_torque Output total predicted torque (size depends on DOF)
      * @return true if prediction successful
      */
-    bool predict_total_torque(const double q[6], const double dq[6], const double ddq[6],
-                             double total_torque[6]);
+    bool predict_total_torque(const double* q, const double* dq, const double* ddq,
+                             double* total_torque);
 
     /**
      * @brief Predict only gravity compensation torques
-     * @param q Joint positions [6]
-     * @param gravity_torque Output gravity torques [6]
+     * @param q Joint positions (size depends on DOF of loaded model)
+     * @param gravity_torque Output gravity torques (size depends on DOF)
      * @return true if prediction successful
      */
-    bool predict_gravity_torque(const double q[6], double gravity_torque[6]);
+    bool predict_gravity_torque(const double* q, double* gravity_torque);
 
     /**
      * @brief Print detailed torque breakdown for analysis
-     * @param q Joint positions [6]
-     * @param dq Joint velocities [6]
-     * @param ddq Joint accelerations [6]
+     * @param q Joint positions (size depends on DOF of loaded model)
+     * @param dq Joint velocities (size depends on DOF of loaded model)
+     * @param ddq Joint accelerations (size depends on DOF of loaded model)
      */
-    void print_torque_breakdown(const double q[6], const double dq[6], const double ddq[6]);
+    void print_torque_breakdown(const double* q, const double* dq, const double* ddq);
+
+    /**
+     * @brief Get number of degrees of freedom
+     * @return DOF count from underlying predictor
+     */
+    int get_dof() const;
 
     /**
      * @brief Print available methods and their status

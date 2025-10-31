@@ -4,7 +4,8 @@
      For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
 <robot
   name="ic_arm_with_wrist">
-<link
+
+  <link
     name="base_link">
     <inertial>
       <origin
@@ -26,7 +27,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://ic_arm_with_wrist/meshes/base_link.STL" />
+          filename="package://ic_arm_cnc/meshes/base_link.STL" />
       </geometry>
       <material
         name="">
@@ -40,7 +41,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://ic_arm_with_wrist/meshes/base_link.STL" />
+          filename="package://ic_arm_cnc/meshes/base_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -51,7 +52,7 @@
         xyz="0.121679303915308 0.00317679385775441 -0.0220385702843656"
         rpy="0 0 0" />
       <mass
-        value="1.1167" />
+        value="1.2167" />
       <inertia
         ixx="0.000866"
         ixy="6.50E-05"
@@ -66,7 +67,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://ic_arm_with_wrist/meshes/link1.STL" />
+          filename="package://ic_arm_cnc/meshes/link1.STL" />
       </geometry>
       <material
         name="">
@@ -80,7 +81,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://ic_arm_with_wrist/meshes/link1.STL" />
+          filename="package://ic_arm_cnc/meshes/link1.STL" />
       </geometry>
     </collision>
   </link>
@@ -95,7 +96,7 @@
     <child
       link="link1" />
     <axis
-      xyz="0 0 -1" />
+      xyz="0 0 1" />
     <limit
       lower="-3.14"
       upper="3.14"
@@ -109,7 +110,7 @@
         xyz="0.100655712032868 -0.00283282379893407 0.0302607494646697"
         rpy="0 0 0" />
       <mass
-        value="1.201" />
+        value="1.301" />
       <inertia
         ixx="0.0009957"
         ixy="-8.37E-5"
@@ -124,7 +125,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://ic_arm_with_wrist/meshes/link2.STL" />
+          filename="package://ic_arm_cnc/meshes/link2.STL" />
       </geometry>
       <material
         name="">
@@ -138,7 +139,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://ic_arm_with_wrist/meshes/link2.STL" />
+          filename="package://ic_arm_cnc/meshes/link2.STL" />
       </geometry>
     </collision>
   </link>
@@ -167,7 +168,7 @@
         xyz="0.0360275188907008 6.51215528056082E-05 0.0291485646419718"
         rpy="0 0 0" />
       <mass
-        value="0.610" />
+        value="0.710" />
       <inertia
         ixx="0.000434"
         ixy="-1.46242444810173E-06"
@@ -182,7 +183,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://ic_arm_with_wrist/meshes/link3.STL" />
+          filename="package://ic_arm_cnc/meshes/link3.STL" />
       </geometry>
       <material
         name="">
@@ -196,7 +197,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://ic_arm_with_wrist/meshes/link3.STL" />
+          filename="package://ic_arm_cnc/meshes/link3.STL" />
       </geometry>
     </collision>
   </link>
@@ -240,7 +241,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://ic_arm_with_wrist/meshes/link4.STL" />
+          filename="package://ic_arm_cnc/meshes/link4.STL" />
       </geometry>
       <material
         name="">
@@ -254,7 +255,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://ic_arm_with_wrist/meshes/link4.STL" />
+          filename="package://ic_arm_cnc/meshes/link4.STL" />
       </geometry>
     </collision>
   </link>
@@ -269,7 +270,7 @@
     <child
       link="link4" />
     <axis
-      xyz="0 0 -1" />
+      xyz="0 0 1" />
     <limit
       lower="-3.14"
       upper="3.14"
@@ -298,7 +299,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://ic_arm_with_wrist/meshes/link5.STL" />
+          filename="package://ic_arm_cnc/meshes/link5.STL" />
       </geometry>
       <material
         name="">
@@ -312,7 +313,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://ic_arm_with_wrist/meshes/link5.STL" />
+          filename="package://ic_arm_cnc/meshes/link5.STL" />
       </geometry>
     </collision>
   </link>
@@ -335,7 +336,6 @@
       velocity="0" />
   </joint>
 
-
   <link
     name="link6">
     <inertial>
@@ -343,7 +343,7 @@
         xyz="-3.33749418102158E-08 -1.36400007819115E-05 0.0176091608486317"
         rpy="0 0 0" />
       <mass
-        value="0.920428" />
+        value="0.880428" />
       <inertia
         ixx="0.0019259"
         ixy="-1.93416688640056E-07"
@@ -402,7 +402,7 @@
         xyz="0.00223553796690845 7.83382680946687E-09 5.34065208723788E-09"
         rpy="0 0 0" />
       <mass
-        value="0.408311513027483" />
+        value="0.278311513027483" />
       <inertia
         ixx="0.000203548543522467"
         ixy="2.87858401060561E-10"

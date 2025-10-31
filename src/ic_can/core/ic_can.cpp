@@ -709,9 +709,9 @@ public:
       /*          << gravity_compensation_enabled_ << std::endl;*/
       if (gravity_compensation_enabled_ && i < 6) {
         tau += gravity_torques[i];
-        /*std::cout << "motor id is " << i << ", torque is " <<
-         * gravity_torques[i]*/
-        /*          << std::endl;*/
+        std::cout << "motor id is " << i << ", torque is " <<
+         gravity_torques[i]
+                  << std::endl;
       }
 
       // Add friction compensation to torque feedforward
@@ -1527,29 +1527,35 @@ public:
       return gravity_torques;
     }
 
-    // Get current joint positions (only first 6 joints for arm dynamics)
+    // Get current joint positions for dynamics (use all DOF from torque predictor)
     auto positions = get_joint_positions();
-    if (positions.size() < 6) {
+    int predictor_dof = torque_predictor_->get_dof();
+
+    if (positions.size() < predictor_dof) {
+      std::cout << "⚠️  Warning: Only " << positions.size() << " joint positions available, but torque predictor expects " << predictor_dof << std::endl;
       return gravity_torques;
     }
 
-    std::array<double, 6> q;
-    std::array<double, 6> gravity_arm;
+    // Use dynamic arrays that match the torque predictor's DOF
+    std::vector<double> q(predictor_dof);
+    std::vector<double> gravity_compensation(predictor_dof);
 
-    for (int i = 0; i < 6; i++) {
+    // Fill with available positions (up to predictor_dof)
+    for (int i = 0; i < predictor_dof && i < positions.size(); i++) {
       q[i] = positions[i];
     }
 
     if (torque_predictor_->predict_gravity_torque(q.data(),
-                                                  gravity_arm.data())) {
-      // Copy gravity torques for first 6 arm joints
-      for (int i = 0; i < 6; i++) {
-        gravity_torques[i] = gravity_arm[i];
+                                                  gravity_compensation.data())) {
+      // Copy gravity torques for all available joints (up to 9 total)
+      int copy_count = std::min({predictor_dof, static_cast<int>(gravity_compensation.size()), 9});
+      for (int i = 0; i < copy_count; i++) {
+        gravity_torques[i] = gravity_compensation[i];
       }
 
       if (debug_enabled_) {
         std::cout << "🔧 Gravity torques (N⋅m): ";
-        for (int i = 0; i < 6; i++) {
+        for (int i = 0; i < copy_count; i++) {
           std::cout << std::fixed << std::setprecision(3) << gravity_torques[i]
                     << " ";
         }
@@ -1571,32 +1577,40 @@ public:
     // Get current joint state
     auto positions = get_joint_positions();
     auto velocities = get_joint_velocities();
+    int predictor_dof = torque_predictor_->get_dof();
 
-    if (positions.size() < 6 || velocities.size() < 6) {
-      std::cout << "❌ Insufficient joint state data" << std::endl;
+    if (positions.size() < predictor_dof || velocities.size() < predictor_dof) {
+      std::cout << "⚠️  Warning: Insufficient joint state data - have "
+                << positions.size() << " positions, " << velocities.size()
+                << " velocities, but torque predictor expects " << predictor_dof << std::endl;
       return total_torques;
     }
 
-    // Use zero accelerations for current torque prediction
-    std::array<double, 6> q, dq, ddq;
-    std::array<double, 6> predicted_torques;
+    // Use dynamic arrays that match the torque predictor's DOF
+    std::vector<double> q(predictor_dof);
+    std::vector<double> dq(predictor_dof);
+    std::vector<double> ddq(predictor_dof, 0.0); // Zero acceleration for steady-state
+    std::vector<double> predicted_torques(predictor_dof);
 
-    for (int i = 0; i < 6; i++) {
+    // Fill with available positions and velocities (up to predictor_dof)
+    for (int i = 0; i < predictor_dof && i < positions.size(); i++) {
       q[i] = positions[i];
+    }
+    for (int i = 0; i < predictor_dof && i < velocities.size(); i++) {
       dq[i] = velocities[i];
-      ddq[i] = 0.0; // Zero acceleration for steady-state
     }
 
     if (torque_predictor_->predict_total_torque(q.data(), dq.data(), ddq.data(),
                                                 predicted_torques.data())) {
-      // Copy predicted torques for first 6 arm joints
-      for (int i = 0; i < 6; i++) {
+      // Copy predicted torques for all available joints (up to 9 total)
+      int copy_count = std::min({predictor_dof, static_cast<int>(predicted_torques.size()), 9});
+      for (int i = 0; i < copy_count; i++) {
         total_torques[i] = predicted_torques[i];
       }
 
       if (debug_enabled_) {
         std::cout << "🔧 Predicted torques (N⋅m): ";
-        for (int i = 0; i < 6; i++) {
+        for (int i = 0; i < copy_count; i++) {
           std::cout << std::fixed << std::setprecision(3) << total_torques[i]
                     << " ";
         }
@@ -1652,20 +1666,27 @@ public:
 
     auto positions = get_joint_positions();
     auto velocities = get_joint_velocities();
+    int predictor_dof = torque_predictor_->get_dof();
 
-    if (positions.size() < 6 || velocities.size() < 6) {
-      std::cout << "❌ Insufficient joint state data for torque breakdown"
+    if (positions.size() < predictor_dof || velocities.size() < predictor_dof) {
+      std::cout << "❌ Insufficient joint state data for torque breakdown - have "
+                << positions.size() << " positions, " << velocities.size()
+                << " velocities, but torque predictor expects " << predictor_dof
                 << std::endl;
       return;
     }
 
-    std::array<double, 6> q, dq;
-    std::array<double, 6> ddq; // Zero accelerations for current state
+    // Use dynamic arrays that match the torque predictor's DOF
+    std::vector<double> q(predictor_dof);
+    std::vector<double> dq(predictor_dof);
+    std::vector<double> ddq(predictor_dof, 0.0); // Zero accelerations for current state
 
-    for (int i = 0; i < 6; i++) {
+    // Fill with available positions and velocities (up to predictor_dof)
+    for (int i = 0; i < predictor_dof && i < positions.size(); i++) {
       q[i] = positions[i];
+    }
+    for (int i = 0; i < predictor_dof && i < velocities.size(); i++) {
       dq[i] = velocities[i];
-      ddq[i] = 0.0;
     }
 
     torque_predictor_->print_torque_breakdown(q.data(), dq.data(), ddq.data());
@@ -2028,7 +2049,7 @@ private:
   }
 
   void send_ht_read_state() {
-    std::cout << "📤 Reading state of two HT motors" << std::endl;
+    /*std::cout << "📤 Reading state of two HT motors" << std::endl;*/
 
     // HT read state command format
     /*std::vector<unsigned char> cmd = {0x01, 0x00, 0x00, 0x11, 0x00, 0x1f,*/

@@ -18,16 +18,11 @@
 
 namespace ic_can {
 
-// Joint names for the IC arm (6 DOF)
-const std::vector<std::string> TorquePredictorPinocchio::joint_names_ = {
-    "j1", "j2", "j3", "j4", "j5", "j6"};
-
-// Define static member
-const int TorquePredictorPinocchio::DOF = 6;
+// Note: joint_names_ and DOF are now instance variables, not static
 
 TorquePredictorPinocchio::TorquePredictorPinocchio(const std::string &urdf_path)
     : urdf_path_(urdf_path), initialized_(false), gravity_(0, 0, -9.81),
-      q_config_(DOF), v_config_(DOF), a_config_(DOF) {
+      dof_(0) {
 
   // Initialize default URDF path if not provided
   if (urdf_path_.empty()) {
@@ -84,6 +79,9 @@ bool TorquePredictorPinocchio::initialize(const std::string &urdf_path) {
     // Set gravity vector
     model_.gravity.linear() = gravity_;
 
+    // Initialize joint configuration based on loaded URDF
+    initialize_joint_configuration();
+
     initialized_ = true;
     std::cout << "✅ Pinocchio model initialized successfully!" << std::endl;
     std::cout << "🦾 Model has " << model_.nv << " DOF and " << model_.njoints
@@ -102,6 +100,29 @@ bool TorquePredictorPinocchio::initialize(const std::string &urdf_path) {
   }
 }
 
+void TorquePredictorPinocchio::initialize_joint_configuration() {
+  // Set DOF based on loaded model (excluding the universe joint)
+  dof_ = model_.nv;
+
+  // Resize configuration vectors
+  q_config_.resize(dof_);
+  v_config_.resize(dof_);
+  a_config_.resize(dof_);
+
+  // Clear and populate joint names
+  joint_names_.clear();
+  for (int i = 1; i < model_.njoints; ++i) {  // Skip universe joint (index 0)
+    joint_names_.push_back(model_.names[i]);
+  }
+
+  std::cout << "🔧 Configured for " << dof_ << " DOF: ";
+  for (size_t i = 0; i < joint_names_.size(); ++i) {
+    std::cout << joint_names_[i];
+    if (i < joint_names_.size() - 1) std::cout << ", ";
+  }
+  std::cout << std::endl;
+}
+
 void TorquePredictorPinocchio::set_gravity(const Eigen::Vector3d &gravity) {
   gravity_ = gravity;
   if (initialized_) {
@@ -113,11 +134,11 @@ void TorquePredictorPinocchio::set_gravity(const double gravity[3]) {
   set_gravity(Eigen::Vector3d(gravity[0], gravity[1], gravity[2]));
 }
 
-bool TorquePredictorPinocchio::validate_joint_config(const double q[6],
-                                                     const double dq[6],
-                                                     const double ddq[6]) {
+bool TorquePredictorPinocchio::validate_joint_config(const double* q,
+                                                     const double* dq,
+                                                     const double* ddq) {
   // Check for NaN values
-  for (int i = 0; i < DOF; ++i) {
+  for (int i = 0; i < dof_; ++i) {
     if (std::isnan(q[i]) || std::isnan(dq[i]) || std::isnan(ddq[i])) {
       std::cout << "❌ NaN detected in joint " << i << std::endl;
       return false;
@@ -127,9 +148,9 @@ bool TorquePredictorPinocchio::validate_joint_config(const double q[6],
 }
 
 bool TorquePredictorPinocchio::predict_torques(
-    const double q[6], const double dq[6], const double ddq[6],
-    double M_torque[6], double C_torque[6], double G_torque[6],
-    double total_torque[6]) {
+    const double* q, const double* dq, const double* ddq,
+    double* M_torque, double* C_torque, double* G_torque,
+    double* total_torque) {
   if (!initialized_) {
     std::cout << "❌ Pinocchio predictor not initialized" << std::endl;
     return false;
@@ -141,7 +162,7 @@ bool TorquePredictorPinocchio::predict_torques(
 
   try {
     // Convert to Eigen vectors
-    for (int i = 0; i < DOF; ++i) {
+    for (int i = 0; i < dof_; ++i) {
       q_config_[i] = q[i];
       v_config_[i] = dq[i];
       a_config_[i] = ddq[i];
@@ -153,7 +174,7 @@ bool TorquePredictorPinocchio::predict_torques(
 
     // Compute individual components
     // Mass component (M * ddq)
-    Eigen::MatrixXd mass_matrix(DOF, DOF);
+    Eigen::MatrixXd mass_matrix(dof_, dof_);
     pinocchio::crba(model_, data_, q_config_);
     mass_matrix = data_.M;
     Eigen::VectorXd M_component = mass_matrix * a_config_;
@@ -166,7 +187,7 @@ bool TorquePredictorPinocchio::predict_torques(
     Eigen::VectorXd C_component = torques - M_component - G_component;
 
     // Copy results to output arrays
-    for (int i = 0; i < DOF; ++i) {
+    for (int i = 0; i < dof_; ++i) {
       M_torque[i] = M_component[i];
       C_torque[i] = C_component[i];
       G_torque[i] = G_component[i];
@@ -181,10 +202,10 @@ bool TorquePredictorPinocchio::predict_torques(
   }
 }
 
-bool TorquePredictorPinocchio::predict_total_torque(const double q[6],
-                                                    const double dq[6],
-                                                    const double ddq[6],
-                                                    double total_torque[6]) {
+bool TorquePredictorPinocchio::predict_total_torque(const double* q,
+                                                    const double* dq,
+                                                    const double* ddq,
+                                                    double* total_torque) {
   if (!initialized_) {
     std::cout << "❌ Pinocchio predictor not initialized" << std::endl;
     return false;
@@ -196,7 +217,7 @@ bool TorquePredictorPinocchio::predict_total_torque(const double q[6],
 
   try {
     // Convert to Eigen vectors
-    for (int i = 0; i < DOF; ++i) {
+    for (int i = 0; i < dof_; ++i) {
       q_config_[i] = q[i];
       v_config_[i] = dq[i];
       a_config_[i] = ddq[i];
@@ -207,7 +228,7 @@ bool TorquePredictorPinocchio::predict_total_torque(const double q[6],
         pinocchio::rnea(model_, data_, q_config_, v_config_, a_config_);
 
     // Copy results to output array
-    for (int i = 0; i < DOF; ++i) {
+    for (int i = 0; i < dof_; ++i) {
       total_torque[i] = torques[i];
     }
 
@@ -220,7 +241,7 @@ bool TorquePredictorPinocchio::predict_total_torque(const double q[6],
 }
 
 bool TorquePredictorPinocchio::predict_gravity_torque(
-    const double q[6], double gravity_torque[6]) {
+    const double* q, double* gravity_torque) {
   if (!initialized_) {
     std::cout << "❌ Pinocchio predictor not initialized" << std::endl;
     return false;
@@ -228,7 +249,7 @@ bool TorquePredictorPinocchio::predict_gravity_torque(
 
   try {
     // Convert to Eigen vector
-    for (int i = 0; i < DOF; ++i) {
+    for (int i = 0; i < dof_; ++i) {
       q_config_[i] = q[i];
     }
 
@@ -237,7 +258,7 @@ bool TorquePredictorPinocchio::predict_gravity_torque(
         pinocchio::computeGeneralizedGravity(model_, data_, q_config_);
 
     // Copy results to output array
-    for (int i = 0; i < DOF; ++i) {
+    for (int i = 0; i < dof_; ++i) {
       gravity_torque[i] = G_torques[i];
     }
 
@@ -251,7 +272,7 @@ bool TorquePredictorPinocchio::predict_gravity_torque(
 }
 
 bool TorquePredictorPinocchio::compute_mass_matrix(
-    const double q[6], Eigen::MatrixXd &mass_matrix) {
+    const double* q, Eigen::MatrixXd &mass_matrix) {
   if (!initialized_) {
     std::cout << "❌ Pinocchio predictor not initialized" << std::endl;
     return false;
@@ -259,7 +280,7 @@ bool TorquePredictorPinocchio::compute_mass_matrix(
 
   try {
     // Convert to Eigen vector
-    for (int i = 0; i < DOF; ++i) {
+    for (int i = 0; i < dof_; ++i) {
       q_config_[i] = q[i];
     }
 
@@ -280,7 +301,7 @@ bool TorquePredictorPinocchio::compute_mass_matrix(
 }
 
 bool TorquePredictorPinocchio::compute_coriolis_matrix(
-    const double q[6], const double dq[6], Eigen::MatrixXd &coriolis_matrix) {
+    const double* q, const double* dq, Eigen::MatrixXd &coriolis_matrix) {
   if (!initialized_) {
     std::cout << "❌ Pinocchio predictor not initialized" << std::endl;
     return false;
@@ -288,7 +309,7 @@ bool TorquePredictorPinocchio::compute_coriolis_matrix(
 
   try {
     // Convert to Eigen vectors
-    for (int i = 0; i < DOF; ++i) {
+    for (int i = 0; i < dof_; ++i) {
       q_config_[i] = q[i];
       v_config_[i] = dq[i];
     }
@@ -306,9 +327,9 @@ bool TorquePredictorPinocchio::compute_coriolis_matrix(
   }
 }
 
-void TorquePredictorPinocchio::print_torque_breakdown(const double q[6],
-                                                      const double dq[6],
-                                                      const double ddq[6]) {
+void TorquePredictorPinocchio::print_torque_breakdown(const double* q,
+                                                      const double* dq,
+                                                      const double* ddq) {
   if (!initialized_) {
     std::cout << "❌ Pinocchio predictor not initialized" << std::endl;
     return;
@@ -318,16 +339,16 @@ void TorquePredictorPinocchio::print_torque_breakdown(const double q[6],
   std::cout << std::string(60, '=') << std::endl;
 
   // Predict torques
-  double M_torque[6], C_torque[6], G_torque[6], total_torque[6];
-  if (predict_torques(q, dq, ddq, M_torque, C_torque, G_torque, total_torque)) {
+  std::vector<double> M_torque(dof_), C_torque(dof_), G_torque(dof_), total_torque(dof_);
+  if (predict_torques(q, dq, ddq, M_torque.data(), C_torque.data(), G_torque.data(), total_torque.data())) {
     std::cout << std::fixed << std::setprecision(4);
-    std::cout << std::setw(6) << "Joint" << " | " << std::setw(10) << "M*ddq"
+    std::cout << std::setw(10) << "Joint" << " | " << std::setw(10) << "M*ddq"
               << " | " << std::setw(10) << "C*dq" << " | " << std::setw(10)
               << "G" << " | " << std::setw(10) << "Total" << std::endl;
     std::cout << std::string(60, '-') << std::endl;
 
-    for (int i = 0; i < DOF; ++i) {
-      std::cout << std::setw(6) << ("j" + std::to_string(i + 1)) << " | "
+    for (int i = 0; i < dof_; ++i) {
+      std::cout << std::setw(10) << joint_names_[i] << " | "
                 << std::setw(10) << M_torque[i] << " | " << std::setw(10)
                 << C_torque[i] << " | " << std::setw(10) << G_torque[i] << " | "
                 << std::setw(10) << total_torque[i] << std::endl;
@@ -335,7 +356,7 @@ void TorquePredictorPinocchio::print_torque_breakdown(const double q[6],
 
     // Print magnitude analysis
     double M_mag = 0, C_mag = 0, G_mag = 0, total_mag = 0;
-    for (int i = 0; i < DOF; ++i) {
+    for (int i = 0; i < dof_; ++i) {
       M_mag += M_torque[i] * M_torque[i];
       C_mag += C_torque[i] * C_torque[i];
       G_mag += G_torque[i] * G_torque[i];
@@ -370,7 +391,7 @@ void TorquePredictorPinocchio::print_model_info() {
   std::cout << std::string(40, '=') << std::endl;
 }
 
-bool TorquePredictorPinocchio::is_within_joint_limits(const double q[6]) {
+bool TorquePredictorPinocchio::is_within_joint_limits(const double* q) {
   if (!initialized_) {
     return false;
   }
@@ -378,9 +399,9 @@ bool TorquePredictorPinocchio::is_within_joint_limits(const double q[6]) {
   // Note: Pinocchio doesn't store joint limits by default
   // This would need to be parsed from URDF if limits checking is required
   // For now, we'll assume joints are within reasonable bounds
-  for (int i = 0; i < DOF; ++i) {
+  for (int i = 0; i < dof_; ++i) {
     if (std::abs(q[i]) > 6.28) { // More than 2π rad
-      std::cout << "⚠️  Joint " << (i + 1) << " position " << q[i]
+      std::cout << "⚠️  Joint " << joint_names_[i] << " position " << q[i]
                 << " seems large (> 2π rad)" << std::endl;
       return false;
     }
@@ -388,8 +409,8 @@ bool TorquePredictorPinocchio::is_within_joint_limits(const double q[6]) {
   return true;
 }
 
-bool TorquePredictorPinocchio::get_joint_limits(double lower[6],
-                                                double upper[6]) {
+bool TorquePredictorPinocchio::get_joint_limits(double* lower,
+                                                double* upper) {
   if (!initialized_) {
     return false;
   }

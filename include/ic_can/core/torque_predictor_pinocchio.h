@@ -42,9 +42,9 @@ private:
     std::string urdf_path_;
     bool initialized_;
 
-    // Joint configuration (6 DOF arm)
-    static const int DOF;
-    static const std::vector<std::string> joint_names_;
+    // Joint configuration (variable DOF: 6-arm, 8-arm+wrist, 9-arm+wrist+gripper)
+    int dof_;                        // Current degrees of freedom
+    std::vector<std::string> joint_names_;
 
     // Gravity vector (default: [0, 0, -9.81])
     Eigen::Vector3d gravity_;
@@ -55,13 +55,18 @@ private:
     Eigen::VectorXd a_config_;      // Joint acceleration vector
 
     /**
+     * @brief Initialize joint names and DOF based on URDF
+     */
+    void initialize_joint_configuration();
+
+    /**
      * @brief Validate joint configuration
      * @param q Joint positions
      * @param dq Joint velocities
      * @param ddq Joint accelerations
      * @return true if valid
      */
-    bool validate_joint_config(const double q[6], const double dq[6], const double ddq[6]);
+    bool validate_joint_config(const double* q, const double* dq, const double* ddq);
 
 public:
     /**
@@ -114,63 +119,63 @@ public:
 
     /**
      * @brief Predict all torque components (M, C, G)
-     * @param q Joint positions [6]
-     * @param dq Joint velocities [6]
-     * @param ddq Joint accelerations [6]
-     * @param M_torque Output mass/inertia torque component [6]
-     * @param C_torque Output Coriolis torque component [6]
-     * @param G_torque Output gravity torque component [6]
-     * @param total_torque Output total predicted torque [6]
+     * @param q Joint positions [dof_]
+     * @param dq Joint velocities [dof_]
+     * @param ddq Joint accelerations [dof_]
+     * @param M_torque Output mass/inertia torque component [dof_]
+     * @param C_torque Output Coriolis torque component [dof_]
+     * @param G_torque Output gravity torque component [dof_]
+     * @param total_torque Output total predicted torque [dof_]
      * @return true if prediction successful
      */
-    bool predict_torques(const double q[6], const double dq[6], const double ddq[6],
-                        double M_torque[6], double C_torque[6], double G_torque[6],
-                        double total_torque[6]);
+    bool predict_torques(const double* q, const double* dq, const double* ddq,
+                        double* M_torque, double* C_torque, double* G_torque,
+                        double* total_torque);
 
     /**
      * @brief Predict total torque only
-     * @param q Joint positions [6]
-     * @param dq Joint velocities [6]
-     * @param ddq Joint accelerations [6]
-     * @param total_torque Output total predicted torque [6]
+     * @param q Joint positions [dof_]
+     * @param dq Joint velocities [dof_]
+     * @param ddq Joint accelerations [dof_]
+     * @param total_torque Output total predicted torque [dof_]
      * @return true if prediction successful
      */
-    bool predict_total_torque(const double q[6], const double dq[6], const double ddq[6],
-                             double total_torque[6]);
+    bool predict_total_torque(const double* q, const double* dq, const double* ddq,
+                             double* total_torque);
 
     /**
      * @brief Predict gravity torques only
-     * @param q Joint positions [6]
-     * @param gravity_torque Output gravity torques [6]
+     * @param q Joint positions [dof_]
+     * @param gravity_torque Output gravity torques [dof_]
      * @return true if prediction successful
      */
-    bool predict_gravity_torque(const double q[6], double gravity_torque[6]);
+    bool predict_gravity_torque(const double* q, double* gravity_torque);
 
     /**
      * @brief Compute mass matrix
-     * @param q Joint positions [6]
-     * @param mass_matrix Output 6x6 mass matrix
+     * @param q Joint positions [dof_]
+     * @param mass_matrix Output dof_x_dof_ mass matrix
      * @return true if computation successful
      */
-    bool compute_mass_matrix(const double q[6], Eigen::MatrixXd& mass_matrix);
+    bool compute_mass_matrix(const double* q, Eigen::MatrixXd& mass_matrix);
 
     /**
      * @brief Compute Coriolis matrix
-     * @param q Joint positions [6]
-     * @param dq Joint velocities [6]
-     * @param coriolis_matrix Output 6x6 Coriolis matrix
+     * @param q Joint positions [dof_]
+     * @param dq Joint velocities [dof_]
+     * @param coriolis_matrix Output dof_x_dof_ Coriolis matrix
      * @return true if computation successful
      */
-    bool compute_coriolis_matrix(const double q[6], const double dq[6],
+    bool compute_coriolis_matrix(const double* q, const double* dq,
                                 Eigen::MatrixXd& coriolis_matrix);
 
     /**
      * @brief Print detailed torque breakdown for analysis
-     * @param q Joint positions [6]
-     * @param dq Joint velocities [6]
-     * @param ddq Joint accelerations [6]
+     * @param q Joint positions [dof_]
+     * @param dq Joint velocities [dof_]
+     * @param ddq Joint accelerations [dof_]
      */
-    void print_torque_breakdown(const double q[6], const double dq[6], const double ddq[6]);
+    void print_torque_breakdown(const double* q, const double* dq, const double* ddq);
 
     /**
      * @brief Print robot model information
@@ -181,7 +186,7 @@ public:
      * @brief Get number of degrees of freedom
      * @return DOF count
      */
-    int get_dof() const { return DOF; }
+    int get_dof() const { return dof_; }
 
     /**
      * @brief Get joint names
@@ -191,18 +196,18 @@ public:
 
     /**
      * @brief Validate if a configuration is within joint limits
-     * @param q Joint positions [6]
+     * @param q Joint positions [dof_]
      * @return true if within limits
      */
-    bool is_within_joint_limits(const double q[6]);
+    bool is_within_joint_limits(const double* q);
 
     /**
      * @brief Get joint limits
-     * @param lower Output lower limits [6]
-     * @param upper Output upper limits [6]
+     * @param lower Output lower limits [dof_]
+     * @param upper Output upper limits [dof_]
      * @return true if limits are available
      */
-    bool get_joint_limits(double lower[6], double upper[6]);
+    bool get_joint_limits(double* lower, double* upper);
 };
 
 } // namespace ic_can

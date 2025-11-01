@@ -127,7 +127,8 @@ public:
 
     // Initialize servo motor for gripper (motor 9)
     servo_motor_ = std::make_unique<ServoMotor>(9, 0x19, 0x19);
-    std::cout << "✅ Servo motor 9 initialized for gripper control" << std::endl;
+    std::cout << "✅ Servo motor 9 initialized for gripper control"
+              << std::endl;
 
     std::cout << "✅ Arm, Wrist, and Gripper components initialized"
               << std::endl;
@@ -714,9 +715,8 @@ public:
       /*          << gravity_compensation_enabled_ << std::endl;*/
       if (gravity_compensation_enabled_ && i < 6) {
         tau += gravity_torques[i];
-        std::cout << "motor id is " << i << ", torque is " <<
-         gravity_torques[i]
-                  << std::endl;
+        std::cout << "[GC] motor id is " << i << ", torque is "
+                  << gravity_torques[i] << std::endl;
       }
 
       // Add friction compensation to torque feedforward
@@ -1531,12 +1531,15 @@ public:
       return gravity_torques;
     }
 
-    // Get current joint positions for dynamics (use all DOF from torque predictor)
+    // Get current joint positions for dynamics (use all DOF from torque
+    // predictor)
     auto positions = get_joint_positions();
     int predictor_dof = torque_predictor_->get_dof();
 
     if (positions.size() < predictor_dof) {
-      std::cout << "⚠️  Warning: Only " << positions.size() << " joint positions available, but torque predictor expects " << predictor_dof << std::endl;
+      std::cout << "⚠️  Warning: Only " << positions.size()
+                << " joint positions available, but torque predictor expects "
+                << predictor_dof << std::endl;
       return gravity_torques;
     }
 
@@ -1549,10 +1552,11 @@ public:
       q[i] = positions[i];
     }
 
-    if (torque_predictor_->predict_gravity_torque(q.data(),
-                                                  gravity_compensation.data())) {
+    if (torque_predictor_->predict_gravity_torque(
+            q.data(), gravity_compensation.data())) {
       // Copy gravity torques for all available joints (up to 9 total)
-      int copy_count = std::min({predictor_dof, static_cast<int>(gravity_compensation.size()), 9});
+      int copy_count = std::min(
+          {predictor_dof, static_cast<int>(gravity_compensation.size()), 9});
       for (int i = 0; i < copy_count; i++) {
         gravity_torques[i] = gravity_compensation[i];
       }
@@ -1586,14 +1590,16 @@ public:
     if (positions.size() < predictor_dof || velocities.size() < predictor_dof) {
       std::cout << "⚠️  Warning: Insufficient joint state data - have "
                 << positions.size() << " positions, " << velocities.size()
-                << " velocities, but torque predictor expects " << predictor_dof << std::endl;
+                << " velocities, but torque predictor expects " << predictor_dof
+                << std::endl;
       return total_torques;
     }
 
     // Use dynamic arrays that match the torque predictor's DOF
     std::vector<double> q(predictor_dof);
     std::vector<double> dq(predictor_dof);
-    std::vector<double> ddq(predictor_dof, 0.0); // Zero acceleration for steady-state
+    std::vector<double> ddq(predictor_dof,
+                            0.0); // Zero acceleration for steady-state
     std::vector<double> predicted_torques(predictor_dof);
 
     // Fill with available positions and velocities (up to predictor_dof)
@@ -1607,7 +1613,8 @@ public:
     if (torque_predictor_->predict_total_torque(q.data(), dq.data(), ddq.data(),
                                                 predicted_torques.data())) {
       // Copy predicted torques for all available joints (up to 9 total)
-      int copy_count = std::min({predictor_dof, static_cast<int>(predicted_torques.size()), 9});
+      int copy_count = std::min(
+          {predictor_dof, static_cast<int>(predicted_torques.size()), 9});
       for (int i = 0; i < copy_count; i++) {
         total_torques[i] = predicted_torques[i];
       }
@@ -1673,17 +1680,19 @@ public:
     int predictor_dof = torque_predictor_->get_dof();
 
     if (positions.size() < predictor_dof || velocities.size() < predictor_dof) {
-      std::cout << "❌ Insufficient joint state data for torque breakdown - have "
-                << positions.size() << " positions, " << velocities.size()
-                << " velocities, but torque predictor expects " << predictor_dof
-                << std::endl;
+      std::cout
+          << "❌ Insufficient joint state data for torque breakdown - have "
+          << positions.size() << " positions, " << velocities.size()
+          << " velocities, but torque predictor expects " << predictor_dof
+          << std::endl;
       return;
     }
 
     // Use dynamic arrays that match the torque predictor's DOF
     std::vector<double> q(predictor_dof);
     std::vector<double> dq(predictor_dof);
-    std::vector<double> ddq(predictor_dof, 0.0); // Zero accelerations for current state
+    std::vector<double> ddq(predictor_dof,
+                            0.0); // Zero accelerations for current state
 
     // Fill with available positions and velocities (up to predictor_dof)
     for (int i = 0; i < predictor_dof && i < positions.size(); i++) {
@@ -1966,24 +1975,32 @@ private:
 
     // Debug: Print servo motor processing
     if (debug_enabled_) {
-      std::cout << "🔧 Processing servo motor feedback for motor " << (motor_idx + 1) << std::endl;
+      std::cout << "🔧 Processing servo motor feedback for motor "
+                << (motor_idx + 1) << std::endl;
     }
 
     // Extract servo feedback data based on Python implementation
-    // Format: [pos_high, pos_low, vel_high, vel_low, torque_high, torque_low, ...]
-    uint16_t pos_int = (static_cast<uint16_t>(frame.data[0]) << 8) | frame.data[1];
-    uint16_t vel_int = (static_cast<uint16_t>(frame.data[2]) << 8) | frame.data[3];
-    uint16_t torque_int = (static_cast<uint16_t>(frame.data[4]) << 8) | frame.data[5];
+    // Format: [pos_high, pos_low, vel_high, vel_low, torque_high, torque_low,
+    // ...]
+    uint16_t pos_int =
+        (static_cast<uint16_t>(frame.data[0]) << 8) | frame.data[1];
+    uint16_t vel_int =
+        (static_cast<uint16_t>(frame.data[2]) << 8) | frame.data[3];
+    uint16_t torque_int =
+        (static_cast<uint16_t>(frame.data[4]) << 8) | frame.data[5];
 
     // Convert from servo range (0-4095) to normalized range (0.0-1.0)
     double position = static_cast<double>(pos_int) / 4095.0;
-    double velocity = static_cast<double>(vel_int) / 4095.0; // Raw velocity
+    double velocity = static_cast<double>(vel_int) / 4095.0;  // Raw velocity
     double torque = static_cast<double>(torque_int) / 4095.0; // Raw torque
 
     if (debug_enabled_) {
-      std::cout << "   Raw - pos: " << pos_int << ", vel: " << vel_int << ", torque: " << torque_int << std::endl;
-      std::cout << "   Normalized - pos: " << std::fixed << std::setprecision(4) << position
-                << " (" << (position * 180.0) << "°), vel: " << velocity << ", torque: " << torque << std::endl;
+      std::cout << "   Raw - pos: " << pos_int << ", vel: " << vel_int
+                << ", torque: " << torque_int << std::endl;
+      std::cout << "   Normalized - pos: " << std::fixed << std::setprecision(4)
+                << position << " (" << (position * 180.0)
+                << "°), vel: " << velocity << ", torque: " << torque
+                << std::endl;
     }
 
     // Update servo motor state if available
@@ -1999,7 +2016,8 @@ private:
     torques_[motor_idx].store(torque);
   }
 
-  void send_servo_command(int motor_id, double position, double velocity, double torque) {
+  void send_servo_command(int motor_id, double position, double velocity,
+                          double torque) {
     if (!servo_motor_) {
       std::cout << "❌ Servo motor not initialized" << std::endl;
       return;
@@ -2011,27 +2029,32 @@ private:
 
     // Convert normalized velocity to servo range (1-4095)
     // Clamp to reasonable range
-    uint16_t vel_raw = static_cast<uint16_t>(std::max(1.0, std::min(velocity * 4095.0, 4095.0)));
+    uint16_t vel_raw = static_cast<uint16_t>(
+        std::max(1.0, std::min(velocity * 4095.0, 4095.0)));
 
     // Create servo command based on Python implementation
     // Format: [mode, pos_high, pos_low, vel_high, vel_low, 0, 0, 0]
     std::vector<uint8_t> command_data = {
-        0x02,                                          // POSITION mode
-        static_cast<uint8_t>((pos_raw >> 8) & 0xFF),  // Position high byte
-        static_cast<uint8_t>(pos_raw & 0xFF),          // Position low byte
-        static_cast<uint8_t>((vel_raw >> 8) & 0xFF),  // Velocity high byte
-        static_cast<uint8_t>(vel_raw & 0xFF),          // Velocity low byte
-        0x00, 0x00, 0x00                              // Padding bytes
+        0x02,                                        // POSITION mode
+        static_cast<uint8_t>((pos_raw >> 8) & 0xFF), // Position high byte
+        static_cast<uint8_t>(pos_raw & 0xFF),        // Position low byte
+        static_cast<uint8_t>((vel_raw >> 8) & 0xFF), // Velocity high byte
+        static_cast<uint8_t>(vel_raw & 0xFF),        // Velocity low byte
+        0x00,
+        0x00,
+        0x00 // Padding bytes
     };
 
-    // Send CAN frame to servo motor (use 0x09 as send ID per Python implementation)
+    // Send CAN frame to servo motor (use 0x09 as send ID per Python
+    // implementation)
     send_can_frame(0x09, command_data, false); // Standard frame for servo
 
     if (debug_enabled_) {
       std::cout << "📤 Sent servo command to motor " << motor_id
-                << " - pos_norm: " << std::fixed << std::setprecision(4) << position
-                << " (" << (position * 180.0) << "°), pos_raw: " << pos_raw
-                << ", vel_raw: " << vel_raw << std::endl;
+                << " - pos_norm: " << std::fixed << std::setprecision(4)
+                << position << " (" << (position * 180.0)
+                << "°), pos_raw: " << pos_raw << ", vel_raw: " << vel_raw
+                << std::endl;
       std::cout << "   CAN data: ";
       for (size_t i = 0; i < command_data.size(); ++i) {
         std::cout << "0x" << std::hex << std::setw(2) << std::setfill('0')
@@ -2054,31 +2077,37 @@ private:
 
   void send_servo_enable(int motor_id) {
     // Create servo enable command based on Python implementation
-    std::vector<uint8_t> command_data = {0x01, 0, 0, 0, 0, 0, 0, 0}; // ENABLE mode
+    std::vector<uint8_t> command_data = {0x01, 0, 0, 0,
+                                         0,    0, 0, 0}; // ENABLE mode
     send_can_frame(0x09, command_data, false); // Standard frame for servo
 
     if (debug_enabled_) {
-      std::cout << "🔧 Sent servo enable command to motor " << motor_id << std::endl;
+      std::cout << "🔧 Sent servo enable command to motor " << motor_id
+                << std::endl;
     }
   }
 
   void send_servo_disable(int motor_id) {
     // Create servo disable command based on Python implementation
-    std::vector<uint8_t> command_data = {0x00, 0, 0, 0, 0, 0, 0, 0}; // DISABLE mode
+    std::vector<uint8_t> command_data = {0x00, 0, 0, 0,
+                                         0,    0, 0, 0}; // DISABLE mode
     send_can_frame(0x09, command_data, false); // Standard frame for servo
 
     if (debug_enabled_) {
-      std::cout << "🔌 Sent servo disable command to motor " << motor_id << std::endl;
+      std::cout << "🔌 Sent servo disable command to motor " << motor_id
+                << std::endl;
     }
   }
 
   void send_servo_read_status(int motor_id) {
     // Create servo read status command based on Python implementation
-    std::vector<uint8_t> command_data = {0x03, 0, 0, 0, 0, 0, 0, 0}; // READ mode
+    std::vector<uint8_t> command_data = {0x03, 0, 0, 0,
+                                         0,    0, 0, 0}; // READ mode
     send_can_frame(0x09, command_data, false); // Standard frame for servo
 
     if (debug_enabled_) {
-      std::cout << "📖 Sent servo read status command to motor " << motor_id << std::endl;
+      std::cout << "📖 Sent servo read status command to motor " << motor_id
+                << std::endl;
     }
   }
 
@@ -2088,7 +2117,8 @@ private:
     send_can_frame(0x09, command_data, false); // Standard frame for servo
 
     if (debug_enabled_) {
-      std::cout << "🎯 Sent servo set middle position command to motor " << motor_id << std::endl;
+      std::cout << "🎯 Sent servo set middle position command to motor "
+                << motor_id << std::endl;
     }
   }
 

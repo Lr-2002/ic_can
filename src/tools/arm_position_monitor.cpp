@@ -14,15 +14,18 @@
 
 /**
  * @file arm_position_monitor.cpp
- * @brief Arm Position Monitoring Tool
+ * @brief Complete Robot System Position Monitoring Tool
  *
- * Real-time monitoring tool for 6-joint arm positions:
- * - Continuous position monitoring for arm joints (motors 1-6)
- * - Real-time display of position, velocity, and torque
+ * Real-time monitoring tool for complete 9-joint robot system:
+ * - Arm joints monitoring (motors 1-6): DM10010L, DM6248, DM4340, DM4310
+ * - Wrist motors monitoring (motors 7-8, HT4438)
+ * - Servo motor monitoring (motor 9, gripper)
+ * - Real-time display of position, velocity, and torque for all motors
  * - Configurable update frequency
- * - Data logging capability
+ * - Data logging capability for all 9 joints
  */
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <csignal>
@@ -47,12 +50,12 @@ void signal_handler(int signal) {
 }
 
 void print_arm_header() {
-  std::cout << "\n" << std::string(100, '=') << std::endl;
+  std::cout << "\n" << std::string(120, '=') << std::endl;
   std::cout << "Joint | Position (rad) | Position (deg) | Velocity (rad/s) | "
-               "Torque (Nm) | Motor Type"
+               "Torque (Nm) | Motor Type     "
             << std::endl;
   std::cout << "------|---------------|----------------|-----------------|-----"
-               "--------|------------"
+               "--------|---------------"
             << std::endl;
 }
 
@@ -60,9 +63,13 @@ void print_arm_data(const std::vector<double> &positions,
                     const std::vector<double> &velocities,
                     const std::vector<double> &torques) {
   const char *motor_types[] = {"DM10010L", "DM6248", "DM6248",
-                               "DM4340",   "DM4340", "DM4310"};
+                               "DM4340",   "DM4340", "DM4310",
+                               "HT4438",   "HT4438", "SERVO"};
 
-  for (int i = 0; i < 6; i++) {
+  int num_motors = std::min(
+      {(int)positions.size(), (int)velocities.size(), (int)torques.size(), 9});
+
+  for (int i = 0; i < num_motors; i++) {
     std::cout << std::setw(5) << (i + 1) << " | " << std::setw(13) << std::fixed
               << std::setprecision(4) << positions[i] << " | " << std::setw(14)
               << std::setprecision(2) << (positions[i] * 180.0 / M_PI) << " | "
@@ -77,11 +84,15 @@ void log_arm_data(const std::vector<double> &positions,
                   const std::vector<double> &torques, double timestamp) {
   if (g_log_file.is_open()) {
     g_log_file << std::fixed << std::setprecision(6) << timestamp << ",";
-    for (int i = 0; i < 6; i++) {
+
+    int num_motors = std::min({(int)positions.size(), (int)velocities.size(),
+                               (int)torques.size(), 9});
+
+    for (int i = 0; i < num_motors; i++) {
       g_log_file << std::setprecision(6) << positions[i] << ","
                  << std::setprecision(6) << velocities[i] << ","
                  << std::setprecision(6) << torques[i];
-      if (i < 5)
+      if (i < num_motors - 1)
         g_log_file << ",";
     }
     g_log_file << std::endl;
@@ -99,10 +110,10 @@ void start_logging() {
   g_log_file.open(filename);
   if (g_log_file.is_open()) {
     g_log_file << "timestamp,";
-    for (int i = 1; i <= 6; i++) {
+    for (int i = 1; i <= 9; i++) {
       g_log_file << "joint" << i << "_pos,joint" << i << "_vel,joint" << i
                  << "_tau";
-      if (i < 6)
+      if (i < 9)
         g_log_file << ",";
     }
     g_log_file << std::endl;
@@ -128,7 +139,8 @@ void print_usage(const char *program_name) {
 
 int main(int argc, char *argv[]) {
   std::cout << "=== IC_CAN Arm Position Monitor ===" << std::endl;
-  std::cout << "Real-time monitoring for 6-joint arm (motors 1-6)" << std::endl;
+  std::cout << "Real-time monitoring for 9-joint system (motors 1-9)"
+            << std::endl;
 
   // Parse command line arguments
   double frequency = 10.0; // Hz
@@ -233,18 +245,12 @@ int main(int argc, char *argv[]) {
       std::this_thread::sleep_for(
           std::chrono::milliseconds(10)); // Small delay for response
 
-      // Get arm data (motors 1-6)
+      // Get all motor data (motors 1-9)
       auto positions = controller->get_joint_positions();
       auto velocities = controller->get_joint_velocities();
       auto torques = controller->get_joint_torques();
-
-      // Truncate to first 6 motors (arm joints)
-      std::vector<double> arm_positions(positions.begin(),
-                                        positions.begin() + 6);
-      std::vector<double> arm_velocities(velocities.begin(),
-                                         velocities.begin() + 6);
-      std::vector<double> arm_torques(torques.begin(), torques.begin() + 6);
-      controller->set_joint_positions(positions);
+      std::vector<double> empty = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+      controller->set_joint_positions(positions, empty, empty);
       // Calculate timestamp
       double timestamp =
           std::chrono::duration<double>(loop_start - start_time).count();
@@ -252,13 +258,13 @@ int main(int argc, char *argv[]) {
       // Print data every second (to avoid spam)
       if (update_count % static_cast<int>(frequency) == 0) {
         print_arm_header();
-        print_arm_data(arm_positions, arm_velocities, arm_torques);
+        print_arm_data(positions, velocities, torques);
         std::cout << std::flush;
       }
 
       // Log data at full frequency
       if (enable_logging) {
-        log_arm_data(arm_positions, arm_velocities, arm_torques, timestamp);
+        log_arm_data(positions, velocities, torques, timestamp);
       }
 
       update_count++;

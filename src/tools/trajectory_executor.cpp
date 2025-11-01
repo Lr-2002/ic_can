@@ -24,7 +24,9 @@
  */
 
 #include <chrono>
+#include <cmath>
 #include <csignal>
+#include <filesystem>
 #include <fstream>
 #include <ic_can/core/ic_can.hpp>
 #include <iomanip>
@@ -33,6 +35,10 @@
 #include <string>
 #include <thread>
 #include <vector>
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 // Simple JSON parser for trajectory files
 class SimpleJSONParser {
@@ -180,6 +186,182 @@ private:
   }
 };
 
+// CSV parser for motor states log files
+class MotorStateCSVParser {
+public:
+  static bool parse_motor_states(const std::string &log_directory,
+                                 double &frequency,
+                                 std::vector<double> &time_points,
+                                 std::vector<std::vector<double>> &positions) {
+
+    // Find the motor_states.csv file in the log directory
+    std::string motor_states_path;
+
+    // Try to find the motor_states.csv file
+    if (std::filesystem::exists(log_directory + "/motor_states.csv")) {
+      motor_states_path = log_directory + "/motor_states.csv";
+    } else {
+      // Try to find in subdirectories (like ic_can_log_*)
+      for (const auto &entry :
+           std::filesystem::directory_iterator(log_directory)) {
+        if (entry.is_directory()) {
+          std::string sub_path = entry.path().string() + "/motor_states.csv";
+          if (std::filesystem::exists(sub_path)) {
+            motor_states_path = sub_path;
+            break;
+          }
+        }
+      }
+    }
+
+    if (motor_states_path.empty()) {
+      std::cout << "❌ Could not find motor_states.csv in: " << log_directory
+                << std::endl;
+      return false;
+    }
+
+    std::cout << "📂 Loading motor states from: " << motor_states_path
+              << std::endl;
+
+    std::ifstream file(motor_states_path);
+    if (!file.is_open()) {
+      std::cout << "❌ Failed to open motor_states.csv file" << std::endl;
+      return false;
+    }
+
+    std::string line;
+    bool header_processed = false;
+    std::string first_timestamp;
+
+    while (std::getline(file, line)) {
+      if (line.empty())
+        continue;
+
+      // Skip header line
+      if (!header_processed) {
+        header_processed = true;
+        continue;
+      }
+
+      std::vector<double> row_data = parse_csv_line(line);
+      if (row_data.size() <
+          28) { // Expecting timestamp + 27 data points (9 motors * 3 values)
+        std::cout << "⚠️ Skipping malformed row with " << row_data.size()
+                  << " columns" << std::endl;
+        continue;
+      }
+
+      // Extract timestamp (first column)
+      std::string timestamp_str = extract_timestamp_from_line(line);
+      if (first_timestamp.empty()) {
+        first_timestamp = timestamp_str;
+      }
+
+      // Calculate relative time in seconds from first timestamp
+      double relative_time =
+          calculate_time_difference(first_timestamp, timestamp_str);
+      time_points.push_back(relative_time);
+
+      // Extract positions (every 3rd column starting from index 1:
+      // position_motor_1, position_motor_2, etc.)
+      std::vector<double> motor_positions;
+      for (int motor = 0; motor < 9; motor++) {
+        int pos_index = 1 + motor * 3; // position_motor_N is at column 1 + N*3
+        if (pos_index < row_data.size()) {
+          motor_positions.push_back(row_data[pos_index]);
+        } else {
+          motor_positions.push_back(0.0); // Default if not found
+        }
+      }
+      positions.push_back(motor_positions);
+    }
+
+    // Estimate frequency from timestamps
+    if (time_points.size() > 1) {
+      frequency = 1.0 / (time_points[1] - time_points[0]);
+    } else {
+      frequency = 400.0; // Default logging frequency
+    }
+
+    std::cout << "✅ Loaded " << positions.size() << " motor state samples"
+              << std::endl;
+    std::cout << "📊 Estimated frequency: " << std::fixed
+              << std::setprecision(1) << frequency << " Hz" << std::endl;
+    std::cout << "⏱️  Duration: " << std::fixed << std::setprecision(2)
+              << (time_points.empty() ? 0.0 : time_points.back()) << " seconds"
+              << std::endl;
+
+    return !positions.empty();
+  }
+
+private:
+  static std::vector<double> parse_csv_line(const std::string &line) {
+    std::vector<double> result;
+    std::string cell;
+    bool in_quotes = false;
+
+    for (char c : line) {
+      if (c == '"') {
+        in_quotes = !in_quotes;
+      } else if (c == ',' && !in_quotes) {
+        if (!cell.empty()) {
+          try {
+            result.push_back(std::stod(cell));
+          } catch (...) {
+            result.push_back(0.0);
+          }
+        }
+        cell.clear();
+      } else {
+        cell += c;
+      }
+    }
+
+    // Add last cell
+    if (!cell.empty()) {
+      try {
+        result.push_back(std::stod(cell));
+      } catch (...) {
+        result.push_back(0.0);
+      }
+    }
+
+    return result;
+  }
+
+  static std::string extract_timestamp_from_line(const std::string &line) {
+    size_t comma_pos = line.find(',');
+    if (comma_pos != std::string::npos) {
+      return line.substr(0, comma_pos);
+    }
+    return line;
+  }
+
+  static double
+  calculate_time_difference(const std::string &start_timestamp,
+                            const std::string &current_timestamp) {
+    // Parse ISO format timestamps like "2025-11-01T15:16:02.805"
+    try {
+      // Simple parsing - extract hours, minutes, seconds, milliseconds
+      size_t time_pos = current_timestamp.find('T');
+      if (time_pos == std::string::npos)
+        return 0.0;
+
+      std::string time_str = current_timestamp.substr(time_pos + 1);
+
+      // Parse HH:MM:SS.mmm format
+      double hours = 0.0, minutes = 0.0, seconds = 0.0;
+      char sep;
+      std::istringstream iss(time_str);
+      iss >> hours >> sep >> minutes >> sep >> seconds;
+
+      return hours * 3600.0 + minutes * 60.0 + seconds;
+    } catch (...) {
+      return 0.0;
+    }
+  }
+};
+
 static volatile bool g_running = true;
 
 void signal_handler(int signal) {
@@ -194,6 +376,21 @@ struct TrajectoryData {
   std::vector<std::vector<double>> positions;
   size_t total_points;
   double duration;
+
+  bool load_from_file_or_directory(const std::string &input_path) {
+    // Check if it's a directory (log directory) or file (JSON)
+    if (std::filesystem::is_directory(input_path)) {
+      return load_from_log_directory(input_path);
+    } else if (std::filesystem::exists(input_path) &&
+               input_path.substr(input_path.find_last_of(".") + 1) == "json") {
+      return load_from_json(input_path);
+    } else {
+      std::cout << "❌ Invalid input path. Must be a JSON file or log "
+                   "directory containing motor_states.csv"
+                << std::endl;
+      return false;
+    }
+  }
 
   bool load_from_json(const std::string &json_file) {
     std::cout << "📂 Loading trajectory from: " << json_file << std::endl;
@@ -258,6 +455,77 @@ struct TrajectoryData {
     }
   }
 
+  bool load_from_log_directory(const std::string &log_directory) {
+    std::cout << "📂 Loading motor states from log directory: " << log_directory
+              << std::endl;
+
+    try {
+      // Use our CSV parser to load motor states
+      if (!MotorStateCSVParser::parse_motor_states(log_directory, frequency,
+                                                   time_points, positions)) {
+        std::cout << "❌ Failed to parse motor states from log directory"
+                  << std::endl;
+        return false;
+      }
+
+      std::cout << "📊 Replay frequency: " << frequency << " Hz" << std::endl;
+      std::cout << "⏱️ Time points loaded: " << time_points.size() << std::endl;
+      std::cout << "📍 Motor position samples loaded: " << positions.size()
+                << std::endl;
+
+      // Validate data consistency
+      if (time_points.size() != positions.size()) {
+        std::cout << "❌ ERROR: Time and position arrays have different sizes"
+                  << std::endl;
+        return false;
+      }
+
+      // Calculate trajectory properties
+      total_points = positions.size();
+      duration = time_points.back();
+      std::cout << "⏱️  Replay duration: " << std::fixed << std::setprecision(2)
+                << duration << " seconds" << std::endl;
+      std::cout << "📍 Total motor state points: " << total_points << std::endl;
+
+      // Check position dimensions (should be 9 for motors 1-9)
+      if (!positions.empty()) {
+        size_t dof = positions[0].size();
+        std::cout << "🦾 Motors loaded: " << dof << std::endl;
+
+        // Validate all position vectors have same dimension
+        for (size_t i = 0; i < positions.size(); i++) {
+          if (positions[i].size() != dof) {
+            std::cout << "❌ ERROR: Inconsistent motor count at sample " << i
+                      << std::endl;
+            return false;
+          }
+        }
+
+        // Ensure we have exactly 9 motors
+        if (dof < 9) {
+          std::cout << "📝 Padding from " << dof
+                    << " to 9 motors (adding zeros)" << std::endl;
+          for (auto &pos : positions) {
+            pos.resize(9, 0.0);
+          }
+        } else if (dof > 9) {
+          std::cout << "📝 Truncating from " << dof
+                    << " to 9 motors (using first 9)" << std::endl;
+          for (auto &pos : positions) {
+            pos.resize(9, 0.0);
+          }
+        }
+      }
+
+      std::cout << "✅ Motor state trajectory loaded successfully" << std::endl;
+      return true;
+
+    } catch (const std::exception &e) {
+      std::cout << "❌ Error loading motor states: " << e.what() << std::endl;
+      return false;
+    }
+  }
+
   void print_info() const {
     std::cout << "\n📊 Trajectory Information:" << std::endl;
     std::cout << std::string(50, '=') << std::endl;
@@ -288,27 +556,39 @@ struct TrajectoryData {
 };
 
 void print_usage(const char *program_name) {
-  std::cout << "Usage: " << program_name << " [options] <trajectory_file.json>"
-            << std::endl;
+  std::cout << "Usage: " << program_name
+            << " [options] <trajectory_file.json|log_directory>" << std::endl;
   std::cout << "Options:" << std::endl;
   std::cout << "  -l             Enable logging" << std::endl;
   std::cout << "  -h             Show this help message" << std::endl;
-  std::cout << "\nExample:" << std::endl;
+  std::cout << "\nExamples:" << std::endl;
+  std::cout
+      << "  " << program_name
+      << " trajectory.json                    # Execute trajectory from JSON"
+      << std::endl;
   std::cout << "  " << program_name
-            << " trajectory.json                 # Execute trajectory"
+            << " arm_monitor_20251101_231602/        # Replay motor states "
+               "from log directory"
             << std::endl;
   std::cout << "  " << program_name
-            << " -l trajectory.json              # Execute with logging"
+            << " -l trajectory.json                  # Execute with logging"
+            << std::endl;
+  std::cout << "  " << program_name
+            << " -l arm_monitor_20251101_231602/    # Replay with logging"
+            << std::endl;
+  std::cout << "\nLog directory must contain motor_states.csv file"
             << std::endl;
 }
 
 int main(int argc, char *argv[]) {
   std::cout << "=== IC_CAN Trajectory Executor ===" << std::endl;
-  std::cout << "Load and execute trajectories from JSON files" << std::endl;
+  std::cout << "Load and execute trajectories from JSON files or replay motor "
+               "states from log directories"
+            << std::endl;
 
   // Parse command line arguments
   bool enable_logging = false;
-  std::string trajectory_file;
+  std::string input_path; // Can be JSON file or log directory
 
   for (int i = 1; i < argc; i++) {
     std::string arg = argv[i];
@@ -318,8 +598,8 @@ int main(int argc, char *argv[]) {
       return 0;
     } else if (arg == "-l" || arg == "--log") {
       enable_logging = true;
-    } else if (trajectory_file.empty()) {
-      trajectory_file = arg;
+    } else if (input_path.empty()) {
+      input_path = arg;
     } else {
       std::cout << "❌ Unknown argument: " << arg << std::endl;
       print_usage(argv[0]);
@@ -327,8 +607,9 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  if (trajectory_file.empty()) {
-    std::cout << "❌ ERROR: No trajectory file specified" << std::endl;
+  if (input_path.empty()) {
+    std::cout << "❌ ERROR: No trajectory file or log directory specified"
+              << std::endl;
     print_usage(argv[0]);
     return -1;
   }
@@ -336,10 +617,15 @@ int main(int argc, char *argv[]) {
   signal(SIGINT, signal_handler);
   signal(SIGTERM, signal_handler);
 
+  // Frequency monitoring variables
+  auto freq_monitor_start = std::chrono::high_resolution_clock::now();
+  int motor1_command_count = 0;
+  auto last_freq_display = freq_monitor_start;
+
   try {
-    // Load trajectory data
+    // Load trajectory data (from JSON file or log directory)
     TrajectoryData trajectory;
-    if (!trajectory.load_from_json(trajectory_file)) {
+    if (!trajectory.load_from_file_or_directory(input_path)) {
       return -1;
     }
 
@@ -348,7 +634,7 @@ int main(int argc, char *argv[]) {
     // Create IC_CAN controller
     std::cout << "\n🔧 Initializing IC_CAN controller..." << std::endl;
     auto controller = std::make_unique<ic_can::IC_CAN>(
-        "693D3DE86DF5940C8BC74A5B46A3CE2E", true);
+        "693D3DE86DF5940C8BC74A5B46A3CE2E", false);
 
     if (!controller->initialize()) {
       std::cout << "❌ FAILED: System initialization failed" << std::endl;
@@ -362,14 +648,21 @@ int main(int argc, char *argv[]) {
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
-    // Enable logging if requested
-    if (enable_logging) {
-      std::cout << "\n📝 Starting trajectory logging..." << std::endl;
-      if (!controller->start_logging("./logs")) {
-        std::cout << "❌ FAILED: Could not start logging" << std::endl;
-      } else {
-        std::cout << "✅ Logging enabled" << std::endl;
-      }
+    // Set to EXECUTION_MODE for trajectory execution
+    std::cout << "\n⚙️ Setting EXECUTION_MODE for trajectory execution..."
+              << std::endl;
+    controller->set_control_mode(ic_can::IC_CAN::ControlMode::EXECUTION_MODE);
+
+    // Enable compensation for trajectory execution
+    /*controller->enable_gravity_compensation();*/
+    /*controller->enable_friction_compensation();*/
+
+    // Enable logging for trajectory execution (always enabled to capture replay data)
+    std::cout << "\n📝 Starting trajectory execution logging..." << std::endl;
+    if (!controller->start_logging("./logs")) {
+      std::cout << "❌ FAILED: Could not start logging" << std::endl;
+    } else {
+      std::cout << "✅ Execution logging enabled" << std::endl;
     }
 
     // Enable frequency monitoring
@@ -436,14 +729,108 @@ int main(int argc, char *argv[]) {
     auto start_time = std::chrono::high_resolution_clock::now();
     size_t current_point = 0;
 
+    // Performance profiling variables
+    auto profiling_start = std::chrono::high_resolution_clock::now();
+    int commands_in_last_second = 0;
+    auto last_profiling_time = profiling_start;
+
+    // Store timing stats for reporting (static to persist between loop iterations)
+    static double last_loop_time_ms = 0.0;
+    static double last_sleep_time_ms = 0.0;
+
     while (g_running && current_point < trajectory.total_points) {
       auto loop_start = std::chrono::high_resolution_clock::now();
 
-      // Send current position command
-      controller->set_joint_positions(trajectory.positions[current_point], {},
-                                      {});
+      // Check for large position changes (potential cause of jerky motion)
+      static std::vector<double> last_positions(9, 0.0);
+      double max_position_change = 0.0;
+      int motor_with_max_change = 0;
+      for (int i = 0; i < 9; i++) {
+        double change = std::abs(trajectory.positions[current_point][i] - last_positions[i]);
+        if (change > max_position_change) {
+          max_position_change = change;
+          motor_with_max_change = i;
+        }
+      }
+
+      // Warn about large position changes
+      if (max_position_change > 0.1) { // > 0.1 rad (~5.7 degrees)
+        std::cout << "⚠️  Large position jump detected: Motor " << (motor_with_max_change + 1)
+                  << " change=" << std::fixed << std::setprecision(4) << max_position_change
+                  << " rad (" << (max_position_change * 180.0 / M_PI) << "°)" << std::endl;
+      }
+
+      // Apply position change limiting to prevent jerky motion from motor state jumps
+      std::vector<double> filtered_positions = trajectory.positions[current_point];
+      static std::vector<double> last_sent_positions(9, 0.0);
+
+      if (current_point > 0) {  // Skip first point
+        const double max_change_per_step = 0.05; // 0.05 rad = 2.86° per step at 500Hz
+        for (int i = 0; i < 9; i++) {
+          double change = filtered_positions[i] - last_sent_positions[i];
+          if (std::abs(change) > max_change_per_step) {
+            // Limit the change to prevent jerky motion
+            filtered_positions[i] = last_sent_positions[i] + (change > 0 ? max_change_per_step : -max_change_per_step);
+          }
+        }
+      }
+
+      // Measure set_joint_positions timing
+      auto cmd_start = std::chrono::high_resolution_clock::now();
+      controller->set_joint_positions(filtered_positions, {}, {});
+      auto cmd_end = std::chrono::high_resolution_clock::now();
+
+      // Update last sent positions for next iteration
+      last_sent_positions = filtered_positions;
+
+      // Count motor 1 commands (each set_joint_positions sends to all motors including motor 1)
+      motor1_command_count++;
+      commands_in_last_second++;
 
       current_point++;
+
+      // Detailed profiling every 1 second
+      auto current_time = std::chrono::high_resolution_clock::now();
+      auto profiling_elapsed = std::chrono::duration<double>(current_time - last_profiling_time).count();
+
+      if (profiling_elapsed >= 1.0) {
+        // Use trajectory execution start time for accurate frequency calculation
+        double execution_elapsed = std::chrono::duration<double>(current_time - start_time).count();
+        double actual_freq = motor1_command_count / execution_elapsed;
+        double instant_freq = commands_in_last_second / profiling_elapsed;
+
+        auto cmd_duration = std::chrono::duration<double, std::milli>(cmd_end - cmd_start).count();
+
+        std::cout << "📊 ===== FREQUENCY PROFILING =====" << std::endl;
+        std::cout << "   Motor 1 Total Freq: " << std::fixed << std::setprecision(1) << actual_freq << " Hz" << std::endl;
+        std::cout << "   Motor 1 Instant Freq: " << std::fixed << std::setprecision(1) << instant_freq << " Hz" << std::endl;
+        std::cout << "   Target Frequency: " << trajectory.frequency << " Hz" << std::endl;
+        std::cout << "   Efficiency: " << std::fixed << std::setprecision(1) << (actual_freq / trajectory.frequency * 100.0) << "%" << std::endl;
+        std::cout << "   Command Time: " << std::fixed << std::setprecision(3) << cmd_duration << " ms" << std::endl;
+        std::cout << "   Loop Time: " << std::fixed << std::setprecision(3) << last_loop_time_ms << " ms" << std::endl;
+        std::cout << "   Sleep Time: " << std::fixed << std::setprecision(3) << last_sleep_time_ms << " ms" << std::endl;
+        std::cout << "   Target Period: " << std::fixed << std::setprecision(3) << (1000.0 / trajectory.frequency) << " ms" << std::endl;
+        std::cout << "   Max Position Change: " << std::fixed << std::setprecision(4) << max_position_change << " rad" << std::endl;
+        std::cout << "   Commands this second: " << commands_in_last_second << std::endl;
+        std::cout << "   Total commands: " << motor1_command_count << std::endl;
+        std::cout << "   Current point: " << current_point << "/" << trajectory.total_points << std::endl;
+
+        // Show current control mode and gains
+        auto current_mode = controller->get_control_mode();
+        std::cout << "   Control Mode: " << (current_mode == ic_can::IC_CAN::ControlMode::EXECUTION_MODE ? "EXECUTION" : "TEACH") << std::endl;
+
+        // Alert if timing is problematic
+        if (last_loop_time_ms > 5.0) {
+          std::cout << "⚠️  WARNING: Loop time too high (>5ms)" << std::endl;
+        }
+        if (actual_freq < trajectory.frequency * 0.8) {
+          std::cout << "⚠️  WARNING: Frequency below 80% of target" << std::endl;
+        }
+
+        // Reset counters
+        commands_in_last_second = 0;
+        last_profiling_time = current_time;
+      }
 
       // Print progress every second
       auto elapsed = std::chrono::duration<double>(
@@ -468,9 +855,18 @@ int main(int argc, char *argv[]) {
           std::chrono::duration<double>(1.0 / trajectory.frequency);
       auto sleep_time = target_period - loop_duration;
 
+      // Sleep timing profiling
+      auto sleep_start = std::chrono::high_resolution_clock::now();
       if (sleep_time.count() > 0) {
         std::this_thread::sleep_for(sleep_time);
       }
+      auto sleep_end = std::chrono::high_resolution_clock::now();
+      auto actual_sleep = std::chrono::duration<double, std::milli>(sleep_end - sleep_start).count();
+      auto intended_sleep = std::chrono::duration<double, std::milli>(sleep_time).count();
+
+      // Store timing stats for reporting (update last sample)
+      last_loop_time_ms = std::chrono::duration<double, std::milli>(loop_duration).count();
+      last_sleep_time_ms = actual_sleep;
     }
 
     auto total_time =
@@ -481,6 +877,18 @@ int main(int argc, char *argv[]) {
     std::cout << "\n✅ Trajectory execution completed!" << std::endl;
     std::cout << "   Total time: " << std::fixed << std::setprecision(2)
               << total_time << " seconds" << std::endl;
+
+    // Final frequency statistics (use execution time, not total program time)
+    double final_elapsed = std::chrono::duration<double>(
+        std::chrono::high_resolution_clock::now() - start_time).count();
+    double final_avg_freq = motor1_command_count / final_elapsed;
+    std::cout << "📊 Motor 1 Final Statistics:" << std::endl;
+    std::cout << "   Commands sent: " << motor1_command_count << std::endl;
+    std::cout << "   Average frequency: " << std::fixed << std::setprecision(2)
+              << final_avg_freq << " Hz" << std::endl;
+    std::cout << "   Target frequency: " << trajectory.frequency << " Hz" << std::endl;
+    std::cout << "   Frequency accuracy: " << std::fixed << std::setprecision(1)
+              << (final_avg_freq / trajectory.frequency * 100.0) << "%" << std::endl;
     std::cout << "   Points executed: " << current_point << "/"
               << trajectory.total_points << std::endl;
 

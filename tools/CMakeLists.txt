@@ -147,6 +147,7 @@ set(BASIC_TOOLS
     simple_motor_test
     servo_motor_test
     gripper_component_test
+    test_control_modes
 )
 
 foreach(tool ${BASIC_TOOLS})

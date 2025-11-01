@@ -41,7 +41,6 @@
 #endif
 
 static volatile bool g_running = true;
-static std::ofstream g_log_file;
 
 void signal_handler(int signal) {
   std::cout << "\n⚠️  Received signal " << signal << ", stopping monitor..."
@@ -79,46 +78,28 @@ void print_arm_data(const std::vector<double> &positions,
   }
 }
 
-void log_arm_data(const std::vector<double> &positions,
-                  const std::vector<double> &velocities,
-                  const std::vector<double> &torques, double timestamp) {
-  if (g_log_file.is_open()) {
-    g_log_file << std::fixed << std::setprecision(6) << timestamp << ",";
+void start_logging(ic_can::IC_CAN &controller) {
+  std::cout << "📝 Starting comprehensive data logging..." << std::endl;
 
-    int num_motors = std::min({(int)positions.size(), (int)velocities.size(),
-                               (int)torques.size(), 9});
-
-    for (int i = 0; i < num_motors; i++) {
-      g_log_file << std::setprecision(6) << positions[i] << ","
-                 << std::setprecision(6) << velocities[i] << ","
-                 << std::setprecision(6) << torques[i];
-      if (i < num_motors - 1)
-        g_log_file << ",";
-    }
-    g_log_file << std::endl;
-  }
-}
-
-void start_logging() {
+  // Create log directory with timestamp
   auto now = std::chrono::system_clock::now();
   auto time_t = std::chrono::system_clock::to_time_t(now);
   auto tm = *std::localtime(&time_t);
 
-  char filename[100];
-  strftime(filename, sizeof(filename), "arm_data_%Y%m%d_%H%M%S.csv", &tm);
+  char log_dir[100];
+  strftime(log_dir, sizeof(log_dir), "arm_monitor_%Y%m%d_%H%M%S", &tm);
 
-  g_log_file.open(filename);
-  if (g_log_file.is_open()) {
-    g_log_file << "timestamp,";
-    for (int i = 1; i <= 9; i++) {
-      g_log_file << "joint" << i << "_pos,joint" << i << "_vel,joint" << i
-                 << "_tau";
-      if (i < 9)
-        g_log_file << ",";
-    }
-    g_log_file << std::endl;
-
-    std::cout << "📝 Logging data to: " << filename << std::endl;
+  // Start the comprehensive logging system
+  if (controller.start_logging(std::string(log_dir))) {
+    std::cout << "📁 Logging directory created: " << log_dir << std::endl;
+    std::cout << "📄 Files being created:" << std::endl;
+    std::cout
+        << "   - motor_states.csv (actual motor positions/velocities/torques)"
+        << std::endl;
+    std::cout << "   - joint_commands.csv (commands sent to motors)"
+              << std::endl;
+  } else {
+    std::cout << "❌ Failed to start logging system" << std::endl;
   }
 }
 
@@ -127,24 +108,33 @@ void print_usage(const char *program_name) {
   std::cout << "Options:" << std::endl;
   std::cout << "  -f <freq>     Update frequency in Hz (default: 10)"
             << std::endl;
-  std::cout << "  -l            Enable data logging to CSV file" << std::endl;
+  std::cout << "  -l            Enable comprehensive data logging to "
+               "timestamped directory"
+            << std::endl;
   std::cout << "  -t <seconds>  Run for specified time, then exit" << std::endl;
   std::cout << "  -h            Show this help message" << std::endl;
   std::cout << "\nExample:" << std::endl;
   std::cout << "  " << program_name
-            << " -f 20 -l     # Monitor at 20Hz with logging" << std::endl;
+            << " -f 20 -l     # Monitor at 20Hz with comprehensive logging"
+            << std::endl;
   std::cout << "  " << program_name
             << " -t 30        # Monitor for 30 seconds only" << std::endl;
+  std::cout << "\nLogging creates timestamped directory with:" << std::endl;
+  std::cout
+      << "  - motor_states.csv (actual positions/velocities/torques at 400Hz)"
+      << std::endl;
+  std::cout << "  - joint_commands.csv (commands sent to motors)" << std::endl;
 }
 
 int main(int argc, char *argv[]) {
-  std::cout << "=== IC_CAN Arm Position Monitor ===" << std::endl;
+  std::cout << "=== IC_CAN Arm Position Monitor (TEACH_MODE) ===" << std::endl;
   std::cout << "Real-time monitoring for 9-joint system (motors 1-9)"
             << std::endl;
+  std::cout << "TEACH_MODE: Gravity + friction compensation only" << std::endl;
 
   // Parse command line arguments
   double frequency = 10.0; // Hz
-  bool enable_logging = false;
+  bool enable_logging = true;
   double duration_seconds = 0.0; // 0 = run forever
 
   for (int i = 1; i < argc; i++) {
@@ -207,9 +197,17 @@ int main(int argc, char *argv[]) {
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
+    // Set to TEACH_MODE for monitoring (gravity + friction compensation only)
+    std::cout << "\n🎓 Setting TEACH_MODE for monitoring..." << std::endl;
+    controller->set_control_mode(ic_can::IC_CAN::ControlMode::TEACH_MODE);
+
+    // Enable compensation for monitoring
+    controller->enable_gravity_compensation();
+    controller->enable_friction_compensation();
+
     // Start logging if requested
     if (enable_logging) {
-      start_logging();
+      start_logging(*controller);
     }
 
     std::cout << "\n🚀 Starting arm position monitoring..." << std::endl;
@@ -251,9 +249,6 @@ int main(int argc, char *argv[]) {
       auto torques = controller->get_joint_torques();
       std::vector<double> empty = {0, 0, 0, 0, 0, 0, 0, 0, 0};
       controller->set_joint_positions(positions, empty, empty);
-      // Calculate timestamp
-      double timestamp =
-          std::chrono::duration<double>(loop_start - start_time).count();
 
       // Print data every second (to avoid spam)
       if (update_count % static_cast<int>(frequency) == 0) {
@@ -262,10 +257,8 @@ int main(int argc, char *argv[]) {
         std::cout << std::flush;
       }
 
-      // Log data at full frequency
-      if (enable_logging) {
-        log_arm_data(positions, velocities, torques, timestamp);
-      }
+      // Note: Logging is handled automatically by the IC_CAN logging system
+      // when enabled, which logs at 400Hz in the background
 
       update_count++;
 
@@ -277,10 +270,10 @@ int main(int argc, char *argv[]) {
       }
     }
 
-    // Close log file
-    if (g_log_file.is_open()) {
-      g_log_file.close();
-      std::cout << "\n📄 Data logging completed" << std::endl;
+    // Stop logging if it was started
+    if (enable_logging) {
+      controller->stop_logging();
+      std::cout << "\n📄 Comprehensive data logging completed" << std::endl;
     }
 
     // Disable motors

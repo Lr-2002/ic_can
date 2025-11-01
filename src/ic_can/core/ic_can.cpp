@@ -94,7 +94,8 @@ public:
         gravity_compensation_enabled_(true),
         friction_compensation_enabled_(false), velocity_damping_(0.1),
         smooth_transition_(true), sgn_threshold_(0.01),
-        wrist_monitor_running_(false), wrist_monitor_frequency_(50.0) {
+        wrist_monitor_running_(false), wrist_monitor_frequency_(50.0),
+        control_mode_(ControlMode::TEACH_MODE) {
     // Initialize motor gains with default values
     load_default_motor_gains();
 
@@ -205,15 +206,29 @@ public:
   }
   void load_default_motor_gains() {
     std::lock_guard<std::mutex> lock(motor_gains_mutex_);
-    /**/
-    /*motor_kp_gains_ = {480, 120, 120, 80, 150, 30, 8, 8, 0};*/
-    /*motor_kd_gains_ = {4, 2, 2, 1.8, 2.2, 1, 1.2, 1.2, 0};*/
 
-    motor_kp_gains_ = {0, 0, 0, 0, 0, 0, 0, 0, 0};
-    motor_kd_gains_ = {0, 0, 0, 0, 0, 0, 0.0, 0.0, 0};
+    // Execution mode gains: {480, 120, 120, 80, 150, 30, 8, 8, 0}
+    // Teach mode gains: {0, 0, 0, 0, 0, 0, 0, 0, 0} (no position control, only
+    // compensation)
+
+    if (control_mode_ == ControlMode::TEACH_MODE) {
+      // Teach mode: zero gains for gravity + friction compensation only
+      motor_kp_gains_ = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+      motor_kd_gains_ = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+    } else {
+      // Execution mode: full control gains as specified
+      motor_kp_gains_ = {480, 120, 120, 80, 150, 30, 8, 8, 0};
+      motor_kd_gains_ = {4, 2, 2, 1.8, 2.2, 1, 1.2, 1.2, 0};
+
+      /*motor_kp_gains_ = {150, 100, 100, 80, 80, 50, 50, 50, 0};*/
+      /*motor_kd_gains_ = {2, 1.5, 1.5, 1., 1, 1, 1.2, 1.2, 0};*/
+    }
 
     if (debug_enabled_) {
-      std::cout << "✅ Loaded default motor gains" << std::endl;
+      std::cout << "✅ Loaded default motor gains for "
+                << (control_mode_ == ControlMode::TEACH_MODE ? "TEACH MODE"
+                                                             : "EXECUTION MODE")
+                << std::endl;
       for (auto i = 0; i <= 8; i++)
         std::cout << "Motor " << i << " kp: " << motor_kp_gains_[i]
                   << " kd: " << motor_kd_gains_[i] << std::endl;
@@ -673,6 +688,7 @@ public:
       std::cout << " debug: FAILED - positions size < 9" << std::endl;
       return false;
     }
+    /*std::cout << "[PD]: ";*/
 
     // Get motor-specific gains
     std::array<double, 9> kp_values, kd_values;
@@ -681,6 +697,8 @@ public:
       for (int i = 0; i < 9; i++) {
         kp_values[i] = motor_kp_gains_[i];
         kd_values[i] = motor_kd_gains_[i];
+        /*std::cout << "motor " << i << " " << motor_kp_gains_[i] << " "*/
+        /*          << motor_kd_gains_[i] << std::endl;*/
       }
     }
 
@@ -707,16 +725,25 @@ public:
       double pos = positions[i];
       double vel = (velocities.size() > i) ? velocities[i] : 0.0;
       double tau = (torques.size() > i) ? torques[i] : 0.0;
-      double kp = kp_values[i];
-      double kd = kd_values[i];
+      // Apply control mode specific gains
+      double kp, kd;
+      if (control_mode_ == ControlMode::TEACH_MODE) {
+        // Teach mode: use zero gains for gravity + friction compensation only
+        kp = 0.0; // No position control gain
+        kd = 0.0; // No velocity damping gain
+      } else {
+        // Execution mode: use the specified motor gains
+        kp = motor_kp_gains_[i];
+        kd = motor_kd_gains_[i];
+      }
 
       // Add gravity compensation to torque feedforward
       /*std::cout << " the gravity compensation is "*/
       /*          << gravity_compensation_enabled_ << std::endl;*/
       if (gravity_compensation_enabled_ && i < 6) {
         tau += gravity_torques[i];
-        std::cout << "[GC] motor id is " << i << ", torque is "
-                  << gravity_torques[i] << std::endl;
+        /*std::cout << "[GC] motor id is " << i << ", torque is "*/
+        /*          << gravity_torques[i] << std::endl;*/
       }
 
       // Add friction compensation to torque feedforward
@@ -729,6 +756,8 @@ public:
                     << ", friction: " << friction_torques[i] << std::endl;
         }
       }
+      /*std::cout << "now controlling joint " << i << " " << pos << " " << vel*/
+      /*          << " " << tau << " " << kp << " " << kd << std::endl;*/
 
       if (i < 6) {
         // Damiao motors 1-6: use DM MIT protocol
@@ -1471,6 +1500,40 @@ public:
     return true;
   }
 
+  // Control mode configuration
+  bool set_control_mode(ControlMode mode) {
+    control_mode_ = mode;
+    std::cout << "✅ Control mode set to: "
+              << (mode == ControlMode::TEACH_MODE ? "TEACH MODE"
+                                                  : "EXECUTION MODE")
+              << std::endl;
+
+    // Reload motor gains for the new mode
+    load_default_motor_gains();
+
+    if (mode == ControlMode::TEACH_MODE) {
+      std::cout << "   - Teach mode enabled: Using gravity compensation + "
+                   "friction compensation only"
+                << std::endl;
+      std::cout << "   - Zero Kp/Kd gains for monitoring (motors free to move "
+                   "with compensation)"
+                << std::endl;
+    } else {
+      std::cout << "   - Execution mode enabled: Using full position control "
+                   "with specified gains"
+                << std::endl;
+      std::cout << "   - Kp gains: {480, 120, 120, 80, 150, 30, 8, 8, 0}"
+                << std::endl;
+      std::cout << "   - Kd gains: {4, 2, 2, 1.8, 2.2, 1, 1.2, 1.2, 0}"
+                << std::endl;
+      std::cout << "   - Gravity and friction compensation still active"
+                << std::endl;
+    }
+    return true;
+  }
+
+  ControlMode get_control_mode() const { return control_mode_; }
+
   bool is_friction_compensation_enabled() const {
     return friction_compensation_enabled_;
   }
@@ -1783,6 +1846,9 @@ private:
   double sgn_threshold_;
   std::array<FrictionParams, 9> friction_params_;
   std::mutex friction_params_mutex_;
+
+  // Control mode
+  ControlMode control_mode_;
 
   void handle_can_frame(can_value_type &frame) {
     uint32_t can_id = frame.head.id;
@@ -2829,6 +2895,15 @@ std::map<std::string, double> IC_CAN::get_performance_stats() {
 }
 
 void IC_CAN::print_performance_stats() { impl_->print_performance_stats(); }
+
+// Control mode API implementation
+bool IC_CAN::set_control_mode(ControlMode mode) {
+  return impl_->set_control_mode(mode);
+}
+
+IC_CAN::ControlMode IC_CAN::get_control_mode() const {
+  return impl_->get_control_mode();
+}
 
 // Gravity compensation API implementation
 bool IC_CAN::enable_gravity_compensation() {

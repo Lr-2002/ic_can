@@ -41,6 +41,13 @@ class USB2CANCommunicationAdapter;
 class IC_CAN {
 public:
     /**
+     * @brief Control mode enumeration
+     */
+    enum class ControlMode {
+        TEACH_MODE,    ///< Teach mode: gravity compensation + friction compensation only
+        EXECUTION_MODE ///< Execution mode: full position control with Kp/Kd gains
+    };
+    /**
      * @brief Constructor
      * @param device_sn USB2CAN device serial number
      * @param debug Enable debug output
@@ -348,6 +355,19 @@ public:
      * @brief Print performance statistics
      */
     void print_performance_stats();
+
+    /**
+     * @brief Set control mode
+     * @param mode The control mode (TEACH_MODE or EXECUTION_MODE)
+     * @return true if successful
+     */
+    bool set_control_mode(ControlMode mode);
+
+    /**
+     * @brief Get current control mode
+     * @return Current control mode
+     */
+    ControlMode get_control_mode() const;
 
     /**
      * @brief Enable frequency monitoring

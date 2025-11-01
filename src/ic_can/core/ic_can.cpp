@@ -23,6 +23,7 @@
 
 // Include stub implementations
 #include "ic_can/core/torque_predictor_unified.h"
+#include "ic_can/motors/servo_motor.hpp"
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -123,6 +124,10 @@ public:
     wrist_component_ = std::make_unique<WristComponent>();
     gripper_component_ = std::make_unique<GripperComponent>();
     arm_component_ = std::make_unique<ArmComponent>();
+
+    // Initialize servo motor for gripper (motor 9)
+    servo_motor_ = std::make_unique<ServoMotor>(9, 0x19, 0x19);
+    std::cout << "✅ Servo motor 9 initialized for gripper control" << std::endl;
 
     std::cout << "✅ Arm, Wrist, and Gripper components initialized"
               << std::endl;
@@ -728,14 +733,13 @@ public:
       if (i < 6) {
         // Damiao motors 1-6: use DM MIT protocol
         send_dm_mit_command(i + 1, pos, vel, tau, kp, kd);
+      } else if (i < 8) {
+        // HT motors 7-8: use HT MIT protocol
+        send_ht_mit_command_single(i + 1, pos, vel, tau, kp, kd);
+      } else if (i == 8) {
+        // Servo motor 9: use servo CAN FD protocol
+        send_servo_command(i + 1, pos, vel, tau);
       }
-      /*} else if (i < 8) {*/
-      /*  // HT motors 7-8: use HT MIT protocol*/
-      /*  send_ht_mit_command(pos, vel, tau, kp, kd);*/
-      /*} else {*/
-      /*  // Servo motor 9: use DM protocol as placeholder*/
-      /*  send_dm_mit_command(i + 1, pos, vel, tau, kp, kd);*/
-      /*}*/
     }
 
     // Record the actually sent positions, velocities, and torques for logging
@@ -1752,6 +1756,9 @@ private:
   std::unique_ptr<GripperComponent> gripper_component_;
   std::unique_ptr<ArmComponent> arm_component_;
 
+  // Servo motor for gripper (motor 9)
+  std::unique_ptr<ServoMotor> servo_motor_;
+
   // Communication architecture (temporarily disabled)
   // std::unique_ptr<USB2CANCommunicationAdapter> communication_adapter_;
   // std::unique_ptr<CANFrameDispatcher> can_dispatcher_;
@@ -1832,6 +1839,10 @@ private:
     else if (can_id == 0x700 || can_id == 0x800) {
       process_ht_motor_feedback(frame,
                                 can_id == 0x700 ? 6 : 7); // Map to motors 7-8
+    }
+    // Handle Servo motor feedback (motor 9)
+    else if (can_id == 0x19) {
+      process_servo_feedback(frame, 8); // Map to motor 9 (index 8)
     }
   }
 
@@ -1945,6 +1956,139 @@ private:
 
       // Send to wrist component
       wrist_component_->process_can_frame(wrist_frame);
+    }
+  }
+
+  void process_servo_feedback(can_value_type &frame, int motor_idx) {
+    if (frame.head.dlc < 6) {
+      return;
+    }
+
+    // Debug: Print servo motor processing
+    if (debug_enabled_) {
+      std::cout << "🔧 Processing servo motor feedback for motor " << (motor_idx + 1) << std::endl;
+    }
+
+    // Extract servo feedback data based on Python implementation
+    // Format: [pos_high, pos_low, vel_high, vel_low, torque_high, torque_low, ...]
+    uint16_t pos_int = (static_cast<uint16_t>(frame.data[0]) << 8) | frame.data[1];
+    uint16_t vel_int = (static_cast<uint16_t>(frame.data[2]) << 8) | frame.data[3];
+    uint16_t torque_int = (static_cast<uint16_t>(frame.data[4]) << 8) | frame.data[5];
+
+    // Convert from servo range (0-4095) to normalized range (0.0-1.0)
+    double position = static_cast<double>(pos_int) / 4095.0;
+    double velocity = static_cast<double>(vel_int) / 4095.0; // Raw velocity
+    double torque = static_cast<double>(torque_int) / 4095.0; // Raw torque
+
+    if (debug_enabled_) {
+      std::cout << "   Raw - pos: " << pos_int << ", vel: " << vel_int << ", torque: " << torque_int << std::endl;
+      std::cout << "   Normalized - pos: " << std::fixed << std::setprecision(4) << position
+                << " (" << (position * 180.0) << "°), vel: " << velocity << ", torque: " << torque << std::endl;
+    }
+
+    // Update servo motor state if available
+    if (servo_motor_) {
+      std::vector<uint8_t> data(frame.data, frame.data + frame.head.dlc);
+      servo_motor_->process_response(data);
+      servo_motor_->update_state();
+    }
+
+    // Update atomic values for compatibility with existing system
+    positions_[motor_idx].store(position);
+    velocities_[motor_idx].store(velocity);
+    torques_[motor_idx].store(torque);
+  }
+
+  void send_servo_command(int motor_id, double position, double velocity, double torque) {
+    if (!servo_motor_) {
+      std::cout << "❌ Servo motor not initialized" << std::endl;
+      return;
+    }
+
+    // Convert normalized position (0.0-1.0) to servo range (0-4095)
+    // Position range: 0-4095 represents one full rotation
+    uint16_t pos_raw = static_cast<uint16_t>(position * 4095.0);
+
+    // Convert normalized velocity to servo range (1-4095)
+    // Clamp to reasonable range
+    uint16_t vel_raw = static_cast<uint16_t>(std::max(1.0, std::min(velocity * 4095.0, 4095.0)));
+
+    // Create servo command based on Python implementation
+    // Format: [mode, pos_high, pos_low, vel_high, vel_low, 0, 0, 0]
+    std::vector<uint8_t> command_data = {
+        0x02,                                          // POSITION mode
+        static_cast<uint8_t>((pos_raw >> 8) & 0xFF),  // Position high byte
+        static_cast<uint8_t>(pos_raw & 0xFF),          // Position low byte
+        static_cast<uint8_t>((vel_raw >> 8) & 0xFF),  // Velocity high byte
+        static_cast<uint8_t>(vel_raw & 0xFF),          // Velocity low byte
+        0x00, 0x00, 0x00                              // Padding bytes
+    };
+
+    // Send CAN frame to servo motor (use 0x09 as send ID per Python implementation)
+    send_can_frame(0x09, command_data, false); // Standard frame for servo
+
+    if (debug_enabled_) {
+      std::cout << "📤 Sent servo command to motor " << motor_id
+                << " - pos_norm: " << std::fixed << std::setprecision(4) << position
+                << " (" << (position * 180.0) << "°), pos_raw: " << pos_raw
+                << ", vel_raw: " << vel_raw << std::endl;
+      std::cout << "   CAN data: ";
+      for (size_t i = 0; i < command_data.size(); ++i) {
+        std::cout << "0x" << std::hex << std::setw(2) << std::setfill('0')
+                  << static_cast<int>(command_data[i]) << " ";
+      }
+      std::cout << std::dec << std::endl;
+    }
+
+    // Update servo motor state
+    if (servo_motor_) {
+      MotorCommand command;
+      command.use_position = true;
+      command.use_velocity = true;
+      command.position = position;
+      command.velocity = velocity;
+      command.torque = torque;
+      servo_motor_->set_command(command);
+    }
+  }
+
+  void send_servo_enable(int motor_id) {
+    // Create servo enable command based on Python implementation
+    std::vector<uint8_t> command_data = {0x01, 0, 0, 0, 0, 0, 0, 0}; // ENABLE mode
+    send_can_frame(0x09, command_data, false); // Standard frame for servo
+
+    if (debug_enabled_) {
+      std::cout << "🔧 Sent servo enable command to motor " << motor_id << std::endl;
+    }
+  }
+
+  void send_servo_disable(int motor_id) {
+    // Create servo disable command based on Python implementation
+    std::vector<uint8_t> command_data = {0x00, 0, 0, 0, 0, 0, 0, 0}; // DISABLE mode
+    send_can_frame(0x09, command_data, false); // Standard frame for servo
+
+    if (debug_enabled_) {
+      std::cout << "🔌 Sent servo disable command to motor " << motor_id << std::endl;
+    }
+  }
+
+  void send_servo_read_status(int motor_id) {
+    // Create servo read status command based on Python implementation
+    std::vector<uint8_t> command_data = {0x03, 0, 0, 0, 0, 0, 0, 0}; // READ mode
+    send_can_frame(0x09, command_data, false); // Standard frame for servo
+
+    if (debug_enabled_) {
+      std::cout << "📖 Sent servo read status command to motor " << motor_id << std::endl;
+    }
+  }
+
+  void send_servo_set_mid(int motor_id) {
+    // Create servo set middle position command based on Python implementation
+    std::vector<uint8_t> command_data = {0x04, 0, 0, 0, 0, 0, 0, 0}; // MID mode
+    send_can_frame(0x09, command_data, false); // Standard frame for servo
+
+    if (debug_enabled_) {
+      std::cout << "🎯 Sent servo set middle position command to motor " << motor_id << std::endl;
     }
   }
 

@@ -145,6 +145,8 @@ set(BASIC_TOOLS
     wrist_motor_only_monitor
     home_to_zero
     simple_motor_test
+    servo_motor_test
+    gripper_component_test
 )
 
 foreach(tool ${BASIC_TOOLS})

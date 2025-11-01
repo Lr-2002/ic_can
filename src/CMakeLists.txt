@@ -37,6 +37,10 @@ endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/ic_can/motors/ht_motor.cpp")
     list(APPEND MOTORS_SOURCES "ic_can/motors/ht_motor.cpp")
 endif()
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/ic_can/motors/servo_motor.cpp")
+    list(APPEND MOTORS_SOURCES "ic_can/motors/servo_motor.cpp")
+    message(STATUS "✅ Added servo motor source")
+endif()
 
 # Protocol sources - temporarily disabled due to header mismatch
 # if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/ic_can/protocols/usb2can_real.cpp")

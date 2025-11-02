@@ -237,8 +237,8 @@ public:
       /*motor_kp_gains_ = {480, 120, 120, 80, 150, 30, 8, 8, 0};*/
       /*motor_kd_gains_ = {4, 2, 2, 1.8, 2.2, 1, 1.2, 1.2, 0};*/
 
-      motor_kp_gains_ = {400, 200, 200, 100, 100, 50, 50, 50, 0};
-      motor_kd_gains_ = {4, 2.5, 2.5, 1.5, 1.5, 1, 0, 0, 0};
+      motor_kp_gains_ = {400, 200, 200, 100, 150, 80, 80, 80, 0};
+      motor_kd_gains_ = {4, 2.5, 2.5, 1.5, 1.5, 1.5, 1, 1, 0};
     }
 
     if (debug_enabled_) {
@@ -635,7 +635,7 @@ public:
       /*    std::cout << "📤 Sent status request to DM motor " << motor_id*/
       /*              << std::endl;*/
       /*  }*/
-      /*  usleep(500); // Small delay between requests*/
+      /*  *usleep(500); // Small delay between requests*/
       /*}*/
 
       // Refresh HT motors 7-8 with their specific protocol
@@ -696,7 +696,11 @@ public:
     /*std::cout << " debug: running set joint positions " << std::endl;*/
     /*std::cout << " debug: connected=" << connected_*/
     /*          << ", positions.size()=" << positions.size() << std::endl;*/
-    send_count_++;
+    std::cout << "running setting joint position at time "
+              << std::chrono::duration_cast<std::chrono::microseconds>(
+                     std::chrono::steady_clock::now().time_since_epoch())
+                     .count()
+              << std::endl;
     if (!connected_) {
       std::cout << " debug: FAILED - not connected" << std::endl;
       return false;
@@ -779,8 +783,10 @@ public:
       if (i < 6) {
         // Damiao motors 1-6: use DM MIT protocol
         send_dm_mit_command(i + 1, pos, vel, tau, kp, kd);
+        /*}*/
       } else if (i < 8) {
         // HT motors 7-8: use HT MIT protocol
+        usleep(1000);
         send_ht_mit_command_single(i + 1, pos, vel, tau, kp, kd);
       } else if (i == 8) {
         // Servo motor 9: use servo CAN FD protocol
@@ -1870,6 +1876,7 @@ private:
   void handle_can_frame(can_value_type &frame) {
     uint32_t can_id = frame.head.id;
     // Track receive frequency - count ALL frames
+    std::cout << "[Can Recv] recv from can id is " << can_id << std::endl;
     receive_count_++;
     total_bytes_received_ += frame.head.dlc;
 
@@ -1902,12 +1909,12 @@ private:
         motor_type = "HT";
       }
 
-      std::cout << "📥 [CAN RECV #" << std::setw(6) << std::setfill('0')
+      std::cout << "\033[31m📥 [CAN RECV #" << std::setw(6) << std::setfill('0')
                 << receive_count_.load() << "] " << std::setw(6)
                 << std::setfill(' ') << std::fixed << std::setprecision(3)
                 << (timestamp / 1000.0) << "ms: "
                 << "ID=0x" << std::hex << std::setw(8) << std::setfill('0')
-                << can_id << std::dec << " (" << motor_type;
+                << can_id << std::dec << " (" << motor_type << "\033[0m";
       if (motor_num > 0) {
         std::cout << " M" << motor_num;
       }
@@ -2079,11 +2086,12 @@ private:
       return;
 
     // Debug: Print HT motor processing
-    if (debug_enabled_) {
-      std::cout << "🔧 Processing HT motor feedback for motor idx: "
-                << motor_idx << " (actual motor " << (motor_idx + 1) << ")"
-                << std::endl;
-    }
+    /*if (debug_enabled_) {*/
+    /*  std::cout << "🔧 Processing HT motor feedback for motor idx: "*/
+    /*            << motor_idx << " (actual motor " << (motor_idx + 1) <<
+     * ")"*/
+    /*            << std::endl;*/
+    /*}*/
 
     // Extract HT motor data (same as HT test)
     int16_t pos_int =
@@ -2101,15 +2109,18 @@ private:
     const double torque_d = -0.083;
     double torque = torque_int * torque_k + torque_d;
 
-    if (debug_enabled_) {
-      std::cout << "   Raw pos_int: " << pos_int << " → position: " << position
-                << " rad (" << (position * 180.0 / M_PI) << "°)" << std::endl;
-      std::cout << "   Raw vel_int: " << vel_int << " → velocity: " << velocity
-                << " rad/s" << std::endl;
-      std::cout << "   Raw torque_int: " << torque_int
-                << " → torque: " << torque << " Nm" << std::endl;
-    }
-
+    /*if (debug_enabled_) {*/
+    /*  std::cout << "   Raw pos_int: " << pos_int << " → position: " <<
+     * position*/
+    /*            << " rad (" << (position * 180.0 / M_PI) << "°)" <<
+     * std::endl;*/
+    /*  std::cout << "   Raw vel_int: " << vel_int << " → velocity: " <<
+     * velocity*/
+    /*            << " rad/s" << std::endl;*/
+    /*  std::cout << "   Raw torque_int: " << torque_int*/
+    /*            << " → torque: " << torque << " Nm" << std::endl;*/
+    /*}*/
+    /**/
     // Update atomic values
     positions_[motor_idx].store(position);
     velocities_[motor_idx].store(velocity);
@@ -2128,11 +2139,11 @@ private:
         wrist_frame.data[i] = frame.data[i];
       }
 
-      if (debug_enabled_) {
-        std::cout << "📤 Forwarding HT motor " << wrist_motor_id
-                  << " data to wrist component (CAN ID: 0x" << std::hex
-                  << wrist_frame.id << std::dec << ")" << std::endl;
-      }
+      /*if (debug_enabled_) {*/
+      /*  std::cout << "📤 Forwarding HT motor " << wrist_motor_id*/
+      /*            << " data to wrist component (CAN ID: 0x" << std::hex*/
+      /*            << wrist_frame.id << std::dec << ")" << std::endl;*/
+      /*}*/
 
       // Send to wrist component
       wrist_component_->process_can_frame(wrist_frame);
@@ -2377,8 +2388,8 @@ private:
                 << std::endl;
 
       if (debug_enabled_) {
-        std::cout << "   📤 CAN SEND: ID=0x" << std::hex << can_id << std::dec
-                  << ", DLC=8, Data: ";
+        std::cout << "   \033[32m📤 CAN SEND: ID=0x" << std::hex << can_id
+                  << std::dec << ", DLC=8, Data: " << "\033[0m";
         for (int i = 0; i < 8; i++) {
           std::cout << std::hex << "0x" << (int)data[i] << " ";
         }
@@ -2410,17 +2421,18 @@ private:
     send_can_frame(0x8008, cmd, true); // Extended frame for HT
 
     if (debug_enabled_) {
-      std::cout << "   📤 CAN SEND: ID=0x8007, DLC=8, Data: ";
+      std::cout << "   \033[32m📤 CAN SEND: ID=0x8007, DLC=8, Data: ";
       for (size_t i = 0; i < cmd.size(); i++) {
         std::cout << std::hex << "0x" << (int)cmd[i] << " ";
       }
-      std::cout << std::dec << " (HT Motor 7)" << std::endl;
+      std::cout << std::dec << " (HT Motor 7)" << "\033[0m" << std::endl;
 
-      std::cout << "   📤 CAN SEND: ID=0x8008, DLC=8, Data: ";
+      std::cout << "   \033[32m📤 CAN SEND: ID=0x8008, DLC=8, Data: "
+                << "\033[0m";
       for (size_t i = 0; i < cmd.size(); i++) {
         std::cout << std::hex << "0x" << (int)cmd[i] << " ";
       }
-      std::cout << std::dec << " (HT Motor 8)" << std::endl;
+      std::cout << std::dec << " (HT Motor 8)" << "\033[0m" << std::endl;
 
       std::cout << "   ✅ HT read state commands sent successfully"
                 << std::endl;
@@ -2496,6 +2508,11 @@ private:
       return;
     }
 
+    /*std::cout << "[Send Can Frame] at time "*/
+    /*          << std::chrono::duration_cast<std::chrono::microseconds>(*/
+    /*                 std::chrono::steady_clock::now().time_since_epoch())*/
+    /*                 .count()*/
+    /*          << std::endl;*/
     can_tx_type frame;
     memset(&frame, 0, sizeof(can_tx_type));
 
@@ -2551,12 +2568,12 @@ private:
         motor_type = "HT";
       }
 
-      std::cout << "📤 [CAN SEND #" << std::setw(6) << std::setfill('0')
+      std::cout << "\033[32m📤 [CAN SEND #" << std::setw(6) << std::setfill('0')
                 << send_count_ << "] " << std::setw(6) << std::setfill(' ')
                 << std::fixed << std::setprecision(3) << (timestamp / 1000.0)
                 << "ms: "
                 << "ID=0x" << std::hex << std::setw(8) << std::setfill('0')
-                << can_id << std::dec << " (" << motor_type;
+                << can_id << std::dec << " (" << motor_type << "\033[0m";
       if (motor_num > 0) {
         std::cout << " M" << motor_num;
       }
@@ -2678,7 +2695,7 @@ private:
     // Send frame using device's methods
     device_->set_tx_frame(&frame);
     device_->send_data();
-
+    usleep(200);
     total_bytes_sent_ += dataLength;
   }
 

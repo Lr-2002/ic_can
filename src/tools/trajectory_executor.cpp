@@ -232,6 +232,7 @@ public:
     std::string line;
     bool header_processed = false;
     std::string first_timestamp;
+    int data_line_count = 0;
 
     while (std::getline(file, line)) {
       if (line.empty())
@@ -240,6 +241,13 @@ public:
       // Skip header line
       if (!header_processed) {
         header_processed = true;
+        continue;
+      }
+
+      data_line_count++;
+
+      // Skip first 100 data points to avoid initial unstable data
+      if (data_line_count <= 100) {
         continue;
       }
 
@@ -275,6 +283,10 @@ public:
       }
       positions.push_back(motor_positions);
     }
+
+    std::cout << "📋 Loaded " << positions.size()
+              << " motor state points from CSV (skipped first 100 unstable points)"
+              << std::endl;
 
     // Estimate frequency from timestamps
     if (time_points.size() > 1) {

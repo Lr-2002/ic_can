@@ -67,7 +67,7 @@ public:
         }
         size_t end = start;
         while (end < content.size() &&
-               (content[end] >= '0' && content[end] <= '9' ||
+               ((content[end] >= '0' && content[end] <= '9') ||
                 content[end] == '.')) {
           end++;
         }
@@ -634,7 +634,7 @@ int main(int argc, char *argv[]) {
     // Create IC_CAN controller
     std::cout << "\n🔧 Initializing IC_CAN controller..." << std::endl;
     auto controller = std::make_unique<ic_can::IC_CAN>(
-        "693D3DE86DF5940C8BC74A5B46A3CE2E", false);
+        "693D3DE86DF5940C8BC74A5B46A3CE2E", true);
 
     if (!controller->initialize()) {
       std::cout << "❌ FAILED: System initialization failed" << std::endl;
@@ -657,7 +657,8 @@ int main(int argc, char *argv[]) {
     /*controller->enable_gravity_compensation();*/
     /*controller->enable_friction_compensation();*/
 
-    // Enable logging for trajectory execution (always enabled to capture replay data)
+    // Enable logging for trajectory execution (always enabled to capture replay
+    // data)
     std::cout << "\n📝 Starting trajectory execution logging..." << std::endl;
     if (!controller->start_logging("./logs")) {
       std::cout << "❌ FAILED: Could not start logging" << std::endl;
@@ -734,7 +735,8 @@ int main(int argc, char *argv[]) {
     int commands_in_last_second = 0;
     auto last_profiling_time = profiling_start;
 
-    // Store timing stats for reporting (static to persist between loop iterations)
+    // Store timing stats for reporting (static to persist between loop
+    // iterations)
     static double last_loop_time_ms = 0.0;
     static double last_sleep_time_ms = 0.0;
 
@@ -746,7 +748,8 @@ int main(int argc, char *argv[]) {
       double max_position_change = 0.0;
       int motor_with_max_change = 0;
       for (int i = 0; i < 9; i++) {
-        double change = std::abs(trajectory.positions[current_point][i] - last_positions[i]);
+        double change = std::abs(trajectory.positions[current_point][i] -
+                                 last_positions[i]);
         if (change > max_position_change) {
           max_position_change = change;
           motor_with_max_change = i;
@@ -755,35 +758,22 @@ int main(int argc, char *argv[]) {
 
       // Warn about large position changes
       if (max_position_change > 0.1) { // > 0.1 rad (~5.7 degrees)
-        std::cout << "⚠️  Large position jump detected: Motor " << (motor_with_max_change + 1)
-                  << " change=" << std::fixed << std::setprecision(4) << max_position_change
-                  << " rad (" << (max_position_change * 180.0 / M_PI) << "°)" << std::endl;
+        std::cout << "⚠️  Large position jump detected: Motor "
+                  << (motor_with_max_change + 1) << " change=" << std::fixed
+                  << std::setprecision(4) << max_position_change << " rad ("
+                  << (max_position_change * 180.0 / M_PI) << "°)" << std::endl;
       }
 
-      // Apply position change limiting to prevent jerky motion from motor state jumps
-      std::vector<double> filtered_positions = trajectory.positions[current_point];
-      static std::vector<double> last_sent_positions(9, 0.0);
-
-      if (current_point > 0) {  // Skip first point
-        const double max_change_per_step = 0.05; // 0.05 rad = 2.86° per step at 500Hz
-        for (int i = 0; i < 9; i++) {
-          double change = filtered_positions[i] - last_sent_positions[i];
-          if (std::abs(change) > max_change_per_step) {
-            // Limit the change to prevent jerky motion
-            filtered_positions[i] = last_sent_positions[i] + (change > 0 ? max_change_per_step : -max_change_per_step);
-          }
-        }
-      }
+      // Apply position directly without filtering for maximum fidelity
+      const auto &target_positions = trajectory.positions[current_point];
 
       // Measure set_joint_positions timing
       auto cmd_start = std::chrono::high_resolution_clock::now();
-      controller->set_joint_positions(filtered_positions, {}, {});
+      controller->set_joint_positions(target_positions, {}, {});
       auto cmd_end = std::chrono::high_resolution_clock::now();
 
-      // Update last sent positions for next iteration
-      last_sent_positions = filtered_positions;
-
-      // Count motor 1 commands (each set_joint_positions sends to all motors including motor 1)
+      // Count motor 1 commands (each set_joint_positions sends to all motors
+      // including motor 1)
       motor1_command_count++;
       commands_in_last_second++;
 
@@ -791,33 +781,57 @@ int main(int argc, char *argv[]) {
 
       // Detailed profiling every 1 second
       auto current_time = std::chrono::high_resolution_clock::now();
-      auto profiling_elapsed = std::chrono::duration<double>(current_time - last_profiling_time).count();
+      auto profiling_elapsed =
+          std::chrono::duration<double>(current_time - last_profiling_time)
+              .count();
 
       if (profiling_elapsed >= 1.0) {
-        // Use trajectory execution start time for accurate frequency calculation
-        double execution_elapsed = std::chrono::duration<double>(current_time - start_time).count();
+        // Use trajectory execution start time for accurate frequency
+        // calculation
+        double execution_elapsed =
+            std::chrono::duration<double>(current_time - start_time).count();
         double actual_freq = motor1_command_count / execution_elapsed;
         double instant_freq = commands_in_last_second / profiling_elapsed;
 
-        auto cmd_duration = std::chrono::duration<double, std::milli>(cmd_end - cmd_start).count();
+        auto cmd_duration =
+            std::chrono::duration<double, std::milli>(cmd_end - cmd_start)
+                .count();
 
         std::cout << "📊 ===== FREQUENCY PROFILING =====" << std::endl;
-        std::cout << "   Motor 1 Total Freq: " << std::fixed << std::setprecision(1) << actual_freq << " Hz" << std::endl;
-        std::cout << "   Motor 1 Instant Freq: " << std::fixed << std::setprecision(1) << instant_freq << " Hz" << std::endl;
-        std::cout << "   Target Frequency: " << trajectory.frequency << " Hz" << std::endl;
-        std::cout << "   Efficiency: " << std::fixed << std::setprecision(1) << (actual_freq / trajectory.frequency * 100.0) << "%" << std::endl;
-        std::cout << "   Command Time: " << std::fixed << std::setprecision(3) << cmd_duration << " ms" << std::endl;
-        std::cout << "   Loop Time: " << std::fixed << std::setprecision(3) << last_loop_time_ms << " ms" << std::endl;
-        std::cout << "   Sleep Time: " << std::fixed << std::setprecision(3) << last_sleep_time_ms << " ms" << std::endl;
-        std::cout << "   Target Period: " << std::fixed << std::setprecision(3) << (1000.0 / trajectory.frequency) << " ms" << std::endl;
-        std::cout << "   Max Position Change: " << std::fixed << std::setprecision(4) << max_position_change << " rad" << std::endl;
-        std::cout << "   Commands this second: " << commands_in_last_second << std::endl;
+        std::cout << "   Motor 1 Total Freq: " << std::fixed
+                  << std::setprecision(1) << actual_freq << " Hz" << std::endl;
+        std::cout << "   Motor 1 Instant Freq: " << std::fixed
+                  << std::setprecision(1) << instant_freq << " Hz" << std::endl;
+        std::cout << "   Target Frequency: " << trajectory.frequency << " Hz"
+                  << std::endl;
+        std::cout << "   Efficiency: " << std::fixed << std::setprecision(1)
+                  << (actual_freq / trajectory.frequency * 100.0) << "%"
+                  << std::endl;
+        std::cout << "   Command Time: " << std::fixed << std::setprecision(3)
+                  << cmd_duration << " ms" << std::endl;
+        std::cout << "   Loop Time: " << std::fixed << std::setprecision(3)
+                  << last_loop_time_ms << " ms" << std::endl;
+        std::cout << "   Sleep Time: " << std::fixed << std::setprecision(3)
+                  << last_sleep_time_ms << " ms" << std::endl;
+        std::cout << "   Target Period: " << std::fixed << std::setprecision(3)
+                  << (1000.0 / trajectory.frequency) << " ms" << std::endl;
+        std::cout << "   Max Position Change: " << std::fixed
+                  << std::setprecision(4) << max_position_change << " rad"
+                  << std::endl;
+        std::cout << "   Commands this second: " << commands_in_last_second
+                  << std::endl;
         std::cout << "   Total commands: " << motor1_command_count << std::endl;
-        std::cout << "   Current point: " << current_point << "/" << trajectory.total_points << std::endl;
+        std::cout << "   Current point: " << current_point << "/"
+                  << trajectory.total_points << std::endl;
 
         // Show current control mode and gains
         auto current_mode = controller->get_control_mode();
-        std::cout << "   Control Mode: " << (current_mode == ic_can::IC_CAN::ControlMode::EXECUTION_MODE ? "EXECUTION" : "TEACH") << std::endl;
+        std::cout << "   Control Mode: "
+                  << (current_mode ==
+                              ic_can::IC_CAN::ControlMode::EXECUTION_MODE
+                          ? "EXECUTION"
+                          : "TEACH")
+                  << std::endl;
 
         // Alert if timing is problematic
         if (last_loop_time_ms > 5.0) {
@@ -861,11 +875,13 @@ int main(int argc, char *argv[]) {
         std::this_thread::sleep_for(sleep_time);
       }
       auto sleep_end = std::chrono::high_resolution_clock::now();
-      auto actual_sleep = std::chrono::duration<double, std::milli>(sleep_end - sleep_start).count();
-      auto intended_sleep = std::chrono::duration<double, std::milli>(sleep_time).count();
+      auto actual_sleep =
+          std::chrono::duration<double, std::milli>(sleep_end - sleep_start)
+              .count();
 
       // Store timing stats for reporting (update last sample)
-      last_loop_time_ms = std::chrono::duration<double, std::milli>(loop_duration).count();
+      last_loop_time_ms =
+          std::chrono::duration<double, std::milli>(loop_duration).count();
       last_sleep_time_ms = actual_sleep;
     }
 
@@ -878,19 +894,128 @@ int main(int argc, char *argv[]) {
     std::cout << "   Total time: " << std::fixed << std::setprecision(2)
               << total_time << " seconds" << std::endl;
 
-    // Final frequency statistics (use execution time, not total program time)
-    double final_elapsed = std::chrono::duration<double>(
-        std::chrono::high_resolution_clock::now() - start_time).count();
+    // Final frequency statistics and position change profile
+    double final_elapsed =
+        std::chrono::duration<double>(
+            std::chrono::high_resolution_clock::now() - start_time)
+            .count();
     double final_avg_freq = motor1_command_count / final_elapsed;
-    std::cout << "📊 Motor 1 Final Statistics:" << std::endl;
+
+    std::cout << "\n📊 ===== FINAL EXECUTION STATISTICS =====" << std::endl;
+    std::cout << "📈 Motor 1 Final Statistics:" << std::endl;
     std::cout << "   Commands sent: " << motor1_command_count << std::endl;
     std::cout << "   Average frequency: " << std::fixed << std::setprecision(2)
               << final_avg_freq << " Hz" << std::endl;
-    std::cout << "   Target frequency: " << trajectory.frequency << " Hz" << std::endl;
+    std::cout << "   Target frequency: " << trajectory.frequency << " Hz"
+              << std::endl;
     std::cout << "   Frequency accuracy: " << std::fixed << std::setprecision(1)
-              << (final_avg_freq / trajectory.frequency * 100.0) << "%" << std::endl;
+              << (final_avg_freq / trajectory.frequency * 100.0) << "%"
+              << std::endl;
     std::cout << "   Points executed: " << current_point << "/"
               << trajectory.total_points << std::endl;
+
+    // Display position change profile for all motors
+    std::cout << "\n📝 ===== POSITION CHANGE PROFILE (9 Motors) ====="
+              << std::endl;
+
+    // Position change statistics for each motor
+    std::vector<int> change_counts(9, 0);
+    std::vector<double> sum_changes(9, 0.0);
+    std::vector<double> max_changes(9, 0.0);
+    std::vector<double> avg_changes(9, 0.0);
+    std::vector<int> large_jump_counts(9, 0); // > 0.1 rad changes
+
+    // Calculate position change statistics from the trajectory data
+    std::vector<double> prev_positions = (trajectory.positions.size() > 0)
+                                             ? trajectory.positions[0]
+                                             : std::vector<double>(9, 0.0);
+
+    for (size_t point = 1;
+         point < trajectory.positions.size() && point < (size_t)current_point;
+         ++point) {
+      for (int motor = 0;
+           motor < 9 && motor < (int)trajectory.positions[point].size();
+           ++motor) {
+        double change = std::abs(trajectory.positions[point][motor] -
+                                 prev_positions[motor]);
+
+        sum_changes[motor] += change;
+        change_counts[motor]++;
+
+        if (change > max_changes[motor]) {
+          max_changes[motor] = change;
+        }
+
+        if (change > 0.1) { // > 5.73 degrees
+          large_jump_counts[motor]++;
+        }
+
+        prev_positions[motor] = trajectory.positions[point][motor];
+      }
+    }
+
+    // Display per-motor statistics
+    for (int motor = 0; motor < 9; ++motor) {
+      avg_changes[motor] = (change_counts[motor] > 0)
+                               ? sum_changes[motor] / change_counts[motor]
+                               : 0.0;
+
+      std::cout << "🦾 Motor " << (motor + 1) << " (";
+
+      // Motor type labels
+      const char *motor_types[] = {"DM10010L", "DM6248", "DM6248",
+                                   "DM4340",   "DM4340", "DM4310",
+                                   "HT4438",   "HT4438", "SERVO"};
+
+      std::cout << motor_types[motor] << "):" << std::endl;
+      std::cout << "   Total changes: " << change_counts[motor] << std::endl;
+      std::cout << "   Max change: " << std::fixed << std::setprecision(4)
+                << max_changes[motor] << " rad ("
+                << (max_changes[motor] * 180.0 / M_PI) << "°)" << std::endl;
+      std::cout << "   Avg change: " << std::fixed << std::setprecision(4)
+                << avg_changes[motor] << " rad ("
+                << (avg_changes[motor] * 180.0 / M_PI) << "°)" << std::endl;
+      std::cout << "   Large jumps (>5.7°): " << large_jump_counts[motor]
+                << std::endl;
+
+      if (large_jump_counts[motor] > 0) {
+        std::cout << "   ⚠️  Motor " << (motor + 1) << " has jerky motion risk!"
+                  << std::endl;
+      }
+
+      if (motor < 8) {
+        std::cout << std::endl; // Extra space between motors 1-8
+      }
+    }
+
+    // Overall summary
+    int total_changes = 0;
+    int total_large_jumps = 0;
+    for (int motor = 0; motor < 9; ++motor) {
+      total_changes += change_counts[motor];
+      total_large_jumps += large_jump_counts[motor];
+    }
+
+    std::cout << "\n📋 ===== OVERALL SUMMARY =====" << std::endl;
+    std::cout << "   Total position changes across all motors: "
+              << total_changes << std::endl;
+    std::cout << "   Total large jumps (>5.7°): " << total_large_jumps
+              << std::endl;
+    std::cout << "   Average changes per motor: " << (total_changes / 9.0)
+              << std::endl;
+
+    if (total_large_jumps > 0) {
+      std::cout << "\n⚠️  WARNING: " << total_large_jumps
+                << " large position jumps detected!" << std::endl;
+      std::cout << "   This explains the 'ka-ka-ka' jerky motion." << std::endl;
+      std::cout << "   Consider using smoother trajectory data or applying "
+                   "stronger filtering."
+                << std::endl;
+    } else {
+      std::cout << "\n✅ No large position jumps detected - trajectory should "
+                   "be smooth."
+                << std::endl;
+    }
 
     if (current_point == trajectory.total_points) {
       std::cout << "   Status: SUCCESS" << std::endl;

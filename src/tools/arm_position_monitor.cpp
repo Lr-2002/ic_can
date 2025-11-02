@@ -216,14 +216,33 @@ int main(int argc, char *argv[]) {
     // Print header
     print_arm_header();
 
-    // Monitoring loop
+    // Monitoring loop with detailed profiling
     auto start_time = std::chrono::steady_clock::now();
     auto period = std::chrono::duration<double>(1.0 / frequency);
     int update_count = 0;
+
+    // Profiling variables
+    double total_refresh_time = 0.0;
+    double total_get_data_time = 0.0;
+    double total_set_positions_time = 0.0;
+    double total_loop_time = 0.0;
+    int profile_count = 0;
+
+    // Motor state change tracking
+    int total_motor_updates = 0;           // Total times motor states changed
+    std::vector<double> last_positions(9, 999.0);  // Previous positions for comparison
+    std::vector<int> motor_change_counts(9, 0);    // Changes per motor
+    std::vector<double> max_position_changes(9, 0.0); // Max change per motor
+
     /*controller->load_friction_params_from_file(*/
     /*    "/home/lr-2002/project/InstantCreation/ic_can/"*/
     /*    "friction_calibrated_params.json");*/
     /*controller->enable_friction_compensation();*/
+
+    // High-frequency monitoring loop with low-frequency display
+    auto last_display_time = std::chrono::steady_clock::now();
+    auto display_period = std::chrono::duration<double>(1.0 / frequency);
+
     while (g_running) {
       auto loop_start = std::chrono::steady_clock::now();
 
@@ -238,37 +257,155 @@ int main(int argc, char *argv[]) {
         }
       }
 
-      // Refresh motor data
+      // Profile refresh_all() timing
+      auto refresh_start = std::chrono::high_resolution_clock::now();
       controller->refresh_all();
-      std::this_thread::sleep_for(
-          std::chrono::milliseconds(10)); // Small delay for response
+      auto refresh_end = std::chrono::high_resolution_clock::now();
+      auto refresh_time = std::chrono::duration<double, std::milli>(refresh_end - refresh_start).count();
 
-      // Get all motor data (motors 1-9)
+      // Small delay for CAN response (removed 10ms sleep to improve frequency)
+
+      // Profile get_*_data timing
+      auto get_data_start = std::chrono::high_resolution_clock::now();
       auto positions = controller->get_joint_positions();
       auto velocities = controller->get_joint_velocities();
       auto torques = controller->get_joint_torques();
+      auto get_data_end = std::chrono::high_resolution_clock::now();
+      auto get_data_time = std::chrono::duration<double, std::milli>(get_data_end - get_data_start).count();
+
+      // Profile set_joint_positions timing (this does torque compensation!)
+      auto set_positions_start = std::chrono::high_resolution_clock::now();
       std::vector<double> empty = {0, 0, 0, 0, 0, 0, 0, 0, 0};
       controller->set_joint_positions(positions, empty, empty);
+      auto set_positions_end = std::chrono::high_resolution_clock::now();
+      auto set_positions_time = std::chrono::duration<double, std::milli>(set_positions_end - set_positions_start).count();
 
-      // Print data every second (to avoid spam)
-      if (update_count % static_cast<int>(frequency) == 0) {
+      // Accumulate profiling data
+      total_refresh_time += refresh_time;
+      total_get_data_time += get_data_time;
+      total_set_positions_time += set_positions_time;
+      profile_count++;
+
+      // Track motor state changes
+      bool any_motor_changed = false;
+      for (int i = 0; i < 9 && i < (int)positions.size(); i++) {
+        double position_change = std::abs(positions[i] - last_positions[i]);
+
+        // Initialize first iteration
+        if (last_positions[i] == 999.0) {
+          last_positions[i] = positions[i];
+          continue;
+        }
+
+        // Check if this motor changed (with small threshold to avoid noise)
+        if (position_change > 1e-6) {  // 0.000001 rad threshold
+          any_motor_changed = true;
+          motor_change_counts[i]++;
+
+          if (position_change > max_position_changes[i]) {
+            max_position_changes[i] = position_change;
+          }
+
+          last_positions[i] = positions[i];
+        }
+      }
+
+      if (any_motor_changed) {
+        total_motor_updates++;
+      }
+
+      // Check if it's time to display (low frequency)
+      auto current_time = std::chrono::steady_clock::now();
+      auto time_since_last_display = std::chrono::duration<double>(current_time - last_display_time);
+
+      if (time_since_last_display >= display_period) {
         print_arm_header();
         print_arm_data(positions, velocities, torques);
+
+        // Show timing profile
+        std::cout << std::fixed << std::setprecision(2);
+        std::cout << "⏱️  Timings (ms): refresh=" << refresh_time
+                  << ", get_data=" << get_data_time
+                  << ", set_positions=" << set_positions_time << std::endl;
+        std::cout << "📊 Avg (ms): refresh=" << (total_refresh_time / profile_count)
+                  << ", get_data=" << (total_get_data_time / profile_count)
+                  << ", set_positions=" << (total_set_positions_time / profile_count) << std::endl;
+
+        // Show motor update statistics
+        std::cout << "🔄 Motor Updates: Total=" << total_motor_updates
+                  << ", Rate=" << (total_motor_updates > 0 ? (1000.0 * total_motor_updates / std::chrono::duration<double>(current_time - start_time).count()) : 0.0) << " Hz" << std::endl;
+        std::cout << "🔄 Loop iterations: " << profile_count << " ("
+                  << (profile_count / std::chrono::duration<double>(current_time - start_time).count()) << " Hz)" << std::endl;
         std::cout << std::flush;
+
+        last_display_time = current_time;
+        update_count++;
       }
 
       // Note: Logging is handled automatically by the IC_CAN logging system
       // when enabled, which logs at 400Hz in the background
 
-      update_count++;
+      // Profile total loop time
+      auto loop_end = std::chrono::steady_clock::now();
+      auto loop_time = std::chrono::duration<double, std::milli>(loop_end - loop_start).count();
+      total_loop_time += loop_time;
 
-      // Maintain frequency
-      auto elapsed = std::chrono::steady_clock::now() - loop_start;
-      auto sleep_time = period - elapsed;
-      if (sleep_time.count() > 0) {
-        std::this_thread::sleep_for(sleep_time);
-      }
+      // NO ARTIFICIAL SLEEP - let the loop run at maximum speed!
+      // Only limited by actual processing time
     }
+
+    // Print final profiling summary
+    double total_run_time = std::chrono::duration<double>(std::chrono::steady_clock::now() - start_time).count();
+
+    std::cout << "\n📈 ===== COMPREHENSIVE PROFILING SUMMARY =====" << std::endl;
+    std::cout << std::fixed << std::setprecision(3);
+
+    // Timing Summary
+    std::cout << "⏱️  TIMING ANALYSIS:" << std::endl;
+    std::cout << "  Total runtime:         " << total_run_time << " seconds" << std::endl;
+    std::cout << "  Total loop iterations: " << profile_count << std::endl;
+    std::cout << "  Actual loop frequency: " << (profile_count / total_run_time) << " Hz" << std::endl;
+    std::cout << "  Avg loop time:         " << (total_loop_time / profile_count) << " ms" << std::endl;
+    std::cout << "  Operation breakdown:" << std::endl;
+    std::cout << "    refresh_all():       " << (total_refresh_time / profile_count) << " ms ("
+              << (100.0 * total_refresh_time / total_loop_time) << "%)" << std::endl;
+    std::cout << "    get_*_data():        " << (total_get_data_time / profile_count) << " ms ("
+              << (100.0 * total_get_data_time / total_loop_time) << "%)" << std::endl;
+    std::cout << "    set_positions():     " << (total_set_positions_time / profile_count) << " ms ("
+              << (100.0 * total_set_positions_time / total_loop_time) << "%)" << std::endl;
+
+    // Motor State Change Summary
+    std::cout << "\n🔄 MOTOR STATE CHANGE ANALYSIS:" << std::endl;
+    std::cout << "  Total motor updates:   " << total_motor_updates << std::endl;
+    std::cout << "  Motor update rate:     " << (total_motor_updates / total_run_time) << " Hz" << std::endl;
+    std::cout << "  Data freshness ratio:  " << (100.0 * total_motor_updates / profile_count) << "%" << std::endl;
+
+    // Per-motor detailed statistics
+    const char* motor_types[] = {"DM10010L", "DM6248", "DM6248", "DM4340", "DM4340", "DM4310", "HT4438", "HT4438", "SERVO"};
+    std::cout << "\n🦾 PER-MOTOR CHANGE STATISTICS:" << std::endl;
+    for (int i = 0; i < 9; i++) {
+      std::cout << "  Motor " << (i+1) << " (" << motor_types[i] << "): "
+                << motor_change_counts[i] << " changes, "
+                << "max change: " << std::setprecision(6) << max_position_changes[i] << " rad ("
+                << std::setprecision(2) << (max_position_changes[i] * 180.0 / M_PI) << "°), "
+                << "rate: " << std::setprecision(1) << (motor_change_counts[i] / total_run_time) << " Hz" << std::endl;
+    }
+
+    // Key Insights
+    std::cout << "\n💡 KEY INSIGHTS:" << std::endl;
+    if (total_motor_updates == 0) {
+      std::cout << "  ⚠️  NO MOTOR STATE CHANGES DETECTED!" << std::endl;
+      std::cout << "  ⚠️  This explains the 'ka-ka-ka' jerky motion in replay!" << std::endl;
+    } else if ((100.0 * total_motor_updates / profile_count) < 50.0) {
+      std::cout << "  ⚠️  Low data freshness: Only " << (100.0 * total_motor_updates / profile_count)
+                << "% of loops had new motor data" << std::endl;
+      std::cout << "  ⚠️  This will cause repeated values in logged data" << std::endl;
+    } else {
+      std::cout << "  ✅ Good data freshness: " << (100.0 * total_motor_updates / profile_count)
+                << "% of loops had new motor data" << std::endl;
+    }
+
+    std::cout << "==============================================================" << std::endl;
 
     // Stop logging if it was started
     if (enable_logging) {

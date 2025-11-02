@@ -58,19 +58,36 @@ struct FrictionParams {
   double velocity_threshold = 0.1; // Velocity threshold for friction activation
 };
 
-// HT Motor MIT Command Frame Structure
+// HT Motor MIT Command Frame Structure (32 bytes - optimized)
 #pragma pack(push, 1)
 struct HTMotorFrame {
-  uint8_t head[4] = {0x01, 0x00, 0x0A, 0x0F};             // Header
-  uint8_t mode = 0x20;                                    // Mode
-  float pos = 0.2f;                                       // Position (rev)
-  float vel = 0.0f;                                       // Velocity
-  float torque = 0.4f;                                    // Torque
-  uint8_t magic[2] = {0x0E, 0x2B};                        // Fixed bytes
-  float kp = 50.0f;                                       // Kp
-  float kd = 0.8f;                                        // Kd
-  uint8_t tail[6] = {0x11, 0x00, 0x1F, 0x01, 0x13, 0x0D}; // Tail
-  uint8_t pad[15]; // Padding to reach 48 bytes total
+  // Header (4 bytes)
+  uint8_t head[4] = {0x01, 0x00, 0x0A, 0x0F};
+
+  // Mode and control parameters (1 byte)
+  uint8_t mode = 0x20;
+
+  // Control parameters (12 bytes)
+  float pos = 0.0f;    // Position in revolutions
+  float vel = 0.0f;    // Velocity in rev/s
+  float torque = 0.0f; // Torque in Nm
+
+  // Magic bytes (2 bytes)
+  uint8_t magic[2] = {0x0E, 0x2B};
+
+  // Gains (8 bytes)
+  float kp = 50.0f; // Position gain
+  float kd = 0.8f;  // Velocity gain
+
+  // Tail (6 bytes)
+  uint8_t tail[2] = {0x17, 0x01};
+
+  // Padding to reach 32 bytes total (3 bytes)
+  uint8_t pad[3];
+
+  /**
+   * @brief Constructor - initializes padding
+   */
   HTMotorFrame() { std::memset(pad, 0x50, sizeof(pad)); }
 };
 #pragma pack(pop)
@@ -217,11 +234,11 @@ public:
       motor_kd_gains_ = {0, 0, 0, 0, 0, 0, 0, 0, 0};
     } else {
       // Execution mode: full control gains as specified
-      motor_kp_gains_ = {480, 120, 120, 80, 150, 30, 8, 8, 0};
-      motor_kd_gains_ = {4, 2, 2, 1.8, 2.2, 1, 1.2, 1.2, 0};
+      /*motor_kp_gains_ = {480, 120, 120, 80, 150, 30, 8, 8, 0};*/
+      /*motor_kd_gains_ = {4, 2, 2, 1.8, 2.2, 1, 1.2, 1.2, 0};*/
 
-      /*motor_kp_gains_ = {150, 100, 100, 80, 80, 50, 50, 50, 0};*/
-      /*motor_kd_gains_ = {2, 1.5, 1.5, 1., 1, 1, 1.2, 1.2, 0};*/
+      motor_kp_gains_ = {400, 200, 200, 100, 100, 50, 50, 50, 0};
+      motor_kd_gains_ = {4, 2.5, 2.5, 1.5, 1.5, 1, 0, 0, 0};
     }
 
     if (debug_enabled_) {
@@ -1856,53 +1873,141 @@ private:
     receive_count_++;
     total_bytes_received_ += frame.head.dlc;
 
+    // Enhanced CAN receive debugging
     if (debug_enabled_) {
-      std::cout << "📥 RECV: ID=0x" << std::hex << can_id << std::dec << " ("
-                << receive_count_.load() << " total)" << std::endl;
-    }
-    // Debug: Print ALL received CAN frames when debug mode is enabled
-    if (debug_enabled_) {
-      std::cout << "📥 CAN RECV: ID=0x" << std::hex << can_id << std::dec
-                << ", DLC=" << (int)frame.head.dlc << ", Data: ";
+      auto recv_time = std::chrono::high_resolution_clock::now();
+      auto timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
+                           recv_time.time_since_epoch())
+                           .count() %
+                       1000000;
 
-      // Print ALL data bytes in the frame (up to 64 bytes for safety)
-      for (int i = 0; i < frame.head.dlc && i < 64; i++) {
-        std::cout << std::hex << "0x" << std::setw(2) << std::setfill('0')
-                  << (int)frame.data[i] << " ";
+      // Get DLC value with proper type casting
+      int dlc = static_cast<int>(frame.head.dlc);
+
+      // Determine motor type based on CAN ID
+      std::string motor_type = "Unknown";
+      int motor_num = -1;
+
+      if (can_id >= 0x11 && can_id <= 0x16) {
+        motor_num = static_cast<int>(can_id - 0x10);
+        motor_type = "DM";
+      } else if (can_id == 0x19) {
+        motor_num = 9;
+        motor_type = "SERVO";
+      } else if (can_id == 0x700) {
+        motor_num = 7;
+        motor_type = "HT";
+      } else if (can_id == 0x800) {
+        motor_num = 8;
+        motor_type = "HT";
+      }
+
+      std::cout << "📥 [CAN RECV #" << std::setw(6) << std::setfill('0')
+                << receive_count_.load() << "] " << std::setw(6)
+                << std::setfill(' ') << std::fixed << std::setprecision(3)
+                << (timestamp / 1000.0) << "ms: "
+                << "ID=0x" << std::hex << std::setw(8) << std::setfill('0')
+                << can_id << std::dec << " (" << motor_type;
+      if (motor_num > 0) {
+        std::cout << " M" << motor_num;
+      }
+      std::cout << ") DLC=" << dlc << " Data: ";
+
+      // Print ALL data bytes (up to 64 bytes for CAN FD)
+      for (int i = 0; i < std::min(64, dlc); i++) {
+        std::cout << std::hex << std::setw(2) << std::setfill('0')
+                  << (int)frame.data[i];
+        if (i < dlc - 1)
+          std::cout << " ";
+        // Line break every 16 bytes for readability
+        if ((i + 1) % 16 == 0 && i < dlc - 1) {
+          std::cout << std::endl << "                                    ";
+        }
       }
       std::cout << std::dec << std::endl;
 
-      // Print frame timestamp and additional details
-      auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
-                           std::chrono::steady_clock::now().time_since_epoch())
-                           .count();
-      std::cout << "   Timestamp: " << timestamp << " ms" << std::endl;
+      // Add data interpretation for known motor types
+      if (motor_type == "DM" && dlc >= 8) {
+        // DM motor feedback interpretation
+        uint16_t pos_int =
+            (static_cast<uint16_t>(frame.data[0]) << 8) | frame.data[1];
+        uint16_t vel_int =
+            (static_cast<uint16_t>(frame.data[2]) << 8) | frame.data[3];
+        uint16_t torque_int =
+            (static_cast<uint16_t>(frame.data[4]) << 8) | frame.data[5];
+        uint8_t temp = frame.data[6];
+        uint8_t error = frame.data[7];
 
-      // Print raw frame structure details
-      std::cout << "   Frame Structure:" << std::endl;
-      std::cout << "     CAN ID: 0x" << std::hex << can_id << std::dec << " ("
-                << can_id << ")" << std::endl;
-      std::cout << "     DLC: " << (int)frame.head.dlc << " bytes" << std::endl;
-      std::cout << "     Data Bytes (" << frame.head.dlc << "): ";
-      for (int i = 0; i < frame.head.dlc; i++) {
-        std::cout << "[" << i << "]=0x" << std::hex << std::setw(2)
-                  << std::setfill('0') << (int)frame.data[i] << std::dec << " ";
-      }
-      std::cout << std::endl;
+        double pos = static_cast<double>(pos_int) / 32767.0 * 2.0 * M_PI;
+        double vel = static_cast<double>(vel_int) / 32767.0 * 30.0;
+        double torque = static_cast<double>(torque_int) / 32767.0 * 18.0;
+        double temperature = static_cast<double>(temp);
 
-      // Check if this is an HT motor frame
-      if (can_id == 0x700) {
-        std::cout << "   → This is HT motor 7 (pitch) feedback!" << std::endl;
-      } else if (can_id == 0x800) {
-        std::cout << "   → This is HT motor 8 (roll) feedback!" << std::endl;
-      } else if (can_id >= 0x11 && can_id <= 0x16) {
-        std::cout << "   → This is DM motor " << (can_id - 0x10) << " feedback!"
+        std::cout << "    └─ DM FB: p=" << std::fixed << std::setprecision(4)
+                  << pos << " rad (" << std::setprecision(2)
+                  << (pos * 180.0 / M_PI) << "°), "
+                  << "v=" << std::setprecision(3) << vel << " rad/s, "
+                  << "τ=" << std::setprecision(3) << torque << " Nm, "
+                  << "T=" << std::setprecision(1) << temperature << "°C, "
+                  << "err=0x" << std::hex << (int)error << std::dec
                   << std::endl;
-      } else if (can_id == 0x19) {
-        std::cout << "   → This is Servo motor 9 feedback!" << std::endl;
-      } else {
-        std::cout << "   → Unknown CAN ID, not handled by any component!"
-                  << std::endl;
+
+      } else if (motor_type == "SERVO" && dlc >= 8) {
+        // Servo motor feedback interpretation
+        uint16_t pos_int =
+            (static_cast<uint16_t>(frame.data[0]) << 8) | frame.data[1];
+        uint16_t vel_int =
+            (static_cast<uint16_t>(frame.data[2]) << 8) | frame.data[3];
+        uint16_t torque_int =
+            (static_cast<uint16_t>(frame.data[4]) << 8) | frame.data[5];
+        uint16_t temp_error =
+            (static_cast<uint16_t>(frame.data[6]) << 8) | frame.data[7];
+
+        double pos =
+            static_cast<double>(pos_int) / 4095.0 * 270.0; // 270 degrees range
+        double vel = static_cast<double>(vel_int);         // Raw velocity
+        double torque =
+            static_cast<double>(torque_int) / 4095.0; // Normalized torque
+        uint8_t temp = static_cast<uint8_t>((temp_error >> 8) & 0xFF);
+        uint8_t error = static_cast<uint8_t>(temp_error & 0xFF);
+
+        std::cout << "    └─ SERVO FB: p=" << std::fixed << std::setprecision(2)
+                  << pos << "° (" << pos_int << "), v=" << vel
+                  << ", τ=" << std::setprecision(3) << torque
+                  << ", T=" << std::setprecision(1) << (double)temp << "°C"
+                  << ", err=0x" << std::hex << (int)error << std::dec;
+
+        // Show additional data bytes if any
+        if (dlc > 8) {
+          std::cout << ", extra=[";
+          for (int i = 8; i < std::min(16, dlc); i++) {
+            std::cout << std::hex << "0x" << (int)frame.data[i];
+            if (i < std::min(16, dlc) - 1)
+              std::cout << " ";
+          }
+          if (dlc > 16) {
+            std::cout << "...";
+          }
+          std::cout << std::dec << "]";
+        }
+        std::cout << std::endl;
+
+      } else if (motor_type == "HT" && dlc >= 1) {
+        // HT motor feedback interpretation
+        std::cout << "    └─ HT FB: len=" << dlc;
+        if (dlc > 0) {
+          std::cout << ", data=[";
+          for (int i = 0; i < std::min(16, dlc); i++) {
+            std::cout << std::hex << "0x" << (int)frame.data[i];
+            if (i < std::min(16, dlc) - 1)
+              std::cout << " ";
+          }
+          if (dlc > 16) {
+            std::cout << "...";
+          }
+          std::cout << std::dec << "]";
+        }
+        std::cout << std::endl;
       }
     }
 
@@ -2415,6 +2520,160 @@ private:
         (dataLength > sizeof(frame.data)) ? sizeof(frame.data) : dataLength;
     memcpy(dest, src, copySize);
     frame.dlc = dataLength;
+
+    // Enhanced CAN send debugging
+    if (debug_enabled_) {
+      auto send_time = std::chrono::high_resolution_clock::now();
+      auto timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
+                           send_time.time_since_epoch())
+                           .count() %
+                       1000000;
+
+      send_count_++;
+
+      // Determine motor type based on CAN ID
+      std::string motor_type = "Unknown";
+      int motor_num = -1;
+
+      if (can_id >= 0x01 && can_id <= 0x06) {
+        motor_num = static_cast<int>(can_id);
+        motor_type = "DM";
+      } else if (can_id == 0x09) {
+        motor_num = 9;
+        motor_type = "SERVO";
+      } else if (can_id == 0x8007) {
+        motor_num = 7;
+        motor_type = "HT";
+      } else if (can_id == 0x8008) {
+        motor_num = 8;
+        motor_type = "HT";
+      } else if (can_id == 0x8007 || can_id == 0x8008 || can_id >= 0x8000) {
+        motor_type = "HT";
+      }
+
+      std::cout << "📤 [CAN SEND #" << std::setw(6) << std::setfill('0')
+                << send_count_ << "] " << std::setw(6) << std::setfill(' ')
+                << std::fixed << std::setprecision(3) << (timestamp / 1000.0)
+                << "ms: "
+                << "ID=0x" << std::hex << std::setw(8) << std::setfill('0')
+                << can_id << std::dec << " (" << motor_type;
+      if (motor_num > 0) {
+        std::cout << " M" << motor_num;
+      }
+      std::cout << ") " << (is_extended_frame ? "EXT" : "STD")
+                << " DLC=" << std::dec << dataLength << " Data: ";
+
+      // Print ALL data bytes (up to 64 bytes for CAN FD)
+      for (int i = 0; i < std::min(64, dataLength); i++) {
+        std::cout << std::hex << std::setw(2) << std::setfill('0')
+                  << (int)data[i];
+        if (i < dataLength - 1)
+          std::cout << " ";
+        // Line break every 16 bytes for readability
+        if ((i + 1) % 16 == 0 && i < dataLength - 1) {
+          std::cout << std::endl << "                                    ";
+        }
+      }
+      std::cout << std::dec << std::endl;
+
+      // Add command interpretation for known motor types
+      if (motor_type == "DM" && dataLength >= 8) {
+        // DM MIT command interpretation
+        uint16_t q_uint = (static_cast<uint16_t>(data[0]) << 8) | data[1];
+        uint16_t dq_uint =
+            (static_cast<uint16_t>(data[2]) << 4) | (data[3] >> 4);
+        uint16_t kp_uint =
+            ((static_cast<uint16_t>(data[3]) & 0xF) << 8) | data[4];
+        uint16_t kd_uint =
+            (static_cast<uint16_t>(data[5]) << 4) | (data[6] >> 4);
+        uint16_t tau_uint =
+            ((static_cast<uint16_t>(data[6]) & 0xF) << 8) | data[7];
+
+        double pos = static_cast<double>(q_uint) / 32767.0 * 2.0 *
+                     M_PI; // Convert to radians
+        double vel =
+            static_cast<double>(dq_uint) / 32767.0 * 30.0; // Convert to rad/s
+        double kp =
+            static_cast<double>(kp_uint) / 65535.0 * 200.0; // Convert to gain
+        double kd =
+            static_cast<double>(kd_uint) / 65535.0 * 10.0; // Convert to gain
+        double torque =
+            static_cast<double>(tau_uint) / 65535.0 * 18.0; // Convert to Nm
+
+        std::cout << "    └─ DM MIT: p=" << std::fixed << std::setprecision(4)
+                  << pos << " rad (" << std::setprecision(2)
+                  << (pos * 180.0 / M_PI) << "°), "
+                  << "v=" << std::setprecision(3) << vel << " rad/s, "
+                  << "τ=" << std::setprecision(3) << torque << " Nm, "
+                  << "kp=" << std::setprecision(2) << kp
+                  << ", kd=" << std::setprecision(2) << kd << std::endl;
+
+      } else if (motor_type == "SERVO" && dataLength >= 4) {
+        // Servo command interpretation
+        uint8_t cmd_type = data[0];
+        uint16_t vel_raw = (static_cast<uint16_t>(data[0]) << 8) | data[1];
+        uint16_t pos_raw = 0;
+        if (dataLength >= 8) {
+          pos_raw = (static_cast<uint16_t>(data[2]) << 8) | data[3];
+        }
+
+        std::string cmd_name = "UNKNOWN";
+        if (cmd_type == 0x02)
+          cmd_name = "POS_CMD";
+        else if (cmd_type == 0x01)
+          cmd_name = "ENABLE";
+        else if (cmd_type == 0x00)
+          cmd_name = "DISABLE";
+        else if (cmd_type == 0x03)
+          cmd_name = "READ_STATUS";
+        else if (cmd_type == 0x04)
+          cmd_name = "SET_MID";
+
+        std::cout << "    └─ SERVO: " << cmd_name << ", cmd=0x" << std::hex
+                  << (int)cmd_type << std::dec << ", vel_raw=" << vel_raw;
+        if (dataLength >= 8) {
+          std::cout << ", pos_raw=" << pos_raw << " (0-4095)";
+        }
+        if (dataLength > 8) {
+          std::cout << ", extra=[";
+          for (int i = 4; i < dataLength; i++) {
+            std::cout << std::hex << "0x" << (int)data[i];
+            if (i < dataLength - 1)
+              std::cout << " ";
+          }
+          std::cout << std::dec << "]";
+        }
+        std::cout << std::endl;
+
+      } else if (motor_type == "HT" && dataLength >= 1) {
+        // HT command interpretation
+        uint8_t cmd_type = data[0];
+        std::string cmd_name = "UNKNOWN";
+
+        if (cmd_type == 0x17)
+          cmd_name = "READ_STATE";
+        else if (cmd_type == 0x40)
+          cmd_name = "SET_ZERO";
+        else if (dataLength >= 32)
+          cmd_name = "MIT_CMD";
+
+        std::cout << "    └─ HT: " << cmd_name << ", cmd=0x" << std::hex
+                  << (int)cmd_type << std::dec << ", len=" << dataLength;
+        if (dataLength > 1) {
+          std::cout << ", data=[";
+          for (int i = 1; i < std::min(16, dataLength); i++) {
+            std::cout << std::hex << "0x" << (int)data[i];
+            if (i < std::min(16, dataLength) - 1)
+              std::cout << " ";
+          }
+          if (dataLength > 16) {
+            std::cout << "...";
+          }
+          std::cout << std::dec << "]";
+        }
+        std::cout << std::endl;
+      }
+    }
 
     // Send frame using device's methods
     device_->set_tx_frame(&frame);

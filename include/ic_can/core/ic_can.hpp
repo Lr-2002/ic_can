@@ -47,6 +47,30 @@ public:
         TEACH_MODE,    ///< Teach mode: gravity compensation + friction compensation only
         EXECUTION_MODE ///< Execution mode: full position control with Kp/Kd gains
     };
+
+    /**
+     * @brief Unified Control System enumeration
+     */
+    enum class UnifiedControlMode {
+        MONITORING_ONLY,      ///< High-frequency status reading only
+        POSITION_SINGLE,      ///< Single vector position control
+        POSITION_TRAJECTORY,  ///< Matrix-based trajectory execution
+        SELECTIVE_CONTROL     ///< Control specific motor subsets
+    };
+
+    /**
+     * @brief Performance Statistics Structure for Unified Control
+     */
+    struct UnifiedPerformanceStats {
+        double actual_frequency = 0.0;
+        double target_frequency = 0.0;
+        double average_jitter_us = 0.0;
+        uint64_t deadline_misses = 0;
+        uint64_t total_cycles = 0;
+        std::chrono::microseconds min_cycle_time{1000000};
+        std::chrono::microseconds max_cycle_time{0};
+        std::chrono::high_resolution_clock::time_point last_update;
+    };
     /**
      * @brief Constructor
      * @param device_sn USB2CAN device serial number
@@ -545,6 +569,67 @@ public:
      * @return Map containing theta1, theta2, alpha, beta in radians
      */
     std::map<std::string, double> get_wrist_angles();
+
+    // ================================================================
+    // UNIFIED CONTROL SYSTEM API
+    // ================================================================
+
+    /**
+     * @brief Start unified high-frequency control system
+     * @param frequency_hz Target control frequency (default: 400Hz, max: 2000Hz)
+     * @return true if successful
+     */
+    bool start_unified_control(double frequency_hz = 400.0);
+
+    /**
+     * @brief Stop unified control system
+     */
+    void stop_unified_control();
+
+    /**
+     * @brief Check if unified control is currently running
+     * @return true if unified control is active
+     */
+    bool is_unified_control_running() const;
+
+    /**
+     * @brief Set single target position for all motors (explicit API)
+     * @param positions Vector of 9 target positions for motors 1-9
+     * @return true if successful
+     */
+    bool set_target_position(const std::vector<double>& positions);
+
+    /**
+     * @brief Set trajectory target for all motors (explicit API)
+     * @param trajectory Matrix of trajectory points, each with 9 motor positions
+     * @return true if successful
+     */
+    bool set_target_trajectory(const std::vector<std::vector<double>>& trajectory);
+
+    /**
+     * @brief Select which motors to control for selective control mode
+     * @param motor_ids Vector of motor IDs to control (1-9)
+     * @return true if successful
+     */
+    bool set_motor_selection(const std::vector<int>& motor_ids);
+
+    /**
+     * @brief Get unified control performance statistics
+     * @return Performance statistics structure
+     */
+    UnifiedPerformanceStats get_unified_performance_stats() const;
+
+    /**
+     * @brief Print unified control performance statistics
+     */
+    void print_unified_performance_stats() const;
+
+    /**
+     * @brief Change unified control frequency dynamically without stopping
+     * @param new_frequency_hz New target frequency (0-2000Hz)
+     * @return true if successful
+     */
+    bool change_unified_frequency(double new_frequency_hz);
 
 private:
     class Impl;

@@ -141,6 +141,7 @@ endfunction()
 set(BASIC_TOOLS
     set_motor_zero
     arm_position_monitor
+    arm_position_monitor_simple
     wrist_motor_monitor
     wrist_motor_only_monitor
     home_to_zero
@@ -148,6 +149,9 @@ set(BASIC_TOOLS
     servo_motor_test
     gripper_component_test
     test_control_modes
+    test_sync_can
+    test_unified_control
+    demo_unified_control_features
 )
 
 foreach(tool ${BASIC_TOOLS})

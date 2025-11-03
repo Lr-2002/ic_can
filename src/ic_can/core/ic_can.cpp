@@ -28,6 +28,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -56,6 +57,98 @@ struct FrictionParams {
   double Fc = 0.0;                 // Coulomb friction coefficient
   double Fv = 0.0;                 // Viscous friction coefficient
   double velocity_threshold = 0.1; // Velocity threshold for friction activation
+};
+
+// Unified Control System Enums
+enum class UnifiedControlMode {
+  MONITORING_ONLY,      // High-frequency status reading only
+  POSITION_SINGLE,      // Single vector position control
+  POSITION_TRAJECTORY,  // Matrix-based trajectory execution
+  SELECTIVE_CONTROL     // Control specific motor subsets
+};
+
+// Performance Statistics Structure
+struct UnifiedPerformanceStats {
+  double actual_frequency = 0.0;
+  double target_frequency = 0.0;
+  double average_jitter_us = 0.0;
+  uint64_t deadline_misses = 0;
+  uint64_t total_cycles = 0;
+  std::chrono::microseconds min_cycle_time{1000000};
+  std::chrono::microseconds max_cycle_time{0};
+  std::chrono::high_resolution_clock::time_point last_update;
+};
+
+// Precision Timer Class for High-Frequency Control
+class PrecisionTimer {
+private:
+  std::chrono::microseconds period_;
+  std::chrono::high_resolution_clock::time_point next_deadline_;
+  std::array<uint64_t, 100> jitter_history_;
+  size_t jitter_index_ = 0;
+  uint64_t total_jitter_samples_ = 0;
+
+public:
+  PrecisionTimer() : period_(2500) { // Default 400Hz = 2500μs
+    next_deadline_ = std::chrono::high_resolution_clock::now();
+    jitter_history_.fill(0);
+  }
+
+  void set_period(double frequency_hz) {
+    if (frequency_hz <= 0) return;
+    period_ = std::chrono::microseconds(static_cast<int64_t>(1000000.0 / frequency_hz));
+    reset();
+  }
+
+  void reset() {
+    next_deadline_ = std::chrono::high_resolution_clock::now() + period_;
+    jitter_history_.fill(0);
+    jitter_index_ = 0;
+    total_jitter_samples_ = 0;
+  }
+
+  void wait_for_next_cycle() {
+    auto now = std::chrono::high_resolution_clock::now();
+
+    // Calculate jitter
+    if (total_jitter_samples_ > 0) {
+      auto expected = next_deadline_;
+      auto actual = now;
+      auto jitter = std::abs(std::chrono::duration_cast<std::chrono::microseconds>(actual - expected).count());
+      jitter_history_[jitter_index_] = static_cast<uint64_t>(jitter);
+      jitter_index_ = (jitter_index_ + 1) % jitter_history_.size();
+      total_jitter_samples_++;
+    }
+
+    // Wait for next deadline
+    next_deadline_ += period_;
+
+    if (now < next_deadline_) {
+      // High-precision sleep + spin wait
+      auto sleep_time = std::chrono::duration_cast<std::chrono::microseconds>(next_deadline_ - now);
+      if (sleep_time > std::chrono::microseconds(100)) {
+        std::this_thread::sleep_for(sleep_time - std::chrono::microseconds(100));
+      }
+
+      // Spin wait for final precision
+      while (std::chrono::high_resolution_clock::now() < next_deadline_) {
+        std::this_thread::yield();
+      }
+    }
+  }
+
+  double get_average_jitter_us() const {
+    uint64_t sum = 0;
+    uint64_t count = std::min(static_cast<uint64_t>(jitter_history_.size()), total_jitter_samples_);
+
+    for (size_t i = 0; i < count; i++) {
+      sum += jitter_history_[i];
+    }
+
+    return count > 0 ? static_cast<double>(sum) / count : 0.0;
+  }
+
+  std::chrono::microseconds get_period() const { return period_; }
 };
 
 // HT Motor MIT Command Frame Structure (32 bytes - optimized)
@@ -112,7 +205,9 @@ public:
         friction_compensation_enabled_(false), velocity_damping_(0.1),
         smooth_transition_(true), sgn_threshold_(0.01),
         wrist_monitor_running_(false), wrist_monitor_frequency_(50.0),
-        control_mode_(ControlMode::TEACH_MODE) {
+        control_mode_(ControlMode::TEACH_MODE),
+        unified_control_running_(false), unified_mode_(UnifiedControlMode::MONITORING_ONLY),
+        trajectory_index_(0), unified_cycle_count_(0) {
     // Initialize motor gains with default values
     load_default_motor_gains();
 
@@ -150,6 +245,16 @@ public:
 
     std::cout << "✅ Arm, Wrist, and Gripper components initialized"
               << std::endl;
+
+    // Initialize unified control system
+    unified_timer_ = std::make_unique<PrecisionTimer>();
+    single_target_positions_.resize(9, 0.0);
+    trajectory_target_.clear();
+    active_motors_ = {1, 2, 3, 4, 5, 6, 7, 8, 9}; // All motors active by default
+    unified_start_time_ = std::chrono::high_resolution_clock::now();
+    last_stats_update_ = unified_start_time_;
+
+    std::cout << "✅ Unified control system initialized" << std::endl;
   }
 
   ~Impl() { shutdown(); }
@@ -214,6 +319,7 @@ public:
     if (connected_ && device_) {
       stop_high_frequency_control();
       stop_control_loop();
+      stop_unified_control(); // Stop unified control thread
       stop_wrist_position_monitoring();
       stop_logging();
       disable_frequency_monitoring();
@@ -527,7 +633,7 @@ public:
       send_can_frame(motor_id, enable_cmd,
                      false); // Standard frame for all motors
       std::cout << "   ✅ Motor " << motor_id << " enabled" << std::endl;
-      usleep(100000); // 100ms between enables
+      /*usleep(100000); // 100ms between enables*/
     }
 
     std::cout << "✅ All motors enabled" << std::endl;
@@ -696,10 +802,13 @@ public:
     /*std::cout << " debug: running set joint positions " << std::endl;*/
     /*std::cout << " debug: connected=" << connected_*/
     /*          << ", positions.size()=" << positions.size() << std::endl;*/
-    std::cout << "running setting joint position at time "
-              << std::chrono::duration_cast<std::chrono::microseconds>(
-                     std::chrono::steady_clock::now().time_since_epoch())
-                     .count()
+
+    // PROFILE: Start timing
+    auto function_start = std::chrono::high_resolution_clock::now();
+    auto start_time = std::chrono::duration_cast<std::chrono::microseconds>(
+                          function_start.time_since_epoch())
+                          .count();
+    std::cout << "PROFILE: set_joint_positions START at time " << start_time
               << std::endl;
     if (!connected_) {
       std::cout << " debug: FAILED - not connected" << std::endl;
@@ -743,6 +852,9 @@ public:
     }
 
     for (int i = 0; i < 9; i++) {
+      // PROFILE: Individual motor command timing
+      auto motor_start = std::chrono::high_resolution_clock::now();
+
       double pos = positions[i];
       double vel = (velocities.size() > i) ? velocities[i] : 0.0;
       double tau = (torques.size() > i) ? torques[i] : 0.0;
@@ -782,16 +894,42 @@ public:
 
       if (i < 6) {
         // Damiao motors 1-6: use DM MIT protocol
+        std::cout
+            << "PROFILE: Motor " << (i + 1) << " (DM) command start at "
+            << std::chrono::duration_cast<std::chrono::microseconds>(
+                   std::chrono::high_resolution_clock::now().time_since_epoch())
+                   .count()
+            << std::endl;
         send_dm_mit_command(i + 1, pos, vel, tau, kp, kd);
         /*}*/
-      } else if (i < 8) {
-        // HT motors 7-8: use HT MIT protocol
-        usleep(1000);
-        send_ht_mit_command_single(i + 1, pos, vel, tau, kp, kd);
       } else if (i == 8) {
         // Servo motor 9: use servo CAN FD protocol
-        send_servo_command(i + 1, pos, vel, tau);
+        std::cout
+            << "PROFILE: Motor " << (i + 1) << " (Servo) command start at "
+            << std::chrono::duration_cast<std::chrono::microseconds>(
+                   std::chrono::high_resolution_clock::now().time_since_epoch())
+                   .count()
+            << std::endl;
+        /*send_servo_command(i + 1, pos, vel, tau);*/
+      } else if (i < 8) {
+        // HT motors 7-8: use HT MIT protocol
+        /*usleep(10000);*/
+        std::cout
+            << "PROFILE: Motor " << (i + 1) << " (HT) command start at "
+            << std::chrono::duration_cast<std::chrono::microseconds>(
+                   std::chrono::high_resolution_clock::now().time_since_epoch())
+                   .count()
+            << std::endl;
+        send_ht_mit_command_single(i + 1, pos, vel, tau, kp, kd);
       }
+      // PROFILE: Motor command completion
+      auto motor_end = std::chrono::high_resolution_clock::now();
+      auto motor_duration =
+          std::chrono::duration_cast<std::chrono::microseconds>(motor_end -
+                                                                motor_start)
+              .count();
+      std::cout << "PROFILE: Motor " << (i + 1) << " command completed in "
+                << motor_duration << "μs" << std::endl;
     }
 
     // Record the actually sent positions, velocities, and torques for logging
@@ -801,6 +939,18 @@ public:
       last_sent_velocities_ = velocities;
       last_sent_torques_ = torques;
     }
+
+    // PROFILE: Function completion
+    auto function_end = std::chrono::high_resolution_clock::now();
+    auto function_duration =
+        std::chrono::duration_cast<std::chrono::microseconds>(function_end -
+                                                              function_start)
+            .count();
+    auto end_time = std::chrono::duration_cast<std::chrono::microseconds>(
+                        function_end.time_since_epoch())
+                        .count();
+    std::cout << "PROFILE: set_joint_positions END at time " << end_time
+              << ", TOTAL duration: " << function_duration << "μs" << std::endl;
 
     return true;
   }
@@ -1057,6 +1207,377 @@ public:
       control_thread_.join();
     }
     std::cout << "✅ Control loop stopped" << std::endl;
+  }
+
+  // Unified Control System Methods
+  bool start_unified_control(double frequency_hz = 400.0) {
+    if (unified_control_running_) {
+      std::cout << "⚠️ Unified control already running" << std::endl;
+      return true;
+    }
+
+    if (!connected_ || !device_) {
+      std::cout << "❌ Cannot start unified control - not connected" << std::endl;
+      return false;
+    }
+
+    if (frequency_hz <= 0 || frequency_hz > 2000) {
+      std::cout << "❌ Invalid frequency: " << frequency_hz
+                << " Hz (must be 0-2000 Hz)" << std::endl;
+      return false;
+    }
+
+    std::cout << "🚀 Starting unified control at " << frequency_hz << "Hz..." << std::endl;
+
+    // Initialize unified timer and statistics
+    unified_timer_->set_period(frequency_hz);
+    unified_stats_.target_frequency = frequency_hz;
+    unified_stats_.actual_frequency = 0.0;
+    unified_stats_.deadline_misses = 0;
+    unified_stats_.total_cycles = 0;
+    unified_stats_.average_jitter_us = 0.0;
+    unified_stats_.min_cycle_time = std::chrono::microseconds(1000000);
+    unified_stats_.max_cycle_time = std::chrono::microseconds(0);
+    unified_cycle_count_ = 0;
+    unified_start_time_ = std::chrono::high_resolution_clock::now();
+    last_stats_update_ = unified_start_time_;
+
+    unified_control_running_ = true;
+    unified_control_thread_ = std::thread([this, frequency_hz]() {
+      unified_control_thread_function(frequency_hz);
+    });
+
+    std::cout << "✅ Unified control thread started at " << frequency_hz << "Hz" << std::endl;
+    return true;
+  }
+
+  void stop_unified_control() {
+    std::cout << "🛑 Stopping unified control..." << std::endl;
+    unified_control_running_ = false;
+    if (unified_control_thread_.joinable()) {
+      unified_control_thread_.join();
+    }
+    std::cout << "✅ Unified control stopped" << std::endl;
+  }
+
+  bool set_target_position(const std::vector<double>& positions) {
+    std::lock_guard<std::mutex> lock(unified_mutex_);
+
+    if (positions.size() < 9) {
+      std::cout << "❌ Target positions must have at least 9 elements" << std::endl;
+      return false;
+    }
+
+    // Store previous positions for smooth transition if enabled
+    std::vector<double> previous_positions = single_target_positions_;
+
+    single_target_positions_ = positions;
+    unified_mode_ = UnifiedControlMode::POSITION_SINGLE;
+    trajectory_index_ = 0;
+
+    if (debug_enabled_) {
+      std::cout << "🎯 Set single target position (immediate): ";
+      for (int i = 0; i < 9; i++) {
+        double diff = std::abs(positions[i] - previous_positions[i]);
+        std::cout << std::fixed << std::setprecision(3) << positions[i];
+        if (diff > 0.01) std::cout << "(Δ" << std::setprecision(2) << diff << ")";
+        std::cout << " ";
+      }
+      std::cout << std::endl;
+    }
+
+    return true;
+  }
+
+  bool set_target_trajectory(const std::vector<std::vector<double>>& trajectory) {
+    std::lock_guard<std::mutex> lock(unified_mutex_);
+
+    if (trajectory.empty()) {
+      std::cout << "❌ Trajectory cannot be empty" << std::endl;
+      return false;
+    }
+
+    for (const auto& point : trajectory) {
+      if (point.size() < 9) {
+        std::cout << "❌ All trajectory points must have at least 9 elements" << std::endl;
+        return false;
+      }
+    }
+
+    trajectory_target_ = trajectory;
+    unified_mode_ = UnifiedControlMode::POSITION_TRAJECTORY;
+    trajectory_index_ = 0;
+
+    if (debug_enabled_) {
+      std::cout << "🎯 Set trajectory with " << trajectory.size() << " points" << std::endl;
+    }
+
+    return true;
+  }
+
+  bool set_motor_selection(const std::vector<int>& motor_ids) {
+    std::lock_guard<std::mutex> lock(unified_mutex_);
+
+    // Validate motor IDs
+    for (int id : motor_ids) {
+      if (id < 1 || id > 9) {
+        std::cout << "❌ Invalid motor ID: " << id << " (must be 1-9)" << std::endl;
+        return false;
+      }
+    }
+
+    active_motors_ = motor_ids;
+    unified_mode_ = UnifiedControlMode::SELECTIVE_CONTROL;
+
+    if (debug_enabled_) {
+      std::cout << "🔧 Active motors: ";
+      for (int id : active_motors_) {
+        std::cout << id << " ";
+      }
+      std::cout << std::endl;
+    }
+
+    return true;
+  }
+
+  bool set_unified_control_mode(UnifiedControlMode mode) {
+    std::lock_guard<std::mutex> lock(unified_mutex_);
+    unified_mode_ = mode;
+
+    const char* mode_names[] = {"MONITORING_ONLY", "POSITION_SINGLE", "POSITION_TRAJECTORY", "SELECTIVE_CONTROL"};
+    std::cout << "✅ Unified control mode set to: " << mode_names[static_cast<int>(mode)] << std::endl;
+
+    return true;
+  }
+
+  UnifiedPerformanceStats get_unified_performance_stats() const {
+    return unified_stats_;
+  }
+
+  bool change_unified_frequency(double new_frequency_hz) {
+    if (new_frequency_hz <= 0 || new_frequency_hz > 2000) {
+      std::cout << "❌ Invalid frequency: " << new_frequency_hz
+                << " Hz (must be 0-2000 Hz)" << std::endl;
+      return false;
+    }
+
+    std::lock_guard<std::mutex> lock(unified_mutex_);
+
+    if (!unified_control_running_) {
+      std::cout << "⚠️  Unified control not running, frequency will be set on next start" << std::endl;
+      unified_timer_->set_period(new_frequency_hz);
+      unified_stats_.target_frequency = new_frequency_hz;
+      return true;
+    }
+
+    // Change frequency dynamically without stopping
+    double old_frequency = unified_stats_.target_frequency;
+    unified_timer_->set_period(new_frequency_hz);
+    unified_stats_.target_frequency = new_frequency_hz;
+
+    if (debug_enabled_) {
+      std::cout << "🔄 Frequency changed: " << old_frequency << "Hz → "
+                << new_frequency_hz << "Hz (period: "
+                << unified_timer_->get_period().count() << "μs)" << std::endl;
+
+      if (unified_mode_ == UnifiedControlMode::POSITION_TRAJECTORY) {
+        double progress = (double)trajectory_index_ / trajectory_target_.size() * 100.0;
+        std::cout << "   Trajectory progress: " << std::fixed << std::setprecision(1)
+                  << progress << "% (" << trajectory_index_ << "/"
+                  << trajectory_target_.size() << " points)" << std::endl;
+      }
+    }
+
+    return true;
+  }
+
+private:
+  // Unified control thread function
+  void unified_control_thread_function(double target_frequency) {
+    std::cout << "🎮 Unified control thread started with period: "
+              << unified_timer_->get_period().count() << " μs" << std::endl;
+
+    auto stats_report_interval = std::chrono::seconds(5);
+    auto next_stats_report = std::chrono::high_resolution_clock::now() + stats_report_interval;
+
+    while (unified_control_running_) {
+      auto cycle_start = std::chrono::high_resolution_clock::now();
+
+      // Execute control based on current mode
+      switch (unified_mode_) {
+        case UnifiedControlMode::MONITORING_ONLY:
+          execute_monitoring_only();
+          break;
+        case UnifiedControlMode::POSITION_SINGLE:
+          execute_position_single();
+          break;
+        case UnifiedControlMode::POSITION_TRAJECTORY:
+          execute_position_trajectory();
+          break;
+        case UnifiedControlMode::SELECTIVE_CONTROL:
+          execute_selective_control();
+          break;
+      }
+
+      // Update performance statistics
+      auto cycle_end = std::chrono::high_resolution_clock::now();
+      auto cycle_time = std::chrono::duration_cast<std::chrono::microseconds>(cycle_end - cycle_start);
+      update_performance_stats(cycle_time);
+
+      // Periodic performance reporting
+      if (cycle_end >= next_stats_report) {
+        print_unified_performance_stats();
+        next_stats_report = cycle_end + stats_report_interval;
+      }
+
+      // Wait for next cycle using precision timer
+      unified_timer_->wait_for_next_cycle();
+    }
+
+    std::cout << "🎮 Unified control thread function ended" << std::endl;
+  }
+
+  // Control execution methods
+  void execute_monitoring_only() {
+    // High-frequency monitoring only - refresh all motors
+    refresh_all();
+  }
+
+  void execute_position_single() {
+    std::lock_guard<std::mutex> lock(unified_mutex_);
+    // Send single position target to all active motors
+    send_positions_to_motors(single_target_positions_, active_motors_);
+  }
+
+  void execute_position_trajectory() {
+    std::lock_guard<std::mutex> lock(unified_mutex_);
+
+    if (trajectory_index_ < trajectory_target_.size()) {
+      // Send current trajectory point
+      send_positions_to_motors(trajectory_target_[trajectory_index_], active_motors_);
+      trajectory_index_++;
+    } else {
+      // Trajectory complete, hold last position
+      if (!trajectory_target_.empty()) {
+        send_positions_to_motors(trajectory_target_.back(), active_motors_);
+      }
+    }
+  }
+
+  void execute_selective_control() {
+    std::lock_guard<std::mutex> lock(unified_mutex_);
+    // Send current positions to selected motors only
+    auto current_positions = get_joint_positions();
+    send_positions_to_motors(current_positions, active_motors_);
+  }
+
+  // Send positions to specific motors with optimization
+  void send_positions_to_motors(const std::vector<double>& positions, const std::vector<int>& motor_ids) {
+    if (!connected_ || positions.size() < 9) return;
+
+    // Group motors by type for optimized sending
+    std::vector<int> dm_motors, ht_motors, servo_motors;
+
+    for (int motor_id : motor_ids) {
+      if (motor_id >= 1 && motor_id <= 6) {
+        dm_motors.push_back(motor_id);
+      } else if (motor_id == 7 || motor_id == 8) {
+        ht_motors.push_back(motor_id);
+      } else if (motor_id == 9) {
+        servo_motors.push_back(motor_id);
+      }
+    }
+
+    // Send DM motors (batch)
+    for (int motor_id : dm_motors) {
+      int idx = motor_id - 1;
+      double pos = positions[idx];
+      double vel = 0.0; // Can be enhanced to include velocity
+      double tau = 0.0; // Will be filled by compensation
+      double kp = 0.0, kd = 0.0; // TEACH_MODE gains
+
+      send_dm_mit_command(motor_id, pos, vel, tau, kp, kd);
+    }
+
+    // Send HT motors (with minimal delay)
+    for (size_t i = 0; i < ht_motors.size(); i++) {
+      int motor_id = ht_motors[i];
+      int idx = motor_id - 1;
+      double pos = positions[idx];
+      double vel = 0.0;
+      double tau = 0.0;
+      double kp = 0.0, kd = 0.0;
+
+      send_ht_mit_command_single(motor_id, pos, vel, tau, kp, kd);
+
+      // Minimal delay between HT motors (removed 100ms delay)
+      if (i < ht_motors.size() - 1) {
+        std::this_thread::sleep_for(std::chrono::microseconds(100));
+      }
+    }
+
+    // Send servo motor
+    for (int motor_id : servo_motors) {
+      int idx = motor_id - 1;
+      double pos = positions[idx];
+      double vel = 0.0;
+      double tau = 0.0;
+      send_servo_command(motor_id, pos, vel, tau);
+    }
+  }
+
+  // Performance statistics update
+  void update_performance_stats(std::chrono::microseconds cycle_time) {
+    unified_cycle_count_++;
+
+    // Update min/max cycle times
+    if (cycle_time < unified_stats_.min_cycle_time) {
+      unified_stats_.min_cycle_time = cycle_time;
+    }
+    if (cycle_time > unified_stats_.max_cycle_time) {
+      unified_stats_.max_cycle_time = cycle_time;
+    }
+
+    // Check for deadline miss
+    if (cycle_time > unified_timer_->get_period()) {
+      unified_stats_.deadline_misses++;
+    }
+
+    // Update actual frequency calculation every 100 cycles
+    if (unified_cycle_count_ % 100 == 0) {
+      auto now = std::chrono::high_resolution_clock::now();
+      auto elapsed = std::chrono::duration<double>(now - unified_start_time_).count();
+      if (elapsed > 0) {
+        unified_stats_.actual_frequency = unified_cycle_count_ / elapsed;
+      }
+      unified_stats_.average_jitter_us = unified_timer_->get_average_jitter_us();
+      unified_stats_.total_cycles = unified_cycle_count_;
+      unified_stats_.last_update = now;
+    }
+  }
+
+  // Print performance statistics
+  void print_unified_performance_stats() {
+    std::cout << "\n📊 Unified Control Performance:" << std::endl;
+    std::cout << std::string(50, '=') << std::endl;
+    std::cout << "Target Frequency: " << std::fixed << std::setprecision(1)
+              << unified_stats_.target_frequency << " Hz" << std::endl;
+    std::cout << "Actual Frequency: " << std::fixed << std::setprecision(1)
+              << unified_stats_.actual_frequency << " Hz" << std::endl;
+    std::cout << "Average Jitter: " << std::fixed << std::setprecision(2)
+              << unified_stats_.average_jitter_us << " μs" << std::endl;
+    std::cout << "Deadline Misses: " << unified_stats_.deadline_misses << std::endl;
+    std::cout << "Total Cycles: " << unified_stats_.total_cycles << std::endl;
+    std::cout << "Min Cycle Time: " << unified_stats_.min_cycle_time.count() << " μs" << std::endl;
+    std::cout << "Max Cycle Time: " << unified_stats_.max_cycle_time.count() << " μs" << std::endl;
+
+    if (unified_stats_.deadline_misses > 0) {
+      double miss_rate = (double)unified_stats_.deadline_misses / unified_stats_.total_cycles * 100.0;
+      std::cout << "Deadline Miss Rate: " << std::fixed << std::setprecision(2)
+                << miss_rate << "%" << std::endl;
+    }
+
+    std::cout << std::string(50, '=') << std::endl;
   }
 
   // Emergency stop method for safety
@@ -1873,12 +2394,39 @@ private:
   // Control mode
   ControlMode control_mode_;
 
+  // Synchronous CAN communication system
+  std::atomic<bool> can_send_flag{
+      true}; // true = can send, false = wait for response
+  std::atomic<bool> expecting_response{
+      false}; // true = waiting for specific motor response
+  std::atomic<int> expected_motor_id{-1}; // Which motor we're waiting for
+  std::mutex can_communication_mutex;     // Thread safety for CAN operations
+  std::condition_variable
+      can_send_cv; // Condition variable for send-receive coordination
+
   void handle_can_frame(can_value_type &frame) {
     uint32_t can_id = frame.head.id;
     // Track receive frequency - count ALL frames
     std::cout << "[Can Recv] recv from can id is " << can_id << std::endl;
     receive_count_++;
     total_bytes_received_ += frame.head.dlc;
+
+    // Synchronous CAN communication - check if this is the response we're
+    // waiting for
+    if (expecting_response.load() &&
+        can_id == static_cast<uint32_t>(expected_motor_id.load())) {
+      std::lock_guard<std::mutex> lock(can_communication_mutex);
+      expecting_response.store(false);
+      expected_motor_id.store(-1);
+      can_send_flag.store(true);
+      can_send_cv.notify_one(); // Wake up the waiting sender
+
+      if (debug_enabled_) {
+        std::cout << "\033[32m✅ [CAN SYNC] Response received from ID 0x"
+                  << std::hex << can_id << std::dec << " - send enabled\033[0m"
+                  << std::endl;
+      }
+    }
 
     // Enhanced CAN receive debugging
     if (debug_enabled_) {
@@ -2508,6 +3056,49 @@ private:
       return;
     }
 
+    // Synchronous CAN communication - wait for our turn to send
+    std::unique_lock<std::mutex> lock(can_communication_mutex);
+
+    // Wait for previous response to be received (one-send-one-recv pattern)
+
+    auto timeout = std::chrono::microseconds(200); // 300us timeout
+    if (can_id == 0x8008 || can_id == 8007) {
+      /*timeout = std::chrono::microseconds(10000); // 300us timeout*/
+    }
+    if (!can_send_flag.load()) {
+      std::cout
+          << "\033[33m⏳ [CAN SYNC] Waiting for previous response...\033[0m"
+          << std::endl;
+      if (!can_send_cv.wait_for(lock, timeout,
+                                [this] { return can_send_flag.load(); })) {
+        std::cout << "\033[31m⚠️  [CAN SYNC] Timeout waiting for response - "
+                     "forcing send\033[0m"
+                  << std::endl;
+        can_send_flag.store(true); // Force reset on timeout
+        expecting_response.store(false);
+      }
+    }
+
+    // Set flags to indicate we're expecting a response
+    can_send_flag.store(false);
+    expecting_response.store(true);
+
+    // Determine which motor ID we're expecting response from
+    int expected_motor = -1;
+    if (can_id >= 0x01 && can_id <= 0x06) {
+      expected_motor =
+          static_cast<int>(can_id) + 0x10; // DM response ID = send ID + 0x10
+    } else if (can_id == 0x09) {
+      expected_motor = 0x19; // Servo response ID
+    } else if (can_id == 0x8007) {
+      expected_motor = 0x700; // HT7 response ID
+    } else if (can_id == 0x8008) {
+      expected_motor = 0x800; // HT8 response ID
+    }
+    expected_motor_id.store(expected_motor);
+
+    lock.unlock();
+
     /*std::cout << "[Send Can Frame] at time "*/
     /*          << std::chrono::duration_cast<std::chrono::microseconds>(*/
     /*                 std::chrono::steady_clock::now().time_since_epoch())*/
@@ -2521,6 +3112,7 @@ private:
     frame.can_type = 1; // 2.0/fd
     frame.fd_acc = 1;
     frame.fram_type = 1; // 数据帧
+    is_extended_frame = true;
     frame.id_type =
         is_extended_frame ? 1 : 0; // 扩展帧 for HT, 标准帧 for Damiao
     frame.id_increase = 0;
@@ -2695,7 +3287,11 @@ private:
     // Send frame using device's methods
     device_->set_tx_frame(&frame);
     device_->send_data();
-    usleep(200);
+    if (can_id == 0x8007 or can_id == 0x8008) {
+      std::cout << "[CAN SEND] SLeep for big can ht " << std::endl;
+      /*usleep(5000);*/
+    }
+    /*usleep(100);*/
     total_bytes_sent_ += dataLength;
   }
 
@@ -2748,6 +3344,25 @@ private:
   std::atomic<bool> control_running_;
   std::thread control_thread_;
   double control_frequency_;
+
+  // Unified Control System
+  std::atomic<bool> unified_control_running_;
+  std::thread unified_control_thread_;
+  std::unique_ptr<PrecisionTimer> unified_timer_;
+  UnifiedControlMode unified_mode_;
+  std::mutex unified_mutex_;
+
+  // Target input management
+  std::vector<double> single_target_positions_;
+  std::vector<std::vector<double>> trajectory_target_;
+  size_t trajectory_index_;
+  std::vector<int> active_motors_; // For selective control
+
+  // Performance monitoring
+  UnifiedPerformanceStats unified_stats_;
+  std::atomic<uint64_t> unified_cycle_count_;
+  std::chrono::high_resolution_clock::time_point unified_start_time_;
+  std::chrono::high_resolution_clock::time_point last_stats_update_;
 
   // Interpolation state
   std::vector<double> target_positions_;
@@ -3313,6 +3928,43 @@ std::vector<double> IC_CAN::wrist_inverse_kinematics(double alpha,
 
 std::map<std::string, double> IC_CAN::get_wrist_angles() {
   return impl_->get_wrist_angles();
+}
+
+// Unified Control System Public API
+bool IC_CAN::start_unified_control(double frequency_hz) {
+  return impl_->start_unified_control(frequency_hz);
+}
+
+void IC_CAN::stop_unified_control() {
+  impl_->stop_unified_control();
+}
+
+bool IC_CAN::set_target_position(const std::vector<double>& positions) {
+  return impl_->set_target_position(positions);
+}
+
+bool IC_CAN::set_target_trajectory(const std::vector<std::vector<double>>& trajectory) {
+  return impl_->set_target_trajectory(trajectory);
+}
+
+bool IC_CAN::set_motor_selection(const std::vector<int>& motor_ids) {
+  return impl_->set_motor_selection(motor_ids);
+}
+
+bool IC_CAN::is_unified_control_running() const {
+  return impl_->unified_control_running_.load();
+}
+
+IC_CAN::UnifiedPerformanceStats IC_CAN::get_unified_performance_stats() const {
+  return impl_->get_unified_performance_stats();
+}
+
+void IC_CAN::print_unified_performance_stats() const {
+  impl_->print_unified_performance_stats();
+}
+
+bool IC_CAN::change_unified_frequency(double new_frequency_hz) {
+  return impl_->change_unified_frequency(new_frequency_hz);
 }
 
 } // namespace ic_can

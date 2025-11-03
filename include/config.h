@@ -19,9 +19,9 @@
 #define IC_CAN_INSTALL_PREFIX "/usr/local"
 
 // 功能开关
-#define BUILD_TESTS
-#define BUILD_EXAMPLES
-#define BUILD_PYTHON_BINDINGS
+/* #undef BUILD_TESTS */
+/* #undef BUILD_EXAMPLES */
+/* #undef BUILD_PYTHON_BINDINGS */
 
 // 调试选项
 /* #undef DEBUG */

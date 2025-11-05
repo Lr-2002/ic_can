@@ -100,6 +100,7 @@ tools/test_unified_control: src/libic_can_core.so.1.0.0
 tools/test_unified_control: tools/../lib/dm-tools/C++/ubuntu/lib/libu2canfd.a
 tools/test_unified_control: /usr/lib/x86_64-linux-gnu/libusb-1.0.so
 tools/test_unified_control: src/../lib/dm-tools/C++/ubuntu/lib/libu2canfd.a
+tools/test_unified_control: lib/zlg_canfd/libcontrolcanfd.so
 tools/test_unified_control: tools/CMakeFiles/test_unified_control.dir/link.txt
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir=/home/lr-2002/project/InstantCreation/ic_can/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Linking CXX executable test_unified_control"
 	cd /home/lr-2002/project/InstantCreation/ic_can/tools && $(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/test_unified_control.dir/link.txt --verbose=$(VERBOSE)

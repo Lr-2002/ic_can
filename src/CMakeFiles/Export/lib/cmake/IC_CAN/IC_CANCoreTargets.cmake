@@ -55,7 +55,7 @@ add_library(IC_CAN::ic_can_core SHARED IMPORTED)
 
 set_target_properties(IC_CAN::ic_can_core PROPERTIES
   INTERFACE_INCLUDE_DIRECTORIES "${_IMPORT_PREFIX}/include"
-  INTERFACE_LINK_LIBRARIES "Threads::Threads;/usr/lib/x86_64-linux-gnu/libusb-1.0.so;pinocchio_default;pinocchio_parsers;pinocchio_casadi;boost_filesystem;boost_serialization;boost_system;urdfdom_sensor;urdfdom_model_state;urdfdom_model;urdfdom_world;console_bridge;casadi;/home/lr-2002/project/InstantCreation/ic_can/src/../lib/dm-tools/C++/ubuntu/lib/libu2canfd.a"
+  INTERFACE_LINK_LIBRARIES "Threads::Threads;/usr/lib/x86_64-linux-gnu/libusb-1.0.so;pinocchio_default;pinocchio_parsers;pinocchio_casadi;boost_filesystem;boost_serialization;boost_system;urdfdom_sensor;urdfdom_model_state;urdfdom_model;urdfdom_world;console_bridge;casadi;/home/lr-2002/project/InstantCreation/ic_can/src/../lib/dm-tools/C++/ubuntu/lib/libu2canfd.a;/home/lr-2002/project/InstantCreation/ic_can/lib/zlg_canfd/libcontrolcanfd.so;dl"
 )
 
 if(CMAKE_VERSION VERSION_LESS 2.8.12)

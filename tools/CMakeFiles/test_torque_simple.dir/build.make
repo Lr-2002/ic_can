@@ -100,6 +100,7 @@ tools/test_torque_simple: src/libic_can_core.so.1.0.0
 tools/test_torque_simple: tools/../lib/dm-tools/C++/ubuntu/lib/libu2canfd.a
 tools/test_torque_simple: /usr/lib/x86_64-linux-gnu/libusb-1.0.so
 tools/test_torque_simple: src/../lib/dm-tools/C++/ubuntu/lib/libu2canfd.a
+tools/test_torque_simple: lib/zlg_canfd/libcontrolcanfd.so
 tools/test_torque_simple: tools/CMakeFiles/test_torque_simple.dir/link.txt
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir=/home/lr-2002/project/InstantCreation/ic_can/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Linking CXX executable test_torque_simple"
 	cd /home/lr-2002/project/InstantCreation/ic_can/tools && $(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/test_torque_simple.dir/link.txt --verbose=$(VERBOSE)

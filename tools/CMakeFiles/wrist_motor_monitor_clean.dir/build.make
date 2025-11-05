@@ -100,6 +100,7 @@ tools/wrist_motor_monitor_clean: src/libic_can_core.so.1.0.0
 tools/wrist_motor_monitor_clean: tools/../lib/dm-tools/C++/ubuntu/lib/libu2canfd.a
 tools/wrist_motor_monitor_clean: /usr/lib/x86_64-linux-gnu/libusb-1.0.so
 tools/wrist_motor_monitor_clean: src/../lib/dm-tools/C++/ubuntu/lib/libu2canfd.a
+tools/wrist_motor_monitor_clean: lib/zlg_canfd/libcontrolcanfd.so
 tools/wrist_motor_monitor_clean: tools/CMakeFiles/wrist_motor_monitor_clean.dir/link.txt
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir=/home/lr-2002/project/InstantCreation/ic_can/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Linking CXX executable wrist_motor_monitor_clean"
 	cd /home/lr-2002/project/InstantCreation/ic_can/tools && $(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/wrist_motor_monitor_clean.dir/link.txt --verbose=$(VERBOSE)

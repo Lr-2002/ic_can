@@ -119,6 +119,12 @@ void print_usage(const char *program_name) {
             << std::endl;
   std::cout << "  " << program_name
             << " -t 30        # Monitor for 30 seconds only" << std::endl;
+  std::cout << "\nCommunication Backend:" << std::endl;
+  std::cout << "  🚀 ZLG CAN FD (64-byte frames, 5 Mbps) - DEFAULT"
+            << std::endl;
+  std::cout << "  🔄 DM Tools (8-byte frames, 1 Mbps) - Automatic fallback"
+            << std::endl;
+  std::cout << "  💻 Simulation - Testing without hardware" << std::endl;
   std::cout << "\nLogging creates timestamped directory with:" << std::endl;
   std::cout
       << "  - motor_states.csv (actual positions/velocities/torques at 400Hz)"
@@ -191,6 +197,16 @@ int main(int argc, char *argv[]) {
     }
     std::cout << "✅ System initialized" << std::endl;
 
+    // Show which backend is being used
+    std::cout << "🔌 Active communication backend: "
+              << controller->get_current_backend() << std::endl;
+
+    // Show channel status if ZLG is being used
+    if (controller->get_current_backend() == "zlg") {
+      std::cout << "📊 ZLG CAN FD Configuration:" << std::endl;
+      controller->print_channel_status();
+    }
+
     // Enable motors
     if (!controller->enable_all()) {
       std::cout << "⚠️  WARNING: Some motors failed to enable" << std::endl;
@@ -221,12 +237,15 @@ int main(int argc, char *argv[]) {
     std::cout << "Press Ctrl+C to stop" << std::endl;
 
     auto start_time = std::chrono::steady_clock::now();
-
+    /*std::cout << "start? " << std::endl;*/
+    /*int a = 0;*/
+    /*std::cin >> a;*/
     while (g_running) {
       // Check duration limit
       if (duration_seconds > 0) {
-        auto elapsed =
-            std::chrono::duration<double>(std::chrono::steady_clock::now() - start_time).count();
+        auto elapsed = std::chrono::duration<double>(
+                           std::chrono::steady_clock::now() - start_time)
+                           .count();
         if (elapsed >= duration_seconds) {
           std::cout << "\n⏱️  Time limit reached, stopping monitor..."
                     << std::endl;
@@ -238,14 +257,18 @@ int main(int argc, char *argv[]) {
       auto get_start = std::chrono::high_resolution_clock::now();
       auto positions = controller->get_joint_positions();
       auto get_end = std::chrono::high_resolution_clock::now();
-      auto get_duration = std::chrono::duration_cast<std::chrono::microseconds>(get_end - get_start).count();
+      auto get_duration = std::chrono::duration_cast<std::chrono::microseconds>(
+                              get_end - get_start)
+                              .count();
 
       // Profile set_joint_positions
       auto set_start = std::chrono::high_resolution_clock::now();
       std::vector<double> empty = {0, 0, 0, 0, 0, 0, 0, 0, 0};
       controller->set_joint_positions(positions, empty, empty);
       auto set_end = std::chrono::high_resolution_clock::now();
-      auto set_duration = std::chrono::duration_cast<std::chrono::microseconds>(set_end - set_start).count();
+      auto set_duration = std::chrono::duration_cast<std::chrono::microseconds>(
+                              set_end - set_start)
+                              .count();
 
       // Print profiling results every 100 iterations
       static int loop_count = 0;
@@ -253,7 +276,8 @@ int main(int argc, char *argv[]) {
         std::cout << "PROFILE: Loop " << loop_count
                   << " | get_positions: " << get_duration << "μs"
                   << " | set_positions: " << set_duration << "μs"
-                  << " | total: " << (get_duration + set_duration) << "μs" << std::endl;
+                  << " | total: " << (get_duration + set_duration) << "μs"
+                  << std::endl;
       }
     }
 
@@ -261,7 +285,7 @@ int main(int argc, char *argv[]) {
     // Disable motors
     controller->disable_all();
     std::cout << "\n🎉 Arm position monitoring completed!" << std::endl;
-    
+
     return 0;
 
   } catch (const std::exception &e) {

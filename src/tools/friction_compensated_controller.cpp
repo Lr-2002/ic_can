@@ -69,13 +69,12 @@ int main() {
         {Fc: 0.7, Fv: 0.5, velocity_threshold: 0.2, enabled: true},   // Joint 2
         {Fc: 0.6, Fv: 0.4, velocity_threshold: 0.25, enabled: true},  // Joint 3
         {Fc: 0.5, Fv: 0.3, velocity_threshold: 0.3, enabled: true},  // Joint 4
-        {Fc: 0.4, Fv: 0.2, velocity_threshold: 0.4, enabled: true},  // Joint 5
-        {0, 0, 0, 0, 0, 0, false}  // Joint 6 (no friction)
+        {Fc: 0, Fv: 0, velocity_threshold: 0, enabled: false}  // Joint 5 (no friction)
     }};
 
     MotorState state;
     std::array<double, 6> q_target = {0, 0, 0, 0, 0, 0};  // Target positions
-    double Kd = {0.1, 0.05, 0.1, 0.05, 0.1, 0.05}; // Small damping for compliant feel
+    std::array<double, 6> Kd = {0.1, 0.05, 0.1, 0.05, 0.1, 0.05}; // Small damping for compliant feel
 
     std::cout << "\n🔧 Controller Configuration:" << std::endl;
     for (int i = 0; i < 6; i++) {
@@ -97,8 +96,8 @@ int main() {
         return -1;
     }
 
-    predictor.set_method(TorquePredictionMethod::PURE_C);
-    predictor.enable_gravity_compensation(true);
+    predictor.switch_method(TorquePredictionMethod::PURE_C_MATLAB);
+    // Note: gravity compensation might not be available as a separate method
 
     std::cout << "\n🔄 Controller Loop (500Hz simulation):" << std::endl;
     std::cout << std::string(80, '=') << std::endl;
@@ -129,7 +128,7 @@ int main() {
                 continue;
             }
 
-            double tau_coulomb = friction_params[i].Fc * std::copysign(state.dq[i]);
+            double tau_coulomb = friction_params[i].Fc * std::copysign(1.0, state.dq[i]);
 
             // Apply smooth transition near zero velocity
             double dq_smooth = smooth_sign(state.dq[i], friction_params[i].velocity_threshold);

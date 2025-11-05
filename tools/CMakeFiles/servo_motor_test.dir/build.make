@@ -100,6 +100,7 @@ tools/servo_motor_test: src/libic_can_core.so.1.0.0
 tools/servo_motor_test: tools/../lib/dm-tools/C++/ubuntu/lib/libu2canfd.a
 tools/servo_motor_test: /usr/lib/x86_64-linux-gnu/libusb-1.0.so
 tools/servo_motor_test: src/../lib/dm-tools/C++/ubuntu/lib/libu2canfd.a
+tools/servo_motor_test: lib/zlg_canfd/libcontrolcanfd.so
 tools/servo_motor_test: tools/CMakeFiles/servo_motor_test.dir/link.txt
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir=/home/lr-2002/project/InstantCreation/ic_can/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Linking CXX executable servo_motor_test"
 	cd /home/lr-2002/project/InstantCreation/ic_can/tools && $(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/servo_motor_test.dir/link.txt --verbose=$(VERBOSE)

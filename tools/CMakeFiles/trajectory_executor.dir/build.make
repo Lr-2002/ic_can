@@ -100,6 +100,7 @@ tools/trajectory_executor: src/libic_can_core.so.1.0.0
 tools/trajectory_executor: tools/../lib/dm-tools/C++/ubuntu/lib/libu2canfd.a
 tools/trajectory_executor: /usr/lib/x86_64-linux-gnu/libusb-1.0.so
 tools/trajectory_executor: src/../lib/dm-tools/C++/ubuntu/lib/libu2canfd.a
+tools/trajectory_executor: lib/zlg_canfd/libcontrolcanfd.so
 tools/trajectory_executor: tools/CMakeFiles/trajectory_executor.dir/link.txt
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir=/home/lr-2002/project/InstantCreation/ic_can/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Linking CXX executable trajectory_executor"
 	cd /home/lr-2002/project/InstantCreation/ic_can/tools && $(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/trajectory_executor.dir/link.txt --verbose=$(VERBOSE)

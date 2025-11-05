@@ -100,6 +100,7 @@ tools/dynamic_identifier: src/libic_can_core.so.1.0.0
 tools/dynamic_identifier: tools/../lib/dm-tools/C++/ubuntu/lib/libu2canfd.a
 tools/dynamic_identifier: /usr/lib/x86_64-linux-gnu/libusb-1.0.so
 tools/dynamic_identifier: src/../lib/dm-tools/C++/ubuntu/lib/libu2canfd.a
+tools/dynamic_identifier: lib/zlg_canfd/libcontrolcanfd.so
 tools/dynamic_identifier: tools/CMakeFiles/dynamic_identifier.dir/link.txt
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir=/home/lr-2002/project/InstantCreation/ic_can/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Linking CXX executable dynamic_identifier"
 	cd /home/lr-2002/project/InstantCreation/ic_can/tools && $(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/dynamic_identifier.dir/link.txt --verbose=$(VERBOSE)

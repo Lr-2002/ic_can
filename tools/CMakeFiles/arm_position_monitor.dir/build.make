@@ -100,6 +100,7 @@ tools/arm_position_monitor: src/libic_can_core.so.1.0.0
 tools/arm_position_monitor: tools/../lib/dm-tools/C++/ubuntu/lib/libu2canfd.a
 tools/arm_position_monitor: /usr/lib/x86_64-linux-gnu/libusb-1.0.so
 tools/arm_position_monitor: src/../lib/dm-tools/C++/ubuntu/lib/libu2canfd.a
+tools/arm_position_monitor: lib/zlg_canfd/libcontrolcanfd.so
 tools/arm_position_monitor: tools/CMakeFiles/arm_position_monitor.dir/link.txt
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir=/home/lr-2002/project/InstantCreation/ic_can/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Linking CXX executable arm_position_monitor"
 	cd /home/lr-2002/project/InstantCreation/ic_can/tools && $(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/arm_position_monitor.dir/link.txt --verbose=$(VERBOSE)

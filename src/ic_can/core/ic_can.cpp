@@ -20,6 +20,7 @@
 // #include "ic_can/core/usb2can_communication_adapter.hpp"  // Temporarily
 // disabled
 #include "ic_can/core/arm_component.hpp"
+#include "ic_can/core/can_communication_factory.hpp"
 
 // Include stub implementations
 #include "ic_can/core/torque_predictor_unified.h"
@@ -61,10 +62,10 @@ struct FrictionParams {
 
 // Unified Control System Enums
 enum class UnifiedControlMode {
-  MONITORING_ONLY,      // High-frequency status reading only
-  POSITION_SINGLE,      // Single vector position control
-  POSITION_TRAJECTORY,  // Matrix-based trajectory execution
-  SELECTIVE_CONTROL     // Control specific motor subsets
+  MONITORING_ONLY,     // High-frequency status reading only
+  POSITION_SINGLE,     // Single vector position control
+  POSITION_TRAJECTORY, // Matrix-based trajectory execution
+  SELECTIVE_CONTROL    // Control specific motor subsets
 };
 
 // Performance Statistics Structure
@@ -95,8 +96,10 @@ public:
   }
 
   void set_period(double frequency_hz) {
-    if (frequency_hz <= 0) return;
-    period_ = std::chrono::microseconds(static_cast<int64_t>(1000000.0 / frequency_hz));
+    if (frequency_hz <= 0)
+      return;
+    period_ = std::chrono::microseconds(
+        static_cast<int64_t>(1000000.0 / frequency_hz));
     reset();
   }
 
@@ -114,7 +117,10 @@ public:
     if (total_jitter_samples_ > 0) {
       auto expected = next_deadline_;
       auto actual = now;
-      auto jitter = std::abs(std::chrono::duration_cast<std::chrono::microseconds>(actual - expected).count());
+      auto jitter =
+          std::abs(std::chrono::duration_cast<std::chrono::microseconds>(
+                       actual - expected)
+                       .count());
       jitter_history_[jitter_index_] = static_cast<uint64_t>(jitter);
       jitter_index_ = (jitter_index_ + 1) % jitter_history_.size();
       total_jitter_samples_++;
@@ -125,9 +131,11 @@ public:
 
     if (now < next_deadline_) {
       // High-precision sleep + spin wait
-      auto sleep_time = std::chrono::duration_cast<std::chrono::microseconds>(next_deadline_ - now);
+      auto sleep_time = std::chrono::duration_cast<std::chrono::microseconds>(
+          next_deadline_ - now);
       if (sleep_time > std::chrono::microseconds(100)) {
-        std::this_thread::sleep_for(sleep_time - std::chrono::microseconds(100));
+        std::this_thread::sleep_for(sleep_time -
+                                    std::chrono::microseconds(100));
       }
 
       // Spin wait for final precision
@@ -139,7 +147,8 @@ public:
 
   double get_average_jitter_us() const {
     uint64_t sum = 0;
-    uint64_t count = std::min(static_cast<uint64_t>(jitter_history_.size()), total_jitter_samples_);
+    uint64_t count = std::min(static_cast<uint64_t>(jitter_history_.size()),
+                              total_jitter_samples_);
 
     for (size_t i = 0; i < count; i++) {
       sum += jitter_history_[i];
@@ -205,8 +214,8 @@ public:
         friction_compensation_enabled_(false), velocity_damping_(0.1),
         smooth_transition_(true), sgn_threshold_(0.01),
         wrist_monitor_running_(false), wrist_monitor_frequency_(50.0),
-        control_mode_(ControlMode::TEACH_MODE),
-        unified_control_running_(false), unified_mode_(UnifiedControlMode::MONITORING_ONLY),
+        control_mode_(ControlMode::TEACH_MODE), unified_control_running_(false),
+        unified_mode_(UnifiedControlMode::MONITORING_ONLY),
         trajectory_index_(0), unified_cycle_count_(0) {
     // Initialize motor gains with default values
     load_default_motor_gains();
@@ -250,11 +259,114 @@ public:
     unified_timer_ = std::make_unique<PrecisionTimer>();
     single_target_positions_.resize(9, 0.0);
     trajectory_target_.clear();
-    active_motors_ = {1, 2, 3, 4, 5, 6, 7, 8, 9}; // All motors active by default
+    active_motors_ = {1, 2, 3, 4, 5,
+                      6, 7, 8, 9}; // All motors active by default
     unified_start_time_ = std::chrono::high_resolution_clock::now();
     last_stats_update_ = unified_start_time_;
 
     std::cout << "✅ Unified control system initialized" << std::endl;
+  }
+
+  // Constructor with communication backend configuration
+  Impl(const CommunicationConfig &comm_config, bool debug)
+      : device_sn_(comm_config.device_serial), debug_enabled_(debug),
+        connected_(false), hf_control_running_(false), control_running_(false),
+        logging_running_(false), performance_monitoring_(false),
+        gravity_compensation_enabled_(true),
+        friction_compensation_enabled_(false), velocity_damping_(0.1),
+        smooth_transition_(true), sgn_threshold_(0.01),
+        wrist_monitor_running_(false), wrist_monitor_frequency_(50.0),
+        control_mode_(ControlMode::TEACH_MODE), unified_control_running_(false),
+        unified_mode_(UnifiedControlMode::MONITORING_ONLY),
+        trajectory_index_(0), unified_cycle_count_(0),
+        comm_config_(comm_config) {
+
+    // Convert CommunicationConfig to CommunicationFactoryConfig
+    CommunicationFactoryConfig factory_config;
+
+    // Helper lambda for string to backend conversion
+    auto string_to_backend_lambda =
+        [](const std::string &backend_name) -> CommunicationBackend {
+      if (backend_name == "auto")
+        return CommunicationBackend::AUTO;
+      if (backend_name == "zlg")
+        return CommunicationBackend::ZLG_CANFD;
+      if (backend_name == "dm_tools")
+        return CommunicationBackend::DM_TOOLS;
+      if (backend_name == "simulation")
+        return CommunicationBackend::SIMULATION;
+      return CommunicationBackend::AUTO; // Default to auto
+    };
+
+    factory_config.preferred_backend =
+        string_to_backend_lambda(comm_config.preferred_backend);
+
+    // Convert fallback backends
+    for (const auto &backend_name : comm_config.fallback_backends) {
+      factory_config.fallback_backends.push_back(
+          string_to_backend_lambda(backend_name));
+    }
+
+    factory_config.device_serial = comm_config.device_serial;
+    factory_config.preferred_channel = comm_config.preferred_channel;
+    factory_config.auto_detect_device = comm_config.auto_detect_device;
+    factory_config.zlg_can_fd_mode = comm_config.zlg_can_fd_mode;
+    factory_config.zlg_arbitration_baud = comm_config.zlg_arbitration_baud;
+    factory_config.zlg_data_baud = comm_config.zlg_data_baud;
+    factory_config.enable_performance_monitoring =
+        comm_config.enable_performance_monitoring;
+    factory_config.verbose_logging = comm_config.verbose_logging;
+
+    // Initialize motor gains with default values
+    load_default_motor_gains();
+
+    // Initialize friction parameters with default values
+    load_default_friction_params();
+
+    // Initialize performance counters
+    send_count_ = 0;
+    receive_count_ = 0;
+    total_bytes_sent_ = 0;
+    total_bytes_received_ = 0;
+    performance_start_time_ = std::chrono::high_resolution_clock::now();
+
+    // Initialize wrist monitoring data
+    last_wrist_positions_ = {0.0, 0.0};
+    last_wrist_velocities_ = {0.0, 0.0};
+    last_wrist_torques_ = {0.0, 0.0};
+    last_wrist_update_time_ = std::chrono::steady_clock::now();
+
+    // Initialize unified torque predictor - using stub implementation
+    std::cout << "🔧 Initializing torque predictor with stub implementation..."
+              << std::endl;
+    torque_predictor_ = std::make_unique<TorquePredictorUnified>();
+    std::cout << "✅ Torque predictor initialized (stub)" << std::endl;
+
+    // Initialize components
+    wrist_component_ = std::make_unique<WristComponent>();
+    gripper_component_ = std::make_unique<GripperComponent>();
+    arm_component_ = std::make_unique<ArmComponent>();
+
+    // Initialize servo motor for gripper (motor 9)
+    servo_motor_ = std::make_unique<ServoMotor>(9, 0x19, 0x19);
+    std::cout << "✅ Servo motor 9 initialized for gripper control"
+              << std::endl;
+
+    std::cout << "✅ Arm, Wrist, and Gripper components initialized"
+              << std::endl;
+
+    // Initialize unified control system
+    unified_timer_ = std::make_unique<PrecisionTimer>();
+    single_target_positions_.resize(9, 0.0);
+    trajectory_target_.clear();
+    active_motors_ = {1, 2, 3, 4, 5,
+                      6, 7, 8, 9}; // All motors active by default
+    unified_start_time_ = std::chrono::high_resolution_clock::now();
+    last_stats_update_ = unified_start_time_;
+
+    std::cout
+        << "✅ Unified control system initialized with communication backend"
+        << std::endl;
   }
 
   ~Impl() { shutdown(); }
@@ -264,6 +376,97 @@ public:
       return true;
 
     try {
+      // Check if we should use communication factory (when CommunicationConfig
+      // is provided)
+      if (!comm_config_.preferred_backend.empty() &&
+          comm_config_.preferred_backend != "auto") {
+        std::cout << "🔧 Initializing communication backend factory..."
+                  << std::endl;
+        std::cout << "Preferred Backend: " << comm_config_.preferred_backend
+                  << std::endl;
+
+        // Convert CommunicationConfig to CommunicationFactoryConfig
+        CommunicationFactoryConfig factory_config;
+
+        auto string_to_backend_lambda =
+            [](const std::string &backend_name) -> CommunicationBackend {
+          if (backend_name == "zlg")
+            return CommunicationBackend::ZLG_CANFD;
+          if (backend_name == "dm_tools")
+            return CommunicationBackend::DM_TOOLS;
+          if (backend_name == "simulation")
+            return CommunicationBackend::SIMULATION;
+          return CommunicationBackend::AUTO;
+        };
+
+        factory_config.preferred_backend =
+            string_to_backend_lambda(comm_config_.preferred_backend);
+        for (const auto &backend_name : comm_config_.fallback_backends) {
+          factory_config.fallback_backends.push_back(
+              string_to_backend_lambda(backend_name));
+        }
+
+        factory_config.device_serial = comm_config_.device_serial;
+        factory_config.preferred_channel = comm_config_.preferred_channel;
+        factory_config.auto_detect_device = comm_config_.auto_detect_device;
+        factory_config.zlg_can_fd_mode = comm_config_.zlg_can_fd_mode;
+        factory_config.zlg_arbitration_baud = comm_config_.zlg_arbitration_baud;
+        factory_config.zlg_data_baud = comm_config_.zlg_data_baud;
+        factory_config.enable_performance_monitoring =
+            comm_config_.enable_performance_monitoring;
+        factory_config.verbose_logging = comm_config_.verbose_logging;
+
+        // Create communication adapter using factory
+        communication_adapter_ =
+            CANCommunicationFactory::create_adapter(factory_config);
+        if (!communication_adapter_) {
+          std::cout << "❌ FAILED: Could not create communication adapter"
+                    << std::endl;
+          return false;
+        }
+
+        // Set current backend name
+        current_backend_name_ = comm_config_.preferred_backend;
+        using_factory_backend_ = true;
+
+        std::cout << "✅ SUCCESS: Communication backend initialized ("
+                  << current_backend_name_ << ")" << std::endl;
+
+        // Initialize the communication adapter
+        if (!communication_adapter_->initialize()) {
+          std::cout << "❌ FAILED: Communication adapter initialization failed"
+                    << std::endl;
+          return false;
+        }
+
+        // Set up callback for motor feedback
+        std::cout << "📡 Setting up motor feedback callback..." << std::endl;
+        // Note: This needs to be adapted to the new communication interface
+        // For now, we'll keep the existing callback mechanism as a placeholder
+
+        // Test if communication is working by sending a refresh command
+        std::cout << "🧪 Testing CAN communication..." << std::endl;
+
+        connected_ = true;
+        bool test_success = enable_all();
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+        if (receive_count_.load() == 0) {
+          std::cout << "❌ WARNING: No CAN frames received during test"
+                    << std::endl;
+          std::cout << "   - Check device connection" << std::endl;
+          std::cout << "   - Verify CAN bus termination" << std::endl;
+          std::cout << "   - Check motor power supply" << std::endl;
+        } else {
+          std::cout << "✅ SUCCESS: Received " << receive_count_.load()
+                    << " CAN frames during test" << std::endl;
+        }
+
+        connected_ = true;
+        return true;
+      }
+
+      // Fallback to original USB2CAN initialization
       std::cout << "🔧 Connecting to USB2CAN device..." << std::endl;
       std::cout << "Device SN: " << device_sn_ << std::endl;
 
@@ -292,7 +495,8 @@ public:
 
       // Test if callback is working by sending a refresh command
       std::cout << "🧪 Testing CAN communication..." << std::endl;
-      bool test_success = refresh_all();
+      /*bool test_success = refresh_all();*/
+      bool test_success = enable_all();
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
       if (receive_count_.load() == 0) {
@@ -808,16 +1012,16 @@ public:
     auto start_time = std::chrono::duration_cast<std::chrono::microseconds>(
                           function_start.time_since_epoch())
                           .count();
-    std::cout << "PROFILE: set_joint_positions START at time " << start_time
-              << std::endl;
-    if (!connected_) {
-      std::cout << " debug: FAILED - not connected" << std::endl;
-      return false;
-    }
-    if (positions.size() < 9) {
-      std::cout << " debug: FAILED - positions size < 9" << std::endl;
-      return false;
-    }
+    /*std::cout << "PROFILE: set_joint_positions START at time " << start_time*/
+    /*          << std::endl;*/
+    /*if (!connected_) {*/
+    /*  std::cout << " debug: FAILED - not connected" << std::endl;*/
+    /*  return false;*/
+    /*}*/
+    /*if (positions.size() < 9) {*/
+    /*  std::cout << " debug: FAILED - positions size < 9" << std::endl;*/
+    /*  return false;*/
+    /*}*/
     /*std::cout << "[PD]: ";*/
 
     // Get motor-specific gains
@@ -1217,7 +1421,8 @@ public:
     }
 
     if (!connected_ || !device_) {
-      std::cout << "❌ Cannot start unified control - not connected" << std::endl;
+      std::cout << "❌ Cannot start unified control - not connected"
+                << std::endl;
       return false;
     }
 
@@ -1227,7 +1432,8 @@ public:
       return false;
     }
 
-    std::cout << "🚀 Starting unified control at " << frequency_hz << "Hz..." << std::endl;
+    std::cout << "🚀 Starting unified control at " << frequency_hz << "Hz..."
+              << std::endl;
 
     // Initialize unified timer and statistics
     unified_timer_->set_period(frequency_hz);
@@ -1247,7 +1453,8 @@ public:
       unified_control_thread_function(frequency_hz);
     });
 
-    std::cout << "✅ Unified control thread started at " << frequency_hz << "Hz" << std::endl;
+    std::cout << "✅ Unified control thread started at " << frequency_hz << "Hz"
+              << std::endl;
     return true;
   }
 
@@ -1260,11 +1467,12 @@ public:
     std::cout << "✅ Unified control stopped" << std::endl;
   }
 
-  bool set_target_position(const std::vector<double>& positions) {
+  bool set_target_position(const std::vector<double> &positions) {
     std::lock_guard<std::mutex> lock(unified_mutex_);
 
     if (positions.size() < 9) {
-      std::cout << "❌ Target positions must have at least 9 elements" << std::endl;
+      std::cout << "❌ Target positions must have at least 9 elements"
+                << std::endl;
       return false;
     }
 
@@ -1280,7 +1488,8 @@ public:
       for (int i = 0; i < 9; i++) {
         double diff = std::abs(positions[i] - previous_positions[i]);
         std::cout << std::fixed << std::setprecision(3) << positions[i];
-        if (diff > 0.01) std::cout << "(Δ" << std::setprecision(2) << diff << ")";
+        if (diff > 0.01)
+          std::cout << "(Δ" << std::setprecision(2) << diff << ")";
         std::cout << " ";
       }
       std::cout << std::endl;
@@ -1289,7 +1498,8 @@ public:
     return true;
   }
 
-  bool set_target_trajectory(const std::vector<std::vector<double>>& trajectory) {
+  bool
+  set_target_trajectory(const std::vector<std::vector<double>> &trajectory) {
     std::lock_guard<std::mutex> lock(unified_mutex_);
 
     if (trajectory.empty()) {
@@ -1297,9 +1507,10 @@ public:
       return false;
     }
 
-    for (const auto& point : trajectory) {
+    for (const auto &point : trajectory) {
       if (point.size() < 9) {
-        std::cout << "❌ All trajectory points must have at least 9 elements" << std::endl;
+        std::cout << "❌ All trajectory points must have at least 9 elements"
+                  << std::endl;
         return false;
       }
     }
@@ -1309,19 +1520,21 @@ public:
     trajectory_index_ = 0;
 
     if (debug_enabled_) {
-      std::cout << "🎯 Set trajectory with " << trajectory.size() << " points" << std::endl;
+      std::cout << "🎯 Set trajectory with " << trajectory.size() << " points"
+                << std::endl;
     }
 
     return true;
   }
 
-  bool set_motor_selection(const std::vector<int>& motor_ids) {
+  bool set_motor_selection(const std::vector<int> &motor_ids) {
     std::lock_guard<std::mutex> lock(unified_mutex_);
 
     // Validate motor IDs
     for (int id : motor_ids) {
       if (id < 1 || id > 9) {
-        std::cout << "❌ Invalid motor ID: " << id << " (must be 1-9)" << std::endl;
+        std::cout << "❌ Invalid motor ID: " << id << " (must be 1-9)"
+                  << std::endl;
         return false;
       }
     }
@@ -1344,8 +1557,10 @@ public:
     std::lock_guard<std::mutex> lock(unified_mutex_);
     unified_mode_ = mode;
 
-    const char* mode_names[] = {"MONITORING_ONLY", "POSITION_SINGLE", "POSITION_TRAJECTORY", "SELECTIVE_CONTROL"};
-    std::cout << "✅ Unified control mode set to: " << mode_names[static_cast<int>(mode)] << std::endl;
+    const char *mode_names[] = {"MONITORING_ONLY", "POSITION_SINGLE",
+                                "POSITION_TRAJECTORY", "SELECTIVE_CONTROL"};
+    std::cout << "✅ Unified control mode set to: "
+              << mode_names[static_cast<int>(mode)] << std::endl;
 
     return true;
   }
@@ -1364,7 +1579,9 @@ public:
     std::lock_guard<std::mutex> lock(unified_mutex_);
 
     if (!unified_control_running_) {
-      std::cout << "⚠️  Unified control not running, frequency will be set on next start" << std::endl;
+      std::cout << "⚠️  Unified control not running, frequency will be set on "
+                   "next start"
+                << std::endl;
       unified_timer_->set_period(new_frequency_hz);
       unified_stats_.target_frequency = new_frequency_hz;
       return true;
@@ -1377,14 +1594,17 @@ public:
 
     if (debug_enabled_) {
       std::cout << "🔄 Frequency changed: " << old_frequency << "Hz → "
-                << new_frequency_hz << "Hz (period: "
-                << unified_timer_->get_period().count() << "μs)" << std::endl;
+                << new_frequency_hz
+                << "Hz (period: " << unified_timer_->get_period().count()
+                << "μs)" << std::endl;
 
       if (unified_mode_ == UnifiedControlMode::POSITION_TRAJECTORY) {
-        double progress = (double)trajectory_index_ / trajectory_target_.size() * 100.0;
-        std::cout << "   Trajectory progress: " << std::fixed << std::setprecision(1)
-                  << progress << "% (" << trajectory_index_ << "/"
-                  << trajectory_target_.size() << " points)" << std::endl;
+        double progress =
+            (double)trajectory_index_ / trajectory_target_.size() * 100.0;
+        std::cout << "   Trajectory progress: " << std::fixed
+                  << std::setprecision(1) << progress << "% ("
+                  << trajectory_index_ << "/" << trajectory_target_.size()
+                  << " points)" << std::endl;
       }
     }
 
@@ -1398,30 +1618,32 @@ private:
               << unified_timer_->get_period().count() << " μs" << std::endl;
 
     auto stats_report_interval = std::chrono::seconds(5);
-    auto next_stats_report = std::chrono::high_resolution_clock::now() + stats_report_interval;
+    auto next_stats_report =
+        std::chrono::high_resolution_clock::now() + stats_report_interval;
 
     while (unified_control_running_) {
       auto cycle_start = std::chrono::high_resolution_clock::now();
 
       // Execute control based on current mode
       switch (unified_mode_) {
-        case UnifiedControlMode::MONITORING_ONLY:
-          execute_monitoring_only();
-          break;
-        case UnifiedControlMode::POSITION_SINGLE:
-          execute_position_single();
-          break;
-        case UnifiedControlMode::POSITION_TRAJECTORY:
-          execute_position_trajectory();
-          break;
-        case UnifiedControlMode::SELECTIVE_CONTROL:
-          execute_selective_control();
-          break;
+      case UnifiedControlMode::MONITORING_ONLY:
+        execute_monitoring_only();
+        break;
+      case UnifiedControlMode::POSITION_SINGLE:
+        execute_position_single();
+        break;
+      case UnifiedControlMode::POSITION_TRAJECTORY:
+        execute_position_trajectory();
+        break;
+      case UnifiedControlMode::SELECTIVE_CONTROL:
+        execute_selective_control();
+        break;
       }
 
       // Update performance statistics
       auto cycle_end = std::chrono::high_resolution_clock::now();
-      auto cycle_time = std::chrono::duration_cast<std::chrono::microseconds>(cycle_end - cycle_start);
+      auto cycle_time = std::chrono::duration_cast<std::chrono::microseconds>(
+          cycle_end - cycle_start);
       update_performance_stats(cycle_time);
 
       // Periodic performance reporting
@@ -1454,7 +1676,8 @@ private:
 
     if (trajectory_index_ < trajectory_target_.size()) {
       // Send current trajectory point
-      send_positions_to_motors(trajectory_target_[trajectory_index_], active_motors_);
+      send_positions_to_motors(trajectory_target_[trajectory_index_],
+                               active_motors_);
       trajectory_index_++;
     } else {
       // Trajectory complete, hold last position
@@ -1472,8 +1695,10 @@ private:
   }
 
   // Send positions to specific motors with optimization
-  void send_positions_to_motors(const std::vector<double>& positions, const std::vector<int>& motor_ids) {
-    if (!connected_ || positions.size() < 9) return;
+  void send_positions_to_motors(const std::vector<double> &positions,
+                                const std::vector<int> &motor_ids) {
+    if (!connected_ || positions.size() < 9)
+      return;
 
     // Group motors by type for optimized sending
     std::vector<int> dm_motors, ht_motors, servo_motors;
@@ -1492,8 +1717,8 @@ private:
     for (int motor_id : dm_motors) {
       int idx = motor_id - 1;
       double pos = positions[idx];
-      double vel = 0.0; // Can be enhanced to include velocity
-      double tau = 0.0; // Will be filled by compensation
+      double vel = 0.0;          // Can be enhanced to include velocity
+      double tau = 0.0;          // Will be filled by compensation
       double kp = 0.0, kd = 0.0; // TEACH_MODE gains
 
       send_dm_mit_command(motor_id, pos, vel, tau, kp, kd);
@@ -1546,11 +1771,13 @@ private:
     // Update actual frequency calculation every 100 cycles
     if (unified_cycle_count_ % 100 == 0) {
       auto now = std::chrono::high_resolution_clock::now();
-      auto elapsed = std::chrono::duration<double>(now - unified_start_time_).count();
+      auto elapsed =
+          std::chrono::duration<double>(now - unified_start_time_).count();
       if (elapsed > 0) {
         unified_stats_.actual_frequency = unified_cycle_count_ / elapsed;
       }
-      unified_stats_.average_jitter_us = unified_timer_->get_average_jitter_us();
+      unified_stats_.average_jitter_us =
+          unified_timer_->get_average_jitter_us();
       unified_stats_.total_cycles = unified_cycle_count_;
       unified_stats_.last_update = now;
     }
@@ -1566,13 +1793,17 @@ private:
               << unified_stats_.actual_frequency << " Hz" << std::endl;
     std::cout << "Average Jitter: " << std::fixed << std::setprecision(2)
               << unified_stats_.average_jitter_us << " μs" << std::endl;
-    std::cout << "Deadline Misses: " << unified_stats_.deadline_misses << std::endl;
+    std::cout << "Deadline Misses: " << unified_stats_.deadline_misses
+              << std::endl;
     std::cout << "Total Cycles: " << unified_stats_.total_cycles << std::endl;
-    std::cout << "Min Cycle Time: " << unified_stats_.min_cycle_time.count() << " μs" << std::endl;
-    std::cout << "Max Cycle Time: " << unified_stats_.max_cycle_time.count() << " μs" << std::endl;
+    std::cout << "Min Cycle Time: " << unified_stats_.min_cycle_time.count()
+              << " μs" << std::endl;
+    std::cout << "Max Cycle Time: " << unified_stats_.max_cycle_time.count()
+              << " μs" << std::endl;
 
     if (unified_stats_.deadline_misses > 0) {
-      double miss_rate = (double)unified_stats_.deadline_misses / unified_stats_.total_cycles * 100.0;
+      double miss_rate = (double)unified_stats_.deadline_misses /
+                         unified_stats_.total_cycles * 100.0;
       std::cout << "Deadline Miss Rate: " << std::fixed << std::setprecision(2)
                 << miss_rate << "%" << std::endl;
     }
@@ -2990,9 +3221,17 @@ private:
   void send_ht_mit_command_single(int motor_id, double position,
                                   double velocity, double torque, double kp,
                                   double kd) {
-    if (!device_) {
-      std::cout << "❌ Device not initialized for HT MIT command" << std::endl;
-      return;
+    // Check for proper communication backend initialization
+    if (using_factory_backend_) {
+      if (!communication_adapter_) {
+        std::cout << "❌ Communication adapter not initialized for HT MIT command" << std::endl;
+        return;
+      }
+    } else {
+      if (!device_) {
+        std::cout << "❌ Device not initialized for HT MIT command" << std::endl;
+        return;
+      }
     }
 
     if (motor_id != 7 && motor_id != 8) {
@@ -3050,10 +3289,20 @@ private:
   // Universal CAN frame sending function
   void send_can_frame(uint32_t can_id, const std::vector<uint8_t> &data,
                       bool is_extended_frame = false) {
-    if (!device_) {
-      std::cout << "❌ Device not initialized for CAN frame sending"
-                << std::endl;
-      return;
+    // Check for proper communication backend initialization
+    if (using_factory_backend_) {
+      if (!communication_adapter_) {
+        std::cout
+            << "❌ Communication adapter not initialized for CAN frame sending"
+            << std::endl;
+        return;
+      }
+    } else {
+      if (!device_) {
+        std::cout << "❌ Device not initialized for CAN frame sending"
+                  << std::endl;
+        return;
+      }
     }
 
     // Synchronous CAN communication - wait for our turn to send
@@ -3284,9 +3533,34 @@ private:
       }
     }
 
-    // Send frame using device's methods
-    device_->set_tx_frame(&frame);
-    device_->send_data();
+    // Send frame using appropriate backend
+    if (using_factory_backend_) {
+      // Use new communication adapter (ZLG, DM Tools, etc.)
+      CANFrame can_frame;
+      can_frame.id = can_id;
+
+      // Fix CAN ID format: DM motors (1-6) and servo (9) use standard, HT
+      // motors (7-8) use extended
+      if ((can_id >= 0x01 && can_id <= 0x06) || can_id == 0x09) {
+        can_frame.is_extended_id =
+            false; // Standard frame for DM motors and servo
+      } else {
+        can_frame.is_extended_id =
+            true; // Extended frame for HT motors (0x8007, 0x8008)
+      }
+
+      can_frame.data = data;
+
+      if (!communication_adapter_->send_frame(can_frame)) {
+        std::cout << "❌ Failed to send frame via communication adapter"
+                  << std::endl;
+        return;
+      }
+    } else {
+      // Use legacy device path (old DM Tools)
+      device_->set_tx_frame(&frame);
+      device_->send_data();
+    }
     if (can_id == 0x8007 or can_id == 0x8008) {
       std::cout << "[CAN SEND] SLeep for big can ht " << std::endl;
       /*usleep(5000);*/
@@ -3322,6 +3596,12 @@ private:
   bool debug_enabled_;
   bool connected_;
   std::unique_ptr<usb_class> device_;
+
+  // Communication backend configuration
+  CommunicationConfig comm_config_;
+  std::unique_ptr<CANCommunicationInterface> communication_adapter_;
+  std::string current_backend_name_;
+  bool using_factory_backend_ = false;
 
   std::atomic<double> positions_[9];
   std::atomic<double> velocities_[9];
@@ -3654,9 +3934,369 @@ void IC_CAN::Impl::performance_monitor_thread_function() {
   std::cout << "✅ Performance monitor thread stopped" << std::endl;
 }
 
+//   // ================================================================
+//   // COMMUNICATION BACKEND MANAGEMENT IMPLEMENTATION
+//   // ================================================================
+//
+//   bool IC_CAN::Impl::set_communication_config(const CommunicationConfig&
+//   comm_config) {
+//     comm_config_ = comm_config;
+//
+//     // If already connected and using factory backend, reinitialize with new
+//     config if (connected_ && using_factory_backend_) {
+//       shutdown();
+//       return initialize();
+//     }
+//
+//     return true;
+//   }
+//
+//   bool IC_CAN::Impl::switch_communication_backend(const std::string&
+//   backend_name) {
+//     if (connected_) {
+//       shutdown();
+//     }
+//
+//     // Update configuration to use specific backend
+//     comm_config_.preferred_backend = backend_name;
+//     comm_config_.fallback_backends = {backend_name}; // Only try the
+//     specified backend
+//
+//     return initialize();
+//   }
+//
+//   std::vector<std::string> IC_CAN::Impl::get_available_backends() const {
+//     std::vector<std::string> backends;
+//
+//     // Convert CommunicationConfig to CommunicationFactoryConfig for testing
+//     CommunicationFactoryConfig factory_config;
+//
+//     // Test each backend type
+//     std::vector<CommunicationBackend> backend_types = {
+//       CommunicationBackend::ZLG_CANFD,
+//       CommunicationBackend::DM_TOOLS,
+//       CommunicationBackend::SIMULATION
+//     };
+//
+//     for (auto backend_type : backend_types) {
+//       if (CANCommunicationFactory::is_backend_available(backend_type,
+//       factory_config)) {
+//         switch (backend_type) {
+//           case CommunicationBackend::ZLG_CANFD:
+//             backends.push_back("zlg");
+//             break;
+//           case CommunicationBackend::DM_TOOLS:
+//             backends.push_back("dm_tools");
+//             break;
+//           case CommunicationBackend::SIMULATION:
+//             backends.push_back("simulation");
+//             break;
+//           default:
+//             break;
+//         }
+//       }
+//     }
+//
+//     return backends;
+//   }
+//
+//   std::map<std::string, bool>
+//   IC_CAN::Impl::test_communication_backends(uint32_t test_duration_ms) const
+//   {
+//     // Convert CommunicationConfig to CommunicationFactoryConfig for testing
+//     CommunicationFactoryConfig factory_config;
+//
+//     auto string_to_backend_lambda = [](const std::string& backend_name) ->
+//     CommunicationBackend {
+//       if (backend_name == "zlg") return CommunicationBackend::ZLG_CANFD;
+//       if (backend_name == "dm_tools") return CommunicationBackend::DM_TOOLS;
+//       if (backend_name == "simulation") return
+//       CommunicationBackend::SIMULATION; return CommunicationBackend::AUTO;
+//     };
+//
+//     factory_config.preferred_backend =
+//     string_to_backend_lambda(comm_config_.preferred_backend); for (const
+//     auto& backend_name : comm_config_.fallback_backends) {
+//       factory_config.fallback_backends.push_back(string_to_backend_lambda(backend_name));
+//     }
+//
+//     return CANCommunicationFactory::test_backends(factory_config,
+//     test_duration_ms);
+//   }
+//
+//   std::map<std::string, std::map<std::string, double>>
+//   IC_CAN::Impl::compare_backend_performance(uint32_t test_duration_ms) const
+//   {
+//     // Convert CommunicationConfig to CommunicationFactoryConfig for testing
+//     CommunicationFactoryConfig factory_config;
+//
+//     auto string_to_backend_lambda = [](const std::string& backend_name) ->
+//     CommunicationBackend {
+//       if (backend_name == "zlg") return CommunicationBackend::ZLG_CANFD;
+//       if (backend_name == "dm_tools") return CommunicationBackend::DM_TOOLS;
+//       if (backend_name == "simulation") return
+//       CommunicationBackend::SIMULATION; return CommunicationBackend::AUTO;
+//     };
+//
+//     factory_config.preferred_backend =
+//     string_to_backend_lambda(comm_config_.preferred_backend); for (const
+//     auto& backend_name : comm_config_.fallback_backends) {
+//       factory_config.fallback_backends.push_back(string_to_backend_lambda(backend_name));
+//     }
+//
+//     return
+//     CANCommunicationFactory::compare_backend_performance(factory_config,
+//     test_duration_ms);
+//   }
+//
+//   void IC_CAN::Impl::print_communication_status() const {
+//     std::cout << "\n📡 Communication Backend Status:" << std::endl;
+//     std::cout << "   Current Backend: " << current_backend_name_ <<
+//     std::endl; std::cout << "   Using Factory: " << (using_factory_backend_ ?
+//     "Yes" : "No") << std::endl; std::cout << "   Preferred Backend: " <<
+//     comm_config_.preferred_backend << std::endl; std::cout << "   Device
+//     Serial: " << (comm_config_.device_serial.empty() ? "Auto-detect" :
+//     comm_config_.device_serial) << std::endl; std::cout << "   Preferred
+//     Channel: " << comm_config_.preferred_channel << std::endl; std::cout << "
+//     ZLG CAN FD Mode: " << (comm_config_.zlg_can_fd_mode ? "Enabled" :
+//     "Disabled") << std::endl; std::cout << "   ZLG Arbitration Baud: " <<
+//     comm_config_.zlg_arbitration_baud << " bps" << std::endl; std::cout << "
+//     ZLG Data Baud: " << comm_config_.zlg_data_baud << " bps" << std::endl;
+//     std::cout << "   Performance Monitoring: " <<
+//     (comm_config_.enable_performance_monitoring ? "Enabled" : "Disabled") <<
+//     std::endl;
+//
+//     if (connected_) {
+//       std::cout << "   Status: ✅ Connected" << std::endl;
+//     } else {
+//       std::cout << "   Status: ❌ Disconnected" << std::endl;
+//     }
+//
+//     // Show available backends
+//     auto available = get_available_backends();
+//     std::cout << "   Available Backends: [";
+//     for (size_t i = 0; i < available.size(); ++i) {
+//       std::cout << available[i];
+//       if (i < available.size() - 1) std::cout << ", ";
+//     }
+//     std::cout << "]" << std::endl;
+//     std::cout << std::endl;
+//   }
+//
+//   // ================================================================
+//   // MULTI-CHANNEL CONFIGURATION IMPLEMENTATION
+//   // ================================================================
+//
+//   bool IC_CAN::Impl::configure_can_channel(uint32_t channel_index, uint32_t
+//   arbitration_baud, uint32_t data_baud) {
+//     if (!using_factory_backend_ || !communication_adapter_) {
+//       std::cout << "❌ Multi-channel configuration only available with ZLG
+//       CAN FD backend" << std::endl; return false;
+//     }
+//
+//     // Update communication configuration
+//     comm_config_.preferred_channel = static_cast<int>(channel_index);
+//     comm_config_.zlg_arbitration_baud = arbitration_baud;
+//     comm_config_.zlg_data_baud = data_baud;
+//
+//     // Note: For actual channel reconfiguration, we would need to cast to
+//     ZLGCanFDCommunicationAdapter
+//     // and call the specific channel configuration methods. For now, we'll
+//     update the configuration
+//     // and require reinitialization to apply changes.
+//
+//     std::cout << "⚠️  Channel configuration updated. Reinitialization required
+//     to apply changes." << std::endl; std::cout << "   New channel: " <<
+//     channel_index << std::endl; std::cout << "   Arbitration Baud: " <<
+//     arbitration_baud << " bps" << std::endl; std::cout << "   Data Baud: " <<
+//     data_baud << " bps" << std::endl;
+//
+//     return true;
+//   }
+//
+//   bool IC_CAN::Impl::auto_configure_can_channel() {
+//     if (!using_factory_backend_ || !communication_adapter_) {
+//       std::cout << "❌ Auto channel configuration only available with ZLG CAN
+//       FD backend" << std::endl; return false;
+//     }
+//
+//     std::cout << "🔍 Auto-detecting available CAN channels..." << std::endl;
+//
+//     // Try common channel indices
+//     std::vector<uint32_t> test_channels = {0, 1, 2, 3, 4, 5, 6, 7};
+//
+//     for (uint32_t channel : test_channels) {
+//       std::cout << "   Testing channel " << channel << "... ";
+//
+//       // Try to configure this channel
+//       if (configure_can_channel(channel, 1000000, 5000000)) {
+//         // Test communication on this channel
+//         if (refresh_all()) {
+//           std::this_thread::sleep_for(std::chrono::milliseconds(50));
+//
+//           if (receive_count_.load() > 0) {
+//             std::cout << "✅ SUCCESS! Channel " << channel << " is active" <<
+//             std::endl; comm_config_.preferred_channel =
+//             static_cast<int>(channel); return true;
+//           } else {
+//             std::cout << "❌ No response" << std::endl;
+//           }
+//         } else {
+//           std::cout << "❌ Communication failed" << std::endl;
+//         }
+//       }
+//     }
+//
+//     std::cout << "❌ No working channels found" << std::endl;
+//     return false;
+//   }
+//
+//   int IC_CAN::Impl::get_current_can_channel() const {
+//     if (!using_factory_backend_) {
+//       return -1; // Not using ZLG backend
+//     }
+//     return comm_config_.preferred_channel;
+//   }
+//
+//   std::vector<uint32_t> IC_CAN::Impl::get_available_can_channels() const {
+//     if (!using_factory_backend_) {
+//       return {}; // Not using ZLG backend
+//     }
+//
+//     std::cout << "🔍 Scanning for available ZLG CAN FD channels..." <<
+//     std::endl; std::vector<uint32_t> available_channels;
+//
+//     // Test standard channel range (0-15 for most ZLG devices)
+//     for (uint32_t channel = 0; channel < 16; ++channel) {
+//       std::cout << "   Testing channel " << channel << "... ";
+//
+//       // For now, we'll do a basic test by trying to refresh motors
+//       // In a full implementation, we would query the device for channel
+//       availability int original_channel = comm_config_.preferred_channel;
+//       comm_config_.preferred_channel = static_cast<int>(channel);
+//
+//       if (refresh_all()) {
+//         std::this_thread::sleep_for(std::chrono::milliseconds(20));
+//
+//         if (receive_count_.load() > 0) {
+//           available_channels.push_back(channel);
+//           std::cout << "✅ Available" << std::endl;
+//         } else {
+//           std::cout << "❌ No response" << std::endl;
+//         }
+//       } else {
+//         std::cout << "❌ Not available" << std::endl;
+//       }
+//
+//       // Restore original channel
+//       comm_config_.preferred_channel = original_channel;
+//     }
+//
+//     std::cout << "✅ Found " << available_channels.size() << " available
+//     channels" << std::endl; return available_channels;
+//   }
+//
+//   bool IC_CAN::Impl::switch_can_channel(uint32_t new_channel_index) {
+//     if (!using_factory_backend_) {
+//       std::cout << "❌ Channel switching only available with ZLG CAN FD
+//       backend" << std::endl; return false;
+//     }
+//
+//     std::cout << "🔄 Switching to channel " << new_channel_index << "..." <<
+//     std::endl;
+//
+//     // Update configuration
+//     comm_config_.preferred_channel = static_cast<int>(new_channel_index);
+//
+//     // Reinitialize with new channel configuration
+//     shutdown();
+//     bool success = initialize();
+//
+//     if (success) {
+//       std::cout << "✅ Successfully switched to channel " <<
+//       new_channel_index << std::endl;
+//     } else {
+//       std::cout << "❌ Failed to switch to channel " << new_channel_index <<
+//       std::endl;
+//     }
+//
+//     return success;
+//   }
+//
+//   bool IC_CAN::Impl::set_can_fd_mode(bool can_fd_mode) {
+//     if (!using_factory_backend_) {
+//       std::cout << "❌ CAN FD mode configuration only available with ZLG CAN
+//       FD backend" << std::endl; return false;
+//     }
+//
+//     comm_config_.zlg_can_fd_mode = can_fd_mode;
+//
+//     std::cout << "⚠️  CAN FD mode set to " << (can_fd_mode ? "ENABLED" :
+//     "DISABLED")
+//               << ". Reinitialization required to apply changes." <<
+//               std::endl;
+//
+//     return true;
+//   }
+//
+//   bool IC_CAN::Impl::is_can_fd_mode_enabled() const {
+//     if (!using_factory_backend_) {
+//       return false;
+//     }
+//     return comm_config_.zlg_can_fd_mode;
+//   }
+//
+//   void IC_CAN::Impl::print_channel_status() const {
+//     std::cout << "\n📡 Multi-Channel Configuration Status:" << std::endl;
+//     std::cout << "   Backend: " << current_backend_name_ << std::endl;
+//
+//     if (using_factory_backend_) {
+//       std::cout << "   Multi-Channel Support: ✅ Available" << std::endl;
+//       std::cout << "   Current Channel: " << comm_config_.preferred_channel
+//       << std::endl; std::cout << "   CAN FD Mode: " <<
+//       (comm_config_.zlg_can_fd_mode ? "✅ Enabled" : "❌ Disabled") <<
+//       std::endl; std::cout << "   Arbitration Baud: " <<
+//       comm_config_.zlg_arbitration_baud << " bps" << std::endl; std::cout <<
+//       "   Data Baud: " << comm_config_.zlg_data_baud << " bps" << std::endl;
+//
+//       // Show available channels
+//       auto channels = get_available_can_channels();
+//       std::cout << "   Available Channels: [";
+//       for (size_t i = 0; i < channels.size(); ++i) {
+//         std::cout << channels[i];
+//         if (i < channels.size() - 1) std::cout << ", ";
+//       }
+//       std::cout << "]" << std::endl;
+//     } else {
+//       std::cout << "   Multi-Channel Support: ❌ Not available (use ZLG CAN
+//       FD backend)" << std::endl;
+//     }
+//
+//     std::cout << std::endl;
+//   }
+// };
+
 // IC_CAN class implementation
-IC_CAN::IC_CAN(const std::string &device_sn, bool debug)
-    : impl_(std::make_unique<Impl>(device_sn, debug)) {}
+IC_CAN::IC_CAN(const std::string &device_sn, bool debug) {
+  // Create a ZLG-preferring CommunicationConfig by default
+  CommunicationConfig config;
+  config.preferred_backend = "zlg"; // Default to ZLG CAN FD
+  config.fallback_backends = {"dm_tools", "simulation", "auto"};
+  config.device_serial = device_sn;      // Use provided serial for ZLG as well
+  config.preferred_channel = 0;          // Auto-detect channel
+  config.zlg_can_fd_mode = true;         // Enable CAN FD by default
+  config.zlg_arbitration_baud = 1000000; // 1 Mbps
+  config.zlg_data_baud = 5000000;        // 5 Mbps
+  config.zlg_library_path = "/home/lr-2002/project/InstantCreation/ic_can/lib/"
+                            "zlg_canfd/libcontrolcanfd.so"; // ZLG library path
+  config.enable_performance_monitoring = true;
+  config.verbose_logging = debug;
+
+  impl_ = std::make_unique<Impl>(config, debug);
+}
+
+IC_CAN::IC_CAN(const CommunicationConfig &comm_config, bool debug)
+    : impl_(std::make_unique<Impl>(comm_config, debug)) {}
 
 IC_CAN::~IC_CAN() = default;
 
@@ -3935,19 +4575,18 @@ bool IC_CAN::start_unified_control(double frequency_hz) {
   return impl_->start_unified_control(frequency_hz);
 }
 
-void IC_CAN::stop_unified_control() {
-  impl_->stop_unified_control();
-}
+void IC_CAN::stop_unified_control() { impl_->stop_unified_control(); }
 
-bool IC_CAN::set_target_position(const std::vector<double>& positions) {
+bool IC_CAN::set_target_position(const std::vector<double> &positions) {
   return impl_->set_target_position(positions);
 }
 
-bool IC_CAN::set_target_trajectory(const std::vector<std::vector<double>>& trajectory) {
+bool IC_CAN::set_target_trajectory(
+    const std::vector<std::vector<double>> &trajectory) {
   return impl_->set_target_trajectory(trajectory);
 }
 
-bool IC_CAN::set_motor_selection(const std::vector<int>& motor_ids) {
+bool IC_CAN::set_motor_selection(const std::vector<int> &motor_ids) {
   return impl_->set_motor_selection(motor_ids);
 }
 
@@ -3960,11 +4599,114 @@ IC_CAN::UnifiedPerformanceStats IC_CAN::get_unified_performance_stats() const {
 }
 
 void IC_CAN::print_unified_performance_stats() const {
-  impl_->print_unified_performance_stats();
+  if (impl_) {
+    impl_->print_unified_performance_stats();
+  }
 }
 
 bool IC_CAN::change_unified_frequency(double new_frequency_hz) {
+  if (!impl_)
+    return false;
   return impl_->change_unified_frequency(new_frequency_hz);
 }
+//
+// // ================================================================
+// // COMMUNICATION BACKEND MANAGEMENT IMPLEMENTATION
+// // ================================================================
+//
+// bool IC_CAN::set_communication_config(const CommunicationConfig& comm_config)
+// {
+//   return impl_->set_communication_config(comm_config);
+// }
+//
+// IC_CAN::CommunicationConfig IC_CAN::get_communication_config() const {
+//   return impl_->comm_config_;
+// }
+//
+// bool IC_CAN::switch_communication_backend(const std::string& backend_name) {
+//   return impl_->switch_communication_backend(backend_name);
+// }
+//
+std::string IC_CAN::get_current_backend() const {
+  if (!impl_)
+    return "none";
+  return impl_->current_backend_name_;
+}
+//
+// std::vector<std::string> IC_CAN::get_available_backends() const {
+//   return impl_->get_available_backends();
+// }
+//
+// std::map<std::string, bool> IC_CAN::test_communication_backends(uint32_t
+// test_duration_ms) const {
+//   return impl_->test_communication_backends(test_duration_ms);
+// }
+//
+// std::map<std::string, std::map<std::string, double>>
+// IC_CAN::compare_backend_performance(uint32_t test_duration_ms) const {
+//   return impl_->compare_backend_performance(test_duration_ms);
+// }
+//
+// void IC_CAN::print_communication_status() const {
+//   impl_->print_communication_status();
+// }
+//
+// // ================================================================
+// // MULTI-CHANNEL CONFIGURATION IMPLEMENTATION
+// // ================================================================
+//
+// bool IC_CAN::configure_can_channel(uint32_t channel_index, uint32_t
+// arbitration_baud, uint32_t data_baud) {
+//   return impl_->configure_can_channel(channel_index, arbitration_baud,
+//   data_baud);
+// }
+//
+// bool IC_CAN::auto_configure_can_channel() {
+//   return impl_->auto_configure_can_channel();
+// }
+//
+// int IC_CAN::get_current_can_channel() const {
+//   return impl_->get_current_can_channel();
+// }
+//
+// std::vector<uint32_t> IC_CAN::get_available_can_channels() const {
+//   return impl_->get_available_can_channels();
+// }
+//
+// bool IC_CAN::switch_can_channel(uint32_t new_channel_index) {
+//   return impl_->switch_can_channel(new_channel_index);
+// }
+//
+// bool IC_CAN::set_can_fd_mode(bool can_fd_mode) {
+//   return impl_->set_can_fd_mode(can_fd_mode);
+// }
+//
+// bool IC_CAN::is_can_fd_mode_enabled() const {
+//   return impl_->is_can_fd_mode_enabled();
+// }
+//
+void IC_CAN::print_channel_status() const {
+  if (!impl_) {
+    std::cout << "❌ IC_CAN not initialized" << std::endl;
+    return;
+  }
 
+  std::cout << "📊 Channel Status:" << std::endl;
+  std::cout << "   Backend: " << impl_->current_backend_name_ << std::endl;
+  std::cout << "   Status: "
+            << (impl_->connected_ ? "✅ Connected" : "❌ Not connected")
+            << std::endl;
+
+  if (impl_->communication_adapter_) {
+    std::cout << "   Adapter: ✅ Connected" << std::endl;
+    auto stats = impl_->communication_adapter_->get_statistics();
+    std::cout << "   Frames Sent: " << stats.frames_sent << std::endl;
+    std::cout << "   Frames Received: " << stats.frames_received << std::endl;
+    std::cout << "   Send Errors: " << stats.send_errors << std::endl;
+    std::cout << "   Receive Errors: " << stats.receive_errors << std::endl;
+  } else {
+    std::cout << "   Adapter: ❌ Not connected" << std::endl;
+  }
+}
+//
 } // namespace ic_can

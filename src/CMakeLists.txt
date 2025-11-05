@@ -11,6 +11,7 @@ cmake_minimum_required(VERSION 3.14)
 set(CORE_SOURCES)
 set(MOTORS_SOURCES)
 set(PROTOCOLS_SOURCES)
+set(COMMUNICATION_SOURCES)
 set(TORQUE_PREDICTORS_SOURCES)
 
 # Core components
@@ -67,6 +68,24 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/ic_can/core/torque_predictor_unified.cpp"
     message(STATUS "✅ Added unified torque predictor")
 endif()
 
+# Communication backend sources
+if(BUILD_WITH_ZLG_CANFD AND ZLG_CANFD_LIBRARY)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/ic_can/core/zlg_canfd_communication_adapter.cpp")
+        list(APPEND COMMUNICATION_SOURCES "ic_can/core/zlg_canfd_communication_adapter.cpp")
+        message(STATUS "✅ Added ZLG CAN FD communication adapter")
+    endif()
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/ic_can/core/can_communication_factory.cpp")
+    list(APPEND COMMUNICATION_SOURCES "ic_can/core/can_communication_factory.cpp")
+    message(STATUS "✅ Added CAN communication factory")
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/ic_can/core/simulation_communication_adapter.cpp")
+    list(APPEND COMMUNICATION_SOURCES "ic_can/core/simulation_communication_adapter.cpp")
+    message(STATUS "✅ Added simulation communication adapter")
+endif()
+
 # ===================================
 # MATLAB/OBJECT FILES (Optional)
 # ===================================
@@ -107,6 +126,7 @@ set(IC_CAN_CORE_SOURCES
     ${CORE_SOURCES}
     ${MOTORS_SOURCES}
     ${PROTOCOLS_SOURCES}
+    ${COMMUNICATION_SOURCES}
     ${TORQUE_PREDICTORS_SOURCES}
     ${MATLAB_OBJECTS}
 )
@@ -165,6 +185,17 @@ if(IC_CAN_CORE_SOURCES)
                 ${CMAKE_CURRENT_SOURCE_DIR}/../lib/dm-tools/C++/ubuntu/lib/libu2canfd.a
             )
             message(STATUS "✅ Added dm-tools SDK library")
+        endif()
+    endif()
+
+    # Add ZLG CAN FD library if available
+    if(BUILD_WITH_ZLG_CANFD AND ZLG_CANFD_LIBRARY)
+        target_link_libraries(ic_can_core ${ZLG_CANFD_LIBRARY})
+        message(STATUS "✅ Added ZLG CAN FD library: ${ZLG_CANFD_LIBRARY}")
+
+        # Add dl library for dynamic loading
+        if(UNIX AND NOT APPLE)
+            target_link_libraries(ic_can_core dl)
         endif()
     endif()
 

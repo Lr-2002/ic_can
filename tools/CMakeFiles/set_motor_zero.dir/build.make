@@ -100,6 +100,7 @@ tools/set_motor_zero: src/libic_can_core.so.1.0.0
 tools/set_motor_zero: tools/../lib/dm-tools/C++/ubuntu/lib/libu2canfd.a
 tools/set_motor_zero: /usr/lib/x86_64-linux-gnu/libusb-1.0.so
 tools/set_motor_zero: src/../lib/dm-tools/C++/ubuntu/lib/libu2canfd.a
+tools/set_motor_zero: lib/zlg_canfd/libcontrolcanfd.so
 tools/set_motor_zero: tools/CMakeFiles/set_motor_zero.dir/link.txt
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir=/home/lr-2002/project/InstantCreation/ic_can/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Linking CXX executable set_motor_zero"
 	cd /home/lr-2002/project/InstantCreation/ic_can/tools && $(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/set_motor_zero.dir/link.txt --verbose=$(VERBOSE)

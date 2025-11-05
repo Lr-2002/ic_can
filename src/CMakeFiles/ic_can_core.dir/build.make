@@ -181,10 +181,52 @@ src/CMakeFiles/ic_can_core.dir/ic_can/motors/servo_motor.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling CXX source to assembly CMakeFiles/ic_can_core.dir/ic_can/motors/servo_motor.cpp.s"
 	cd /home/lr-2002/project/InstantCreation/ic_can/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/lr-2002/project/InstantCreation/ic_can/src/ic_can/motors/servo_motor.cpp -o CMakeFiles/ic_can_core.dir/ic_can/motors/servo_motor.cpp.s
 
+src/CMakeFiles/ic_can_core.dir/ic_can/core/zlg_canfd_communication_adapter.cpp.o: src/CMakeFiles/ic_can_core.dir/flags.make
+src/CMakeFiles/ic_can_core.dir/ic_can/core/zlg_canfd_communication_adapter.cpp.o: src/ic_can/core/zlg_canfd_communication_adapter.cpp
+src/CMakeFiles/ic_can_core.dir/ic_can/core/zlg_canfd_communication_adapter.cpp.o: src/CMakeFiles/ic_can_core.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/lr-2002/project/InstantCreation/ic_can/CMakeFiles --progress-num=$(CMAKE_PROGRESS_9) "Building CXX object src/CMakeFiles/ic_can_core.dir/ic_can/core/zlg_canfd_communication_adapter.cpp.o"
+	cd /home/lr-2002/project/InstantCreation/ic_can/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/ic_can_core.dir/ic_can/core/zlg_canfd_communication_adapter.cpp.o -MF CMakeFiles/ic_can_core.dir/ic_can/core/zlg_canfd_communication_adapter.cpp.o.d -o CMakeFiles/ic_can_core.dir/ic_can/core/zlg_canfd_communication_adapter.cpp.o -c /home/lr-2002/project/InstantCreation/ic_can/src/ic_can/core/zlg_canfd_communication_adapter.cpp
+
+src/CMakeFiles/ic_can_core.dir/ic_can/core/zlg_canfd_communication_adapter.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing CXX source to CMakeFiles/ic_can_core.dir/ic_can/core/zlg_canfd_communication_adapter.cpp.i"
+	cd /home/lr-2002/project/InstantCreation/ic_can/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/lr-2002/project/InstantCreation/ic_can/src/ic_can/core/zlg_canfd_communication_adapter.cpp > CMakeFiles/ic_can_core.dir/ic_can/core/zlg_canfd_communication_adapter.cpp.i
+
+src/CMakeFiles/ic_can_core.dir/ic_can/core/zlg_canfd_communication_adapter.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling CXX source to assembly CMakeFiles/ic_can_core.dir/ic_can/core/zlg_canfd_communication_adapter.cpp.s"
+	cd /home/lr-2002/project/InstantCreation/ic_can/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/lr-2002/project/InstantCreation/ic_can/src/ic_can/core/zlg_canfd_communication_adapter.cpp -o CMakeFiles/ic_can_core.dir/ic_can/core/zlg_canfd_communication_adapter.cpp.s
+
+src/CMakeFiles/ic_can_core.dir/ic_can/core/can_communication_factory.cpp.o: src/CMakeFiles/ic_can_core.dir/flags.make
+src/CMakeFiles/ic_can_core.dir/ic_can/core/can_communication_factory.cpp.o: src/ic_can/core/can_communication_factory.cpp
+src/CMakeFiles/ic_can_core.dir/ic_can/core/can_communication_factory.cpp.o: src/CMakeFiles/ic_can_core.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/lr-2002/project/InstantCreation/ic_can/CMakeFiles --progress-num=$(CMAKE_PROGRESS_10) "Building CXX object src/CMakeFiles/ic_can_core.dir/ic_can/core/can_communication_factory.cpp.o"
+	cd /home/lr-2002/project/InstantCreation/ic_can/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/ic_can_core.dir/ic_can/core/can_communication_factory.cpp.o -MF CMakeFiles/ic_can_core.dir/ic_can/core/can_communication_factory.cpp.o.d -o CMakeFiles/ic_can_core.dir/ic_can/core/can_communication_factory.cpp.o -c /home/lr-2002/project/InstantCreation/ic_can/src/ic_can/core/can_communication_factory.cpp
+
+src/CMakeFiles/ic_can_core.dir/ic_can/core/can_communication_factory.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing CXX source to CMakeFiles/ic_can_core.dir/ic_can/core/can_communication_factory.cpp.i"
+	cd /home/lr-2002/project/InstantCreation/ic_can/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/lr-2002/project/InstantCreation/ic_can/src/ic_can/core/can_communication_factory.cpp > CMakeFiles/ic_can_core.dir/ic_can/core/can_communication_factory.cpp.i
+
+src/CMakeFiles/ic_can_core.dir/ic_can/core/can_communication_factory.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling CXX source to assembly CMakeFiles/ic_can_core.dir/ic_can/core/can_communication_factory.cpp.s"
+	cd /home/lr-2002/project/InstantCreation/ic_can/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/lr-2002/project/InstantCreation/ic_can/src/ic_can/core/can_communication_factory.cpp -o CMakeFiles/ic_can_core.dir/ic_can/core/can_communication_factory.cpp.s
+
+src/CMakeFiles/ic_can_core.dir/ic_can/core/simulation_communication_adapter.cpp.o: src/CMakeFiles/ic_can_core.dir/flags.make
+src/CMakeFiles/ic_can_core.dir/ic_can/core/simulation_communication_adapter.cpp.o: src/ic_can/core/simulation_communication_adapter.cpp
+src/CMakeFiles/ic_can_core.dir/ic_can/core/simulation_communication_adapter.cpp.o: src/CMakeFiles/ic_can_core.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/lr-2002/project/InstantCreation/ic_can/CMakeFiles --progress-num=$(CMAKE_PROGRESS_11) "Building CXX object src/CMakeFiles/ic_can_core.dir/ic_can/core/simulation_communication_adapter.cpp.o"
+	cd /home/lr-2002/project/InstantCreation/ic_can/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/ic_can_core.dir/ic_can/core/simulation_communication_adapter.cpp.o -MF CMakeFiles/ic_can_core.dir/ic_can/core/simulation_communication_adapter.cpp.o.d -o CMakeFiles/ic_can_core.dir/ic_can/core/simulation_communication_adapter.cpp.o -c /home/lr-2002/project/InstantCreation/ic_can/src/ic_can/core/simulation_communication_adapter.cpp
+
+src/CMakeFiles/ic_can_core.dir/ic_can/core/simulation_communication_adapter.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing CXX source to CMakeFiles/ic_can_core.dir/ic_can/core/simulation_communication_adapter.cpp.i"
+	cd /home/lr-2002/project/InstantCreation/ic_can/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/lr-2002/project/InstantCreation/ic_can/src/ic_can/core/simulation_communication_adapter.cpp > CMakeFiles/ic_can_core.dir/ic_can/core/simulation_communication_adapter.cpp.i
+
+src/CMakeFiles/ic_can_core.dir/ic_can/core/simulation_communication_adapter.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling CXX source to assembly CMakeFiles/ic_can_core.dir/ic_can/core/simulation_communication_adapter.cpp.s"
+	cd /home/lr-2002/project/InstantCreation/ic_can/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/lr-2002/project/InstantCreation/ic_can/src/ic_can/core/simulation_communication_adapter.cpp -o CMakeFiles/ic_can_core.dir/ic_can/core/simulation_communication_adapter.cpp.s
+
 src/CMakeFiles/ic_can_core.dir/ic_can/core/torque_predictor_pinocchio.cpp.o: src/CMakeFiles/ic_can_core.dir/flags.make
 src/CMakeFiles/ic_can_core.dir/ic_can/core/torque_predictor_pinocchio.cpp.o: src/ic_can/core/torque_predictor_pinocchio.cpp
 src/CMakeFiles/ic_can_core.dir/ic_can/core/torque_predictor_pinocchio.cpp.o: src/CMakeFiles/ic_can_core.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/lr-2002/project/InstantCreation/ic_can/CMakeFiles --progress-num=$(CMAKE_PROGRESS_9) "Building CXX object src/CMakeFiles/ic_can_core.dir/ic_can/core/torque_predictor_pinocchio.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/lr-2002/project/InstantCreation/ic_can/CMakeFiles --progress-num=$(CMAKE_PROGRESS_12) "Building CXX object src/CMakeFiles/ic_can_core.dir/ic_can/core/torque_predictor_pinocchio.cpp.o"
 	cd /home/lr-2002/project/InstantCreation/ic_can/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/ic_can_core.dir/ic_can/core/torque_predictor_pinocchio.cpp.o -MF CMakeFiles/ic_can_core.dir/ic_can/core/torque_predictor_pinocchio.cpp.o.d -o CMakeFiles/ic_can_core.dir/ic_can/core/torque_predictor_pinocchio.cpp.o -c /home/lr-2002/project/InstantCreation/ic_can/src/ic_can/core/torque_predictor_pinocchio.cpp
 
 src/CMakeFiles/ic_can_core.dir/ic_can/core/torque_predictor_pinocchio.cpp.i: cmake_force
@@ -198,7 +240,7 @@ src/CMakeFiles/ic_can_core.dir/ic_can/core/torque_predictor_pinocchio.cpp.s: cma
 src/CMakeFiles/ic_can_core.dir/ic_can/core/torque_predictor_unified.cpp.o: src/CMakeFiles/ic_can_core.dir/flags.make
 src/CMakeFiles/ic_can_core.dir/ic_can/core/torque_predictor_unified.cpp.o: src/ic_can/core/torque_predictor_unified.cpp
 src/CMakeFiles/ic_can_core.dir/ic_can/core/torque_predictor_unified.cpp.o: src/CMakeFiles/ic_can_core.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/lr-2002/project/InstantCreation/ic_can/CMakeFiles --progress-num=$(CMAKE_PROGRESS_10) "Building CXX object src/CMakeFiles/ic_can_core.dir/ic_can/core/torque_predictor_unified.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/lr-2002/project/InstantCreation/ic_can/CMakeFiles --progress-num=$(CMAKE_PROGRESS_13) "Building CXX object src/CMakeFiles/ic_can_core.dir/ic_can/core/torque_predictor_unified.cpp.o"
 	cd /home/lr-2002/project/InstantCreation/ic_can/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/ic_can_core.dir/ic_can/core/torque_predictor_unified.cpp.o -MF CMakeFiles/ic_can_core.dir/ic_can/core/torque_predictor_unified.cpp.o.d -o CMakeFiles/ic_can_core.dir/ic_can/core/torque_predictor_unified.cpp.o -c /home/lr-2002/project/InstantCreation/ic_can/src/ic_can/core/torque_predictor_unified.cpp
 
 src/CMakeFiles/ic_can_core.dir/ic_can/core/torque_predictor_unified.cpp.i: cmake_force
@@ -219,6 +261,9 @@ ic_can_core_OBJECTS = \
 "CMakeFiles/ic_can_core.dir/ic_can/motors/dm_motor_real.cpp.o" \
 "CMakeFiles/ic_can_core.dir/ic_can/motors/ht_motor.cpp.o" \
 "CMakeFiles/ic_can_core.dir/ic_can/motors/servo_motor.cpp.o" \
+"CMakeFiles/ic_can_core.dir/ic_can/core/zlg_canfd_communication_adapter.cpp.o" \
+"CMakeFiles/ic_can_core.dir/ic_can/core/can_communication_factory.cpp.o" \
+"CMakeFiles/ic_can_core.dir/ic_can/core/simulation_communication_adapter.cpp.o" \
 "CMakeFiles/ic_can_core.dir/ic_can/core/torque_predictor_pinocchio.cpp.o" \
 "CMakeFiles/ic_can_core.dir/ic_can/core/torque_predictor_unified.cpp.o"
 
@@ -233,13 +278,17 @@ src/libic_can_core.so.1.0.0: src/CMakeFiles/ic_can_core.dir/ic_can/motors/base_m
 src/libic_can_core.so.1.0.0: src/CMakeFiles/ic_can_core.dir/ic_can/motors/dm_motor_real.cpp.o
 src/libic_can_core.so.1.0.0: src/CMakeFiles/ic_can_core.dir/ic_can/motors/ht_motor.cpp.o
 src/libic_can_core.so.1.0.0: src/CMakeFiles/ic_can_core.dir/ic_can/motors/servo_motor.cpp.o
+src/libic_can_core.so.1.0.0: src/CMakeFiles/ic_can_core.dir/ic_can/core/zlg_canfd_communication_adapter.cpp.o
+src/libic_can_core.so.1.0.0: src/CMakeFiles/ic_can_core.dir/ic_can/core/can_communication_factory.cpp.o
+src/libic_can_core.so.1.0.0: src/CMakeFiles/ic_can_core.dir/ic_can/core/simulation_communication_adapter.cpp.o
 src/libic_can_core.so.1.0.0: src/CMakeFiles/ic_can_core.dir/ic_can/core/torque_predictor_pinocchio.cpp.o
 src/libic_can_core.so.1.0.0: src/CMakeFiles/ic_can_core.dir/ic_can/core/torque_predictor_unified.cpp.o
 src/libic_can_core.so.1.0.0: src/CMakeFiles/ic_can_core.dir/build.make
 src/libic_can_core.so.1.0.0: /usr/lib/x86_64-linux-gnu/libusb-1.0.so
 src/libic_can_core.so.1.0.0: src/../lib/dm-tools/C++/ubuntu/lib/libu2canfd.a
+src/libic_can_core.so.1.0.0: lib/zlg_canfd/libcontrolcanfd.so
 src/libic_can_core.so.1.0.0: src/CMakeFiles/ic_can_core.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir=/home/lr-2002/project/InstantCreation/ic_can/CMakeFiles --progress-num=$(CMAKE_PROGRESS_11) "Linking CXX shared library libic_can_core.so"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir=/home/lr-2002/project/InstantCreation/ic_can/CMakeFiles --progress-num=$(CMAKE_PROGRESS_14) "Linking CXX shared library libic_can_core.so"
 	cd /home/lr-2002/project/InstantCreation/ic_can/src && $(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/ic_can_core.dir/link.txt --verbose=$(VERBOSE)
 	cd /home/lr-2002/project/InstantCreation/ic_can/src && $(CMAKE_COMMAND) -E cmake_symlink_library libic_can_core.so.1.0.0 libic_can_core.so.1 libic_can_core.so
 

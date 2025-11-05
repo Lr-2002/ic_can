@@ -199,6 +199,30 @@ ic_can/core/arm_component.cpp.s:
 	cd /home/lr-2002/project/InstantCreation/ic_can && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/ic_can_core.dir/build.make src/CMakeFiles/ic_can_core.dir/ic_can/core/arm_component.cpp.s
 .PHONY : ic_can/core/arm_component.cpp.s
 
+ic_can/core/can_communication_factory.o: ic_can/core/can_communication_factory.cpp.o
+.PHONY : ic_can/core/can_communication_factory.o
+
+# target to build an object file
+ic_can/core/can_communication_factory.cpp.o:
+	cd /home/lr-2002/project/InstantCreation/ic_can && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/ic_can_core.dir/build.make src/CMakeFiles/ic_can_core.dir/ic_can/core/can_communication_factory.cpp.o
+.PHONY : ic_can/core/can_communication_factory.cpp.o
+
+ic_can/core/can_communication_factory.i: ic_can/core/can_communication_factory.cpp.i
+.PHONY : ic_can/core/can_communication_factory.i
+
+# target to preprocess a source file
+ic_can/core/can_communication_factory.cpp.i:
+	cd /home/lr-2002/project/InstantCreation/ic_can && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/ic_can_core.dir/build.make src/CMakeFiles/ic_can_core.dir/ic_can/core/can_communication_factory.cpp.i
+.PHONY : ic_can/core/can_communication_factory.cpp.i
+
+ic_can/core/can_communication_factory.s: ic_can/core/can_communication_factory.cpp.s
+.PHONY : ic_can/core/can_communication_factory.s
+
+# target to generate assembly for a file
+ic_can/core/can_communication_factory.cpp.s:
+	cd /home/lr-2002/project/InstantCreation/ic_can && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/ic_can_core.dir/build.make src/CMakeFiles/ic_can_core.dir/ic_can/core/can_communication_factory.cpp.s
+.PHONY : ic_can/core/can_communication_factory.cpp.s
+
 ic_can/core/gripper_component.o: ic_can/core/gripper_component.cpp.o
 .PHONY : ic_can/core/gripper_component.o
 
@@ -246,6 +270,30 @@ ic_can/core/ic_can.s: ic_can/core/ic_can.cpp.s
 ic_can/core/ic_can.cpp.s:
 	cd /home/lr-2002/project/InstantCreation/ic_can && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/ic_can_core.dir/build.make src/CMakeFiles/ic_can_core.dir/ic_can/core/ic_can.cpp.s
 .PHONY : ic_can/core/ic_can.cpp.s
+
+ic_can/core/simulation_communication_adapter.o: ic_can/core/simulation_communication_adapter.cpp.o
+.PHONY : ic_can/core/simulation_communication_adapter.o
+
+# target to build an object file
+ic_can/core/simulation_communication_adapter.cpp.o:
+	cd /home/lr-2002/project/InstantCreation/ic_can && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/ic_can_core.dir/build.make src/CMakeFiles/ic_can_core.dir/ic_can/core/simulation_communication_adapter.cpp.o
+.PHONY : ic_can/core/simulation_communication_adapter.cpp.o
+
+ic_can/core/simulation_communication_adapter.i: ic_can/core/simulation_communication_adapter.cpp.i
+.PHONY : ic_can/core/simulation_communication_adapter.i
+
+# target to preprocess a source file
+ic_can/core/simulation_communication_adapter.cpp.i:
+	cd /home/lr-2002/project/InstantCreation/ic_can && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/ic_can_core.dir/build.make src/CMakeFiles/ic_can_core.dir/ic_can/core/simulation_communication_adapter.cpp.i
+.PHONY : ic_can/core/simulation_communication_adapter.cpp.i
+
+ic_can/core/simulation_communication_adapter.s: ic_can/core/simulation_communication_adapter.cpp.s
+.PHONY : ic_can/core/simulation_communication_adapter.s
+
+# target to generate assembly for a file
+ic_can/core/simulation_communication_adapter.cpp.s:
+	cd /home/lr-2002/project/InstantCreation/ic_can && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/ic_can_core.dir/build.make src/CMakeFiles/ic_can_core.dir/ic_can/core/simulation_communication_adapter.cpp.s
+.PHONY : ic_can/core/simulation_communication_adapter.cpp.s
 
 ic_can/core/torque_predictor_pinocchio.o: ic_can/core/torque_predictor_pinocchio.cpp.o
 .PHONY : ic_can/core/torque_predictor_pinocchio.o
@@ -318,6 +366,30 @@ ic_can/core/wrist_component.s: ic_can/core/wrist_component.cpp.s
 ic_can/core/wrist_component.cpp.s:
 	cd /home/lr-2002/project/InstantCreation/ic_can && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/ic_can_core.dir/build.make src/CMakeFiles/ic_can_core.dir/ic_can/core/wrist_component.cpp.s
 .PHONY : ic_can/core/wrist_component.cpp.s
+
+ic_can/core/zlg_canfd_communication_adapter.o: ic_can/core/zlg_canfd_communication_adapter.cpp.o
+.PHONY : ic_can/core/zlg_canfd_communication_adapter.o
+
+# target to build an object file
+ic_can/core/zlg_canfd_communication_adapter.cpp.o:
+	cd /home/lr-2002/project/InstantCreation/ic_can && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/ic_can_core.dir/build.make src/CMakeFiles/ic_can_core.dir/ic_can/core/zlg_canfd_communication_adapter.cpp.o
+.PHONY : ic_can/core/zlg_canfd_communication_adapter.cpp.o
+
+ic_can/core/zlg_canfd_communication_adapter.i: ic_can/core/zlg_canfd_communication_adapter.cpp.i
+.PHONY : ic_can/core/zlg_canfd_communication_adapter.i
+
+# target to preprocess a source file
+ic_can/core/zlg_canfd_communication_adapter.cpp.i:
+	cd /home/lr-2002/project/InstantCreation/ic_can && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/ic_can_core.dir/build.make src/CMakeFiles/ic_can_core.dir/ic_can/core/zlg_canfd_communication_adapter.cpp.i
+.PHONY : ic_can/core/zlg_canfd_communication_adapter.cpp.i
+
+ic_can/core/zlg_canfd_communication_adapter.s: ic_can/core/zlg_canfd_communication_adapter.cpp.s
+.PHONY : ic_can/core/zlg_canfd_communication_adapter.s
+
+# target to generate assembly for a file
+ic_can/core/zlg_canfd_communication_adapter.cpp.s:
+	cd /home/lr-2002/project/InstantCreation/ic_can && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/ic_can_core.dir/build.make src/CMakeFiles/ic_can_core.dir/ic_can/core/zlg_canfd_communication_adapter.cpp.s
+.PHONY : ic_can/core/zlg_canfd_communication_adapter.cpp.s
 
 ic_can/motors/base_motor.o: ic_can/motors/base_motor.cpp.o
 .PHONY : ic_can/motors/base_motor.o
@@ -431,12 +503,18 @@ help:
 	@echo "... ic_can/core/arm_component.o"
 	@echo "... ic_can/core/arm_component.i"
 	@echo "... ic_can/core/arm_component.s"
+	@echo "... ic_can/core/can_communication_factory.o"
+	@echo "... ic_can/core/can_communication_factory.i"
+	@echo "... ic_can/core/can_communication_factory.s"
 	@echo "... ic_can/core/gripper_component.o"
 	@echo "... ic_can/core/gripper_component.i"
 	@echo "... ic_can/core/gripper_component.s"
 	@echo "... ic_can/core/ic_can.o"
 	@echo "... ic_can/core/ic_can.i"
 	@echo "... ic_can/core/ic_can.s"
+	@echo "... ic_can/core/simulation_communication_adapter.o"
+	@echo "... ic_can/core/simulation_communication_adapter.i"
+	@echo "... ic_can/core/simulation_communication_adapter.s"
 	@echo "... ic_can/core/torque_predictor_pinocchio.o"
 	@echo "... ic_can/core/torque_predictor_pinocchio.i"
 	@echo "... ic_can/core/torque_predictor_pinocchio.s"
@@ -446,6 +524,9 @@ help:
 	@echo "... ic_can/core/wrist_component.o"
 	@echo "... ic_can/core/wrist_component.i"
 	@echo "... ic_can/core/wrist_component.s"
+	@echo "... ic_can/core/zlg_canfd_communication_adapter.o"
+	@echo "... ic_can/core/zlg_canfd_communication_adapter.i"
+	@echo "... ic_can/core/zlg_canfd_communication_adapter.s"
 	@echo "... ic_can/motors/base_motor.o"
 	@echo "... ic_can/motors/base_motor.i"
 	@echo "... ic_can/motors/base_motor.s"

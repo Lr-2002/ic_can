@@ -229,6 +229,7 @@ src/CMakeFiles/ic_can_core.dir/ic_can/core/ic_can.cpp.o: \
  /usr/include/c++/11/bits/sstream.tcc \
  /home/lr-2002/project/InstantCreation/ic_can/include/ic_can/core/wrist_component.hpp \
  /home/lr-2002/project/InstantCreation/ic_can/include/ic_can/core/arm_component.hpp \
+ /home/lr-2002/project/InstantCreation/ic_can/include/ic_can/core/can_communication_factory.hpp \
  /home/lr-2002/project/InstantCreation/ic_can/include/ic_can/core/torque_predictor_unified.h \
  /home/lr-2002/project/InstantCreation/ic_can/include/ic_can/core/torque_predictor_config.h \
  /home/lr-2002/project/InstantCreation/ic_can/include/ic_can/core/torque_predictor_pinocchio.h \

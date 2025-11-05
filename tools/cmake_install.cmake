@@ -54,7 +54,7 @@ if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_
      NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/set_motor_zero")
     file(RPATH_CHANGE
          FILE "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/set_motor_zero"
-         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:"
+         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:/home/lr-2002/project/InstantCreation/ic_can/lib/zlg_canfd:"
          NEW_RPATH "")
     if(CMAKE_INSTALL_DO_STRIP)
       execute_process(COMMAND "/usr/bin/strip" "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/set_motor_zero")
@@ -74,7 +74,7 @@ if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_
      NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/arm_position_monitor")
     file(RPATH_CHANGE
          FILE "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/arm_position_monitor"
-         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:"
+         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:/home/lr-2002/project/InstantCreation/ic_can/lib/zlg_canfd:"
          NEW_RPATH "")
     if(CMAKE_INSTALL_DO_STRIP)
       execute_process(COMMAND "/usr/bin/strip" "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/arm_position_monitor")
@@ -94,7 +94,7 @@ if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_
      NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/arm_position_monitor_simple")
     file(RPATH_CHANGE
          FILE "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/arm_position_monitor_simple"
-         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:"
+         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:/home/lr-2002/project/InstantCreation/ic_can/lib/zlg_canfd:"
          NEW_RPATH "")
     if(CMAKE_INSTALL_DO_STRIP)
       execute_process(COMMAND "/usr/bin/strip" "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/arm_position_monitor_simple")
@@ -114,7 +114,7 @@ if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_
      NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/wrist_motor_monitor")
     file(RPATH_CHANGE
          FILE "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/wrist_motor_monitor"
-         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:"
+         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:/home/lr-2002/project/InstantCreation/ic_can/lib/zlg_canfd:"
          NEW_RPATH "")
     if(CMAKE_INSTALL_DO_STRIP)
       execute_process(COMMAND "/usr/bin/strip" "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/wrist_motor_monitor")
@@ -134,7 +134,7 @@ if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_
      NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/wrist_motor_only_monitor")
     file(RPATH_CHANGE
          FILE "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/wrist_motor_only_monitor"
-         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:"
+         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:/home/lr-2002/project/InstantCreation/ic_can/lib/zlg_canfd:"
          NEW_RPATH "")
     if(CMAKE_INSTALL_DO_STRIP)
       execute_process(COMMAND "/usr/bin/strip" "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/wrist_motor_only_monitor")
@@ -154,7 +154,7 @@ if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_
      NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/home_to_zero")
     file(RPATH_CHANGE
          FILE "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/home_to_zero"
-         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:"
+         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:/home/lr-2002/project/InstantCreation/ic_can/lib/zlg_canfd:"
          NEW_RPATH "")
     if(CMAKE_INSTALL_DO_STRIP)
       execute_process(COMMAND "/usr/bin/strip" "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/home_to_zero")
@@ -174,7 +174,7 @@ if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_
      NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/simple_motor_test")
     file(RPATH_CHANGE
          FILE "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/simple_motor_test"
-         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:"
+         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:/home/lr-2002/project/InstantCreation/ic_can/lib/zlg_canfd:"
          NEW_RPATH "")
     if(CMAKE_INSTALL_DO_STRIP)
       execute_process(COMMAND "/usr/bin/strip" "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/simple_motor_test")
@@ -194,7 +194,7 @@ if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_
      NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/servo_motor_test")
     file(RPATH_CHANGE
          FILE "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/servo_motor_test"
-         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:"
+         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:/home/lr-2002/project/InstantCreation/ic_can/lib/zlg_canfd:"
          NEW_RPATH "")
     if(CMAKE_INSTALL_DO_STRIP)
       execute_process(COMMAND "/usr/bin/strip" "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/servo_motor_test")
@@ -214,7 +214,7 @@ if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_
      NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/gripper_component_test")
     file(RPATH_CHANGE
          FILE "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/gripper_component_test"
-         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:"
+         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:/home/lr-2002/project/InstantCreation/ic_can/lib/zlg_canfd:"
          NEW_RPATH "")
     if(CMAKE_INSTALL_DO_STRIP)
       execute_process(COMMAND "/usr/bin/strip" "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/gripper_component_test")
@@ -234,7 +234,7 @@ if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_
      NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/test_control_modes")
     file(RPATH_CHANGE
          FILE "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/test_control_modes"
-         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:"
+         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:/home/lr-2002/project/InstantCreation/ic_can/lib/zlg_canfd:"
          NEW_RPATH "")
     if(CMAKE_INSTALL_DO_STRIP)
       execute_process(COMMAND "/usr/bin/strip" "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/test_control_modes")
@@ -254,7 +254,7 @@ if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_
      NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/test_sync_can")
     file(RPATH_CHANGE
          FILE "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/test_sync_can"
-         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:"
+         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:/home/lr-2002/project/InstantCreation/ic_can/lib/zlg_canfd:"
          NEW_RPATH "")
     if(CMAKE_INSTALL_DO_STRIP)
       execute_process(COMMAND "/usr/bin/strip" "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/test_sync_can")
@@ -274,7 +274,7 @@ if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_
      NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/test_unified_control")
     file(RPATH_CHANGE
          FILE "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/test_unified_control"
-         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:"
+         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:/home/lr-2002/project/InstantCreation/ic_can/lib/zlg_canfd:"
          NEW_RPATH "")
     if(CMAKE_INSTALL_DO_STRIP)
       execute_process(COMMAND "/usr/bin/strip" "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/test_unified_control")
@@ -294,7 +294,7 @@ if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_
      NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/demo_unified_control_features")
     file(RPATH_CHANGE
          FILE "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/demo_unified_control_features"
-         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:"
+         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:/home/lr-2002/project/InstantCreation/ic_can/lib/zlg_canfd:"
          NEW_RPATH "")
     if(CMAKE_INSTALL_DO_STRIP)
       execute_process(COMMAND "/usr/bin/strip" "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/demo_unified_control_features")
@@ -314,7 +314,7 @@ if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_
      NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/logging_demo")
     file(RPATH_CHANGE
          FILE "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/logging_demo"
-         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:"
+         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:/home/lr-2002/project/InstantCreation/ic_can/lib/zlg_canfd:"
          NEW_RPATH "")
     if(CMAKE_INSTALL_DO_STRIP)
       execute_process(COMMAND "/usr/bin/strip" "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/logging_demo")
@@ -334,7 +334,7 @@ if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_
      NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/logging_demo_simple")
     file(RPATH_CHANGE
          FILE "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/logging_demo_simple"
-         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:"
+         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:/home/lr-2002/project/InstantCreation/ic_can/lib/zlg_canfd:"
          NEW_RPATH "")
     if(CMAKE_INSTALL_DO_STRIP)
       execute_process(COMMAND "/usr/bin/strip" "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/logging_demo_simple")
@@ -354,7 +354,7 @@ if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_
      NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/demo_real_arm_torques")
     file(RPATH_CHANGE
          FILE "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/demo_real_arm_torques"
-         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:"
+         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:/home/lr-2002/project/InstantCreation/ic_can/lib/zlg_canfd:"
          NEW_RPATH "")
     if(CMAKE_INSTALL_DO_STRIP)
       execute_process(COMMAND "/usr/bin/strip" "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/demo_real_arm_torques")
@@ -374,7 +374,7 @@ if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_
      NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/test_torque_simple")
     file(RPATH_CHANGE
          FILE "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/test_torque_simple"
-         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:"
+         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:/home/lr-2002/project/InstantCreation/ic_can/lib/zlg_canfd:"
          NEW_RPATH "")
     if(CMAKE_INSTALL_DO_STRIP)
       execute_process(COMMAND "/usr/bin/strip" "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/test_torque_simple")
@@ -394,7 +394,7 @@ if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_
      NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/test_torque_integration")
     file(RPATH_CHANGE
          FILE "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/test_torque_integration"
-         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:"
+         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:/home/lr-2002/project/InstantCreation/ic_can/lib/zlg_canfd:"
          NEW_RPATH "")
     if(CMAKE_INSTALL_DO_STRIP)
       execute_process(COMMAND "/usr/bin/strip" "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/test_torque_integration")
@@ -414,7 +414,7 @@ if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_
      NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/trajectory_executor")
     file(RPATH_CHANGE
          FILE "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/trajectory_executor"
-         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:"
+         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:/home/lr-2002/project/InstantCreation/ic_can/lib/zlg_canfd:"
          NEW_RPATH "")
     if(CMAKE_INSTALL_DO_STRIP)
       execute_process(COMMAND "/usr/bin/strip" "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/trajectory_executor")
@@ -434,7 +434,7 @@ if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_
      NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/friction_sweep")
     file(RPATH_CHANGE
          FILE "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/friction_sweep"
-         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:"
+         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:/home/lr-2002/project/InstantCreation/ic_can/lib/zlg_canfd:"
          NEW_RPATH "")
     if(CMAKE_INSTALL_DO_STRIP)
       execute_process(COMMAND "/usr/bin/strip" "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/friction_sweep")
@@ -454,7 +454,7 @@ if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_
      NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/friction_compensated_controller")
     file(RPATH_CHANGE
          FILE "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/friction_compensated_controller"
-         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:"
+         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:/home/lr-2002/project/InstantCreation/ic_can/lib/zlg_canfd:"
          NEW_RPATH "")
     if(CMAKE_INSTALL_DO_STRIP)
       execute_process(COMMAND "/usr/bin/strip" "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/friction_compensated_controller")
@@ -474,7 +474,7 @@ if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_
      NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/dynamic_identifier")
     file(RPATH_CHANGE
          FILE "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/dynamic_identifier"
-         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:"
+         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:/home/lr-2002/project/InstantCreation/ic_can/lib/zlg_canfd:"
          NEW_RPATH "")
     if(CMAKE_INSTALL_DO_STRIP)
       execute_process(COMMAND "/usr/bin/strip" "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/dynamic_identifier")
@@ -494,7 +494,7 @@ if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_
      NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/wrist_kinematics_test")
     file(RPATH_CHANGE
          FILE "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/wrist_kinematics_test"
-         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:"
+         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:/home/lr-2002/project/InstantCreation/ic_can/lib/zlg_canfd:"
          NEW_RPATH "")
     if(CMAKE_INSTALL_DO_STRIP)
       execute_process(COMMAND "/usr/bin/strip" "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/wrist_kinematics_test")
@@ -514,7 +514,7 @@ if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_
      NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/wrist_safe_monitor")
     file(RPATH_CHANGE
          FILE "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/wrist_safe_monitor"
-         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:"
+         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:/home/lr-2002/project/InstantCreation/ic_can/lib/zlg_canfd:"
          NEW_RPATH "")
     if(CMAKE_INSTALL_DO_STRIP)
       execute_process(COMMAND "/usr/bin/strip" "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/wrist_safe_monitor")
@@ -534,7 +534,7 @@ if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_
      NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/ht_frame_test")
     file(RPATH_CHANGE
          FILE "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/ht_frame_test"
-         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:"
+         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:/home/lr-2002/project/InstantCreation/ic_can/lib/zlg_canfd:"
          NEW_RPATH "")
     if(CMAKE_INSTALL_DO_STRIP)
       execute_process(COMMAND "/usr/bin/strip" "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/ht_frame_test")
@@ -554,7 +554,7 @@ if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_
      NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/wrist_motor_monitor_clean")
     file(RPATH_CHANGE
          FILE "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/wrist_motor_monitor_clean"
-         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:"
+         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:/home/lr-2002/project/InstantCreation/ic_can/lib/zlg_canfd:"
          NEW_RPATH "")
     if(CMAKE_INSTALL_DO_STRIP)
       execute_process(COMMAND "/usr/bin/strip" "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/wrist_motor_monitor_clean")
@@ -574,7 +574,7 @@ if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_
      NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/test_wrist_monitor")
     file(RPATH_CHANGE
          FILE "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/test_wrist_monitor"
-         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:"
+         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:/home/lr-2002/project/InstantCreation/ic_can/lib/zlg_canfd:"
          NEW_RPATH "")
     if(CMAKE_INSTALL_DO_STRIP)
       execute_process(COMMAND "/usr/bin/strip" "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/test_wrist_monitor")
@@ -594,7 +594,7 @@ if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_
      NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/test_wrist_monitor_simple")
     file(RPATH_CHANGE
          FILE "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/test_wrist_monitor_simple"
-         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:"
+         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:/home/lr-2002/project/InstantCreation/ic_can/lib/zlg_canfd:"
          NEW_RPATH "")
     if(CMAKE_INSTALL_DO_STRIP)
       execute_process(COMMAND "/usr/bin/strip" "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/test_wrist_monitor_simple")
@@ -614,7 +614,7 @@ if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_
      NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/test_wrist_minimal")
     file(RPATH_CHANGE
          FILE "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/test_wrist_minimal"
-         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:"
+         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:/home/lr-2002/project/InstantCreation/ic_can/lib/zlg_canfd:"
          NEW_RPATH "")
     if(CMAKE_INSTALL_DO_STRIP)
       execute_process(COMMAND "/usr/bin/strip" "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/test_wrist_minimal")
@@ -634,7 +634,7 @@ if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_
      NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/test_wrist_standalone")
     file(RPATH_CHANGE
          FILE "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/test_wrist_standalone"
-         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:"
+         OLD_RPATH "/opt/openrobots/lib:/home/lr-2002/project/InstantCreation/ic_can/src:/home/lr-2002/project/InstantCreation/ic_can/lib/zlg_canfd:"
          NEW_RPATH "")
     if(CMAKE_INSTALL_DO_STRIP)
       execute_process(COMMAND "/usr/bin/strip" "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/test_wrist_standalone")

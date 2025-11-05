@@ -100,6 +100,7 @@ tools/home_to_zero: src/libic_can_core.so.1.0.0
 tools/home_to_zero: tools/../lib/dm-tools/C++/ubuntu/lib/libu2canfd.a
 tools/home_to_zero: /usr/lib/x86_64-linux-gnu/libusb-1.0.so
 tools/home_to_zero: src/../lib/dm-tools/C++/ubuntu/lib/libu2canfd.a
+tools/home_to_zero: lib/zlg_canfd/libcontrolcanfd.so
 tools/home_to_zero: tools/CMakeFiles/home_to_zero.dir/link.txt
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir=/home/lr-2002/project/InstantCreation/ic_can/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Linking CXX executable home_to_zero"
 	cd /home/lr-2002/project/InstantCreation/ic_can/tools && $(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/home_to_zero.dir/link.txt --verbose=$(VERBOSE)

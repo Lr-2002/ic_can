@@ -100,6 +100,7 @@ tools/ht_frame_test: src/libic_can_core.so.1.0.0
 tools/ht_frame_test: tools/../lib/dm-tools/C++/ubuntu/lib/libu2canfd.a
 tools/ht_frame_test: /usr/lib/x86_64-linux-gnu/libusb-1.0.so
 tools/ht_frame_test: src/../lib/dm-tools/C++/ubuntu/lib/libu2canfd.a
+tools/ht_frame_test: lib/zlg_canfd/libcontrolcanfd.so
 tools/ht_frame_test: tools/CMakeFiles/ht_frame_test.dir/link.txt
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir=/home/lr-2002/project/InstantCreation/ic_can/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Linking CXX executable ht_frame_test"
 	cd /home/lr-2002/project/InstantCreation/ic_can/tools && $(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/ht_frame_test.dir/link.txt --verbose=$(VERBOSE)

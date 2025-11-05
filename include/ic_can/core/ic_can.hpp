@@ -24,6 +24,10 @@
 namespace ic_can {
 
 // Forward declarations
+class CANCommunicationInterface;
+class CANCommunicationFactory;
+
+// Forward declarations
 class BaseMotor;
 class ArmComponent;
 class GripperComponent;
@@ -71,12 +75,51 @@ public:
         std::chrono::microseconds max_cycle_time{0};
         std::chrono::high_resolution_clock::time_point last_update;
     };
+
     /**
-     * @brief Constructor
-     * @param device_sn USB2CAN device serial number
+     * @brief Communication Backend Configuration
+     *
+     * Configuration for selecting and configuring different CAN communication backends
+     * (DM Tools, ZLG CAN FD, etc.) with runtime switching capability.
+     */
+    struct CommunicationConfig {
+        // Backend Selection
+        std::string preferred_backend = "zlg";  ///< Preferred backend ("zlg", "dm_tools", "simulation", "auto")
+        std::vector<std::string> fallback_backends = {"dm_tools", "simulation", "auto"};
+
+        // Device Configuration
+        std::string device_serial = "";      ///< Device serial number
+        int preferred_channel = -1;            ///< Preferred channel index (-1 = auto)
+        bool auto_detect_device = true;        ///< Auto-detect available devices
+
+        // ZLG CAN FD Configuration
+        bool zlg_can_fd_mode = true;          ///< Enable CAN FD mode for ZLG
+        uint32_t zlg_arbitration_baud = 1000000; ///< ZLG arbitration baud rate
+        uint32_t zlg_data_baud = 5000000;        ///< ZLG data phase baud rate
+        std::string zlg_library_path = "";        ///< ZLG library file path
+
+        // Performance Configuration
+        bool enable_performance_monitoring = true; ///< Enable performance monitoring
+
+        // Debug Configuration
+        bool verbose_logging = false;          ///< Enable verbose logging
+    };
+    /**
+     * @brief Constructor (defaults to ZLG CAN FD backend)
+     * @param device_sn Device serial number (used for both ZLG and DM Tools)
      * @param debug Enable debug output
+     *
+     * Note: This constructor now defaults to ZLG CAN FD with fallback to DM Tools.
+     * For explicit backend control, use the CommunicationConfig constructor.
      */
     explicit IC_CAN(const std::string& device_sn, bool debug = false);
+
+    /**
+     * @brief Constructor with communication backend configuration
+     * @param comm_config Communication backend configuration
+     * @param debug Enable debug output
+     */
+    explicit IC_CAN(const CommunicationConfig& comm_config, bool debug = false);
 
     /**
      * @brief Destructor
@@ -630,6 +673,117 @@ public:
      * @return true if successful
      */
     bool change_unified_frequency(double new_frequency_hz);
+
+    // ================================================================
+    // COMMUNICATION BACKEND MANAGEMENT API
+    // ================================================================
+
+    /**
+     * @brief Set communication backend configuration
+     * @param comm_config Communication backend configuration
+     * @return true if configuration successful
+     */
+    bool set_communication_config(const CommunicationConfig& comm_config);
+
+    /**
+     * @brief Get current communication backend configuration
+     * @return Current communication configuration
+     */
+    CommunicationConfig get_communication_config() const;
+
+    /**
+     * @brief Switch to different communication backend at runtime
+     * @param backend_name Backend name ("auto", "zlg", "dm_tools", "simulation")
+     * @return true if switch successful
+     */
+    bool switch_communication_backend(const std::string& backend_name);
+
+    /**
+     * @brief Get current communication backend name
+     * @return Name of currently active backend
+     */
+    std::string get_current_backend() const;
+
+    /**
+     * @brief Get available communication backends
+     * @return Vector of available backend names
+     */
+    std::vector<std::string> get_available_backends() const;
+
+    /**
+     * @brief Test all available communication backends
+     * @param test_duration_ms Duration for each backend test in milliseconds
+     * @return Map of backend names to test results (true = success)
+     */
+    std::map<std::string, bool> test_communication_backends(uint32_t test_duration_ms = 5000) const;
+
+    /**
+     * @brief Compare performance of available backends
+     * @param test_duration_ms Duration for performance test in milliseconds
+     * @return Performance comparison results
+     */
+    std::map<std::string, std::map<std::string, double>> compare_backend_performance(uint32_t test_duration_ms = 10000) const;
+
+    /**
+     * @brief Print communication backend status and information
+     */
+    void print_communication_status() const;
+
+    // ================================================================
+    // MULTI-CHANNEL CONFIGURATION API
+    // ================================================================
+
+    /**
+     * @brief Configure CAN channel at runtime (for ZLG CAN FD devices)
+     * @param channel_index Channel index (0-15)
+     * @param arbitration_baud Arbitration phase baud rate
+     * @param data_baud Data phase baud rate
+     * @return true if configuration successful
+     */
+    bool configure_can_channel(uint32_t channel_index, uint32_t arbitration_baud = 1000000, uint32_t data_baud = 5000000);
+
+    /**
+     * @brief Auto-detect and configure available channel
+     * @return true if channel found and configured
+     */
+    bool auto_configure_can_channel();
+
+    /**
+     * @brief Get current CAN channel configuration
+     * @return Current channel index (-1 if not using ZLG backend)
+     */
+    int get_current_can_channel() const;
+
+    /**
+     * @brief Get available CAN channels on ZLG device
+     * @return Vector of available channel indices
+     */
+    std::vector<uint32_t> get_available_can_channels() const;
+
+    /**
+     * @brief Switch to different CAN channel (runtime reconfiguration)
+     * @param new_channel_index New channel index
+     * @return true if switch successful
+     */
+    bool switch_can_channel(uint32_t new_channel_index);
+
+    /**
+     * @brief Set ZLG CAN FD mode at runtime
+     * @param can_fd_mode Enable CAN FD mode
+     * @return true if configuration successful
+     */
+    bool set_can_fd_mode(bool can_fd_mode);
+
+    /**
+     * @brief Check if CAN FD mode is enabled
+     * @return true if CAN FD mode is enabled
+     */
+    bool is_can_fd_mode_enabled() const;
+
+    /**
+     * @brief Print multi-channel configuration status
+     */
+    void print_channel_status() const;
 
 private:
     class Impl;

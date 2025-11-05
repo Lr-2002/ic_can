@@ -100,6 +100,7 @@ tools/friction_compensated_controller: src/libic_can_core.so.1.0.0
 tools/friction_compensated_controller: tools/../lib/dm-tools/C++/ubuntu/lib/libu2canfd.a
 tools/friction_compensated_controller: /usr/lib/x86_64-linux-gnu/libusb-1.0.so
 tools/friction_compensated_controller: src/../lib/dm-tools/C++/ubuntu/lib/libu2canfd.a
+tools/friction_compensated_controller: lib/zlg_canfd/libcontrolcanfd.so
 tools/friction_compensated_controller: tools/CMakeFiles/friction_compensated_controller.dir/link.txt
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir=/home/lr-2002/project/InstantCreation/ic_can/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Linking CXX executable friction_compensated_controller"
 	cd /home/lr-2002/project/InstantCreation/ic_can/tools && $(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/friction_compensated_controller.dir/link.txt --verbose=$(VERBOSE)

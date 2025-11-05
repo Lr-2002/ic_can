@@ -60,7 +60,7 @@ struct ZLGCanFDConfig {
     uint32_t send_timeout_ms = 50;           ///< Send timeout in milliseconds
 
     // Library Configuration
-    std::string library_path = "";  ///< Path to ZLG library (empty to use config)
+    std::string library_path = "/home/lr-2002/project/InstantCreation/ic_can/lib/zlg_canfd/libcontrolcanfd.so";  ///< Path to ZLG library
 
     // Debug Configuration
     bool debug = false;                                                     ///< Enable debug output

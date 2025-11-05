@@ -188,7 +188,7 @@ int main(int argc, char *argv[]) {
     // Create IC_CAN controller
     auto controller =
         std::make_unique<ic_can::IC_CAN>("693D3DE86DF5940C8BC74A5B46A3CE2E",
-                                         true); // Debug off for cleaner output
+                                         false); // Debug off for cleaner output
 
     // Initialize system
     if (!controller->initialize()) {
@@ -257,6 +257,17 @@ int main(int argc, char *argv[]) {
       auto get_start = std::chrono::high_resolution_clock::now();
       auto positions = controller->get_joint_positions();
       auto get_end = std::chrono::high_resolution_clock::now();
+
+      // DEBUG: Print actual positions being read
+      std::cout << "🔍 DEBUG: Current positions read from motors: ";
+      for (int i = 0; i < positions.size(); i++) {
+        std::cout << "M" << (i + 1) << "=" << std::fixed << std::setprecision(3)
+                  << positions[i] << "rad (" << (positions[i] * 180.0 / M_PI)
+                  << "°)";
+        if (i < positions.size() - 1)
+          std::cout << ", ";
+      }
+      std::cout << std::endl;
       auto get_duration = std::chrono::duration_cast<std::chrono::microseconds>(
                               get_end - get_start)
                               .count();

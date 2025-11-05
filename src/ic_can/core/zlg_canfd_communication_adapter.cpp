@@ -291,16 +291,14 @@ size_t ZLGCanFDCommunicationAdapter::receive_frames(
   frames.clear();
   frames.reserve(max_frames);
 
-  // Receive frames from ZLG device
-  auto receive_func = reinterpret_cast<int (*)(
-      CHANNEL_HANDLE, ZCAN_ReceiveFD_Data *, uint32_t, int)>(receive_fd_func_);
-  if (!receive_func) {
-    return 0;
-  }
-
+  // Receive frames from ZLG device using direct function call
   std::vector<ZCAN_ReceiveFD_Data> zlg_frames(max_frames);
-  int received =
-      receive_func(channel_handle_, zlg_frames.data(), max_frames, timeout_ms);
+  int received = ZCAN_ReceiveFD(channel_handle_, zlg_frames.data(), max_frames, timeout_ms);
+
+  // Debug: Print receive results
+  if (received > 0) {
+    std::cout << "🔥 ZLG RECEIVED: " << received << " frames from device" << std::endl;
+  }
 
   // Convert received frames
   for (int i = 0; i < received; i++) {
@@ -318,6 +316,16 @@ size_t ZLGCanFDCommunicationAdapter::receive_frames(
     std::memcpy(frame.data.data(), zlg_frames[i].frame.data, data_size);
 
     frames.push_back(frame);
+
+    // Debug: Print received frame details
+    std::cout << "🔥 ZLG FRAME: ID=0x" << std::hex << frame.id
+              << (frame.is_extended_id ? " Ext" : " Std")
+              << " DLC=" << (int)zlg_frames[i].frame.len << " Data:";
+    for (int j = 0; j < zlg_frames[i].frame.len; j++) {
+      std::cout << " " << std::hex << std::setw(2) << std::setfill('0')
+                << (int)zlg_frames[i].frame.data[j];
+    }
+    std::cout << std::dec << std::endl;
   }
 
   // Update statistics
@@ -965,9 +973,13 @@ void ZLGCanFDCommunicationAdapter::receive_thread_function() {
     if (received > 0) {
       std::lock_guard<std::mutex> lock(callback_mutex_);
       if (receive_callback_) {
+        std::cout << "🔥 CALLBACK: Calling receive_callback for " << received << " frames" << std::endl;
         for (const auto &frame : frames) {
+          std::cout << "🔥 CALLBACK: Processing frame ID=0x" << std::hex << frame.id << std::dec << std::endl;
           receive_callback_(frame);
         }
+      } else {
+        std::cout << "❌ CALLBACK: No receive_callback registered!" << std::endl;
       }
     }
 

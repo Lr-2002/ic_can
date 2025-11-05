@@ -63,7 +63,7 @@ struct CommunicationBackendInfo {
  */
 struct CommunicationFactoryConfig {
     // Backend Selection
-    CommunicationBackend preferred_backend = CommunicationBackend::AUTO;
+    CommunicationBackend preferred_backend = CommunicationBackend::ZLG_CANFD;
     std::vector<CommunicationBackend> fallback_backends = {
         CommunicationBackend::ZLG_CANFD  // ONLY ZLG - no fallback
     };

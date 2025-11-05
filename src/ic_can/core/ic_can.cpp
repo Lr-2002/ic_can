@@ -265,6 +265,14 @@ public:
     last_stats_update_ = unified_start_time_;
 
     std::cout << "✅ Unified control system initialized" << std::endl;
+
+    // Initialize positions with safe zero values (not maximum!)
+    for (int i = 0; i < 9; i++) {
+      positions_[i].store(0.0);  // Safe zero position
+      velocities_[i].store(0.0);
+      torques_[i].store(0.0);
+    }
+    std::cout << "✅ Motor positions initialized to safe zero values" << std::endl;
   }
 
   // Constructor with communication backend configuration
@@ -441,8 +449,15 @@ public:
 
         // Set up callback for motor feedback
         std::cout << "📡 Setting up motor feedback callback..." << std::endl;
-        // Note: This needs to be adapted to the new communication interface
-        // For now, we'll keep the existing callback mechanism as a placeholder
+
+        // Register callback with communication adapter
+        if (communication_adapter_) {
+          communication_adapter_->register_receive_callback(
+            [this](const CANFrame &frame) { handle_can_frame_from_adapter(frame); });
+          std::cout << "✅ Communication adapter callback configured" << std::endl;
+        } else {
+          std::cout << "❌ No communication adapter available for callback" << std::endl;
+        }
 
         // Test if communication is working by sending a refresh command
         std::cout << "🧪 Testing CAN communication..." << std::endl;
@@ -1075,12 +1090,14 @@ public:
       }
 
       // Add gravity compensation to torque feedforward
-      /*std::cout << " the gravity compensation is "*/
-      /*          << gravity_compensation_enabled_ << std::endl;*/
-      if (gravity_compensation_enabled_ && i < 6) {
-        tau += gravity_torques[i];
-        /*std::cout << "[GC] motor id is " << i << ", torque is "*/
-        /*          << gravity_torques[i] << std::endl;*/
+      std::cout << "🔧 Gravity compensation enabled: " << gravity_compensation_enabled_ << std::endl;
+      if (gravity_compensation_enabled_) {
+        if (i < 6) {
+          tau += gravity_torques[i];
+          std::cout << "🔧 [GC] Motor " << (i+1) << " gravity torque: " << gravity_torques[i] << " Nm, total tau: " << tau << " Nm" << std::endl;
+        } else {
+          std::cout << "⚠️  [GC] Motor " << (i+1) << " (HT/Servo) - no gravity compensation" << std::endl;
+        }
       }
 
       // Add friction compensation to torque feedforward
@@ -2635,6 +2652,32 @@ private:
   std::condition_variable
       can_send_cv; // Condition variable for send-receive coordination
 
+  void handle_can_frame_from_adapter(const CANFrame &frame) {
+    // Convert CANFrame to can_value_type for existing processing
+    can_value_type dm_frame;
+
+    // Set up header
+    dm_frame.head.id = frame.id;
+    dm_frame.head.time_stamp = 0; // Not used in processing
+    dm_frame.head.fram_type = frame.is_remote_frame ? 1 : 0;
+    dm_frame.head.can_type = 0; // Classic CAN
+    dm_frame.head.id_type = frame.is_extended_id ? 1 : 0;
+    dm_frame.head.dir = 0; // Received
+    dm_frame.head.dlc = std::min(static_cast<uint8_t>(frame.data.size()), static_cast<uint8_t>(64));
+
+    // Clear reserve
+    memset(dm_frame.head.reserve, 0, 3);
+
+    // Copy data
+    memset(dm_frame.data, 0, 64);
+    for (size_t i = 0; i < dm_frame.head.dlc && i < frame.data.size(); i++) {
+      dm_frame.data[i] = frame.data[i];
+    }
+
+    // Call existing handler
+    handle_can_frame(dm_frame);
+  }
+
   void handle_can_frame(can_value_type &frame) {
     uint32_t can_id = frame.head.id;
     // Track receive frequency - count ALL frames
@@ -2813,6 +2856,15 @@ private:
   }
 
   void process_dm_motor_feedback(can_value_type &frame, int motor_idx) {
+    // DEBUG: Print received feedback
+    std::cout << "🔥 FEEDBACK: Received DM Motor " << (motor_idx + 1)
+              << " feedback, DLC=" << (int)frame.head.dlc
+              << " Data: ";
+    for (int i = 0; i < frame.head.dlc; i++) {
+      std::cout << std::hex << std::setw(2) << std::setfill('0') << (int)frame.data[i] << " ";
+    }
+    std::cout << std::dec << std::endl;
+
     if (frame.head.dlc < 6)
       return;
 
@@ -2861,16 +2913,17 @@ private:
   }
 
   void process_ht_motor_feedback(can_value_type &frame, int motor_idx) {
+    // DEBUG: Print received HT feedback
+    std::cout << "🔥 FEEDBACK: Received HT Motor " << (motor_idx + 1)
+              << " feedback, DLC=" << (int)frame.head.dlc
+              << " Data: ";
+    for (int i = 0; i < frame.head.dlc; i++) {
+      std::cout << std::hex << std::setw(2) << std::setfill('0') << (int)frame.data[i] << " ";
+    }
+    std::cout << std::dec << std::endl;
+
     if (frame.head.dlc < 7)
       return;
-
-    // Debug: Print HT motor processing
-    /*if (debug_enabled_) {*/
-    /*  std::cout << "🔧 Processing HT motor feedback for motor idx: "*/
-    /*            << motor_idx << " (actual motor " << (motor_idx + 1) <<
-     * ")"*/
-    /*            << std::endl;*/
-    /*}*/
 
     // Extract HT motor data (same as HT test)
     int16_t pos_int =
@@ -2930,14 +2983,17 @@ private:
   }
 
   void process_servo_feedback(can_value_type &frame, int motor_idx) {
+    // DEBUG: Print received servo feedback
+    std::cout << "🔥 FEEDBACK: Received Servo Motor " << (motor_idx + 1)
+              << " feedback, DLC=" << (int)frame.head.dlc
+              << " Data: ";
+    for (int i = 0; i < frame.head.dlc; i++) {
+      std::cout << std::hex << std::setw(2) << std::setfill('0') << (int)frame.data[i] << " ";
+    }
+    std::cout << std::dec << std::endl;
+
     if (frame.head.dlc < 6) {
       return;
-    }
-
-    // Debug: Print servo motor processing
-    if (debug_enabled_) {
-      std::cout << "🔧 Processing servo motor feedback for motor "
-                << (motor_idx + 1) << std::endl;
     }
 
     // Extract servo feedback data based on Python implementation
@@ -3224,12 +3280,15 @@ private:
     // Check for proper communication backend initialization
     if (using_factory_backend_) {
       if (!communication_adapter_) {
-        std::cout << "❌ Communication adapter not initialized for HT MIT command" << std::endl;
+        std::cout
+            << "❌ Communication adapter not initialized for HT MIT command"
+            << std::endl;
         return;
       }
     } else {
       if (!device_) {
-        std::cout << "❌ Device not initialized for HT MIT command" << std::endl;
+        std::cout << "❌ Device not initialized for HT MIT command"
+                  << std::endl;
         return;
       }
     }
@@ -3561,10 +3620,10 @@ private:
       device_->set_tx_frame(&frame);
       device_->send_data();
     }
-    if (can_id == 0x8007 or can_id == 0x8008) {
-      std::cout << "[CAN SEND] SLeep for big can ht " << std::endl;
-      /*usleep(5000);*/
-    }
+    /*if (can_id == 0x8007 or can_id == 0x8008) {*/
+    /*  std::cout << "[CAN SEND] SLeep for big can ht " << std::endl;*/
+    /*  usleep(5000);*/
+    /*}*/
     /*usleep(100);*/
     total_bytes_sent_ += dataLength;
   }

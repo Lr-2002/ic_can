@@ -137,7 +137,7 @@ bool CANCommunicationFactory::is_backend_available(
             return detect_dm_tools(config);
 
         case CommunicationBackend::SIMULATION:
-            return true; // Simulation is always available
+            return false; // Simulation disabled - force real hardware
 
         default:
             return false;

@@ -25,6 +25,8 @@
  * - Data logging capability for all 9 joints
  */
 
+#include "motor_profiler.hpp"
+#include "ic_can/core/can_bus_logger.hpp"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -33,6 +35,8 @@
 #include <ic_can/core/ic_can.hpp>
 #include <iomanip>
 #include <iostream>
+#include <map>
+#include <numeric>
 #include <thread>
 #include <vector>
 
@@ -41,10 +45,81 @@
 #endif
 
 static volatile bool g_running = true;
+static std::unique_ptr<MotorProfiler> g_profiler;
+static std::unique_ptr<ic_can::CANBusLogger> g_can_logger;
+
+/**
+ * @brief Parse CAN frame ID from feedback message
+ * @param feedback_line The feedback line from console output
+ * @return CAN ID if found, 0 otherwise
+ */
+uint32_t parse_can_id_from_feedback(const std::string &feedback_line) {
+  // Look for patterns like:
+  // "🔥 FEEDBACK: Received DM Motor 2 feedback, DLC=8 Data: 12 6f 43 7f f8 00
+  // 1d 1a" "🔥 FEEDBACK: Received HT Motor 7 feedback, DLC=8 Data: 27 01 52 03
+  // 03 00 ff ff"
+
+  // Extract the hex data from the feedback line
+  size_t data_pos = feedback_line.find("Data:");
+  if (data_pos == std::string::npos) {
+    return 0;
+  }
+
+  // Get the first hex byte which should be the CAN ID in our format
+  size_t first_byte_pos = data_pos + 5; // Skip "Data:"
+  while (first_byte_pos < feedback_line.length() &&
+         (feedback_line[first_byte_pos] == ' ' ||
+          feedback_line[first_byte_pos] == '\t')) {
+    first_byte_pos++;
+  }
+
+  // Extract first hex byte (CAN ID)
+  if (first_byte_pos + 1 < feedback_line.length()) {
+    std::string hex_byte = feedback_line.substr(first_byte_pos, 2);
+    try {
+      uint32_t can_id = std::stoul(hex_byte, nullptr, 16);
+      return can_id;
+    } catch (...) {
+      return 0;
+    }
+  }
+
+  return 0;
+}
+
+/**
+ * @brief Log CAN frame send operation
+ */
+void log_can_frame_send(uint32_t can_id, bool extended_id, const std::vector<uint8_t>& data) {
+    if (g_can_logger && g_can_logger->is_logging()) {
+        g_can_logger->log_sent_frame(can_id, extended_id, static_cast<uint8_t>(data.size()), data);
+    }
+}
+
+/**
+ * @brief Log CAN frame receive operation
+ */
+void log_can_frame_receive(uint32_t can_id, bool extended_id, const std::vector<uint8_t>& data) {
+    if (g_can_logger && g_can_logger->is_logging()) {
+        g_can_logger->log_received_frame(can_id, extended_id, static_cast<uint8_t>(data.size()), data);
+    }
+
+    // Also update motor profiler with received frame
+    if (g_profiler) {
+        g_profiler->record_can_frame(can_id);
+    }
+}
 
 void signal_handler(int signal) {
   std::cout << "\n⚠️  Received signal " << signal << ", stopping monitor..."
             << std::endl;
+  if (g_profiler) {
+    g_profiler->print_summary();
+  }
+  if (g_can_logger) {
+    std::cout << "\n📋 CAN Bus Traffic Summary:" << std::endl;
+    g_can_logger->print_statistics();
+  }
   g_running = false;
 }
 
@@ -188,7 +263,7 @@ int main(int argc, char *argv[]) {
     // Create IC_CAN controller
     auto controller =
         std::make_unique<ic_can::IC_CAN>("693D3DE86DF5940C8BC74A5B46A3CE2E",
-                                         false); // Debug off for cleaner output
+                                         true); // Debug off for cleaner output
 
     // Initialize system
     if (!controller->initialize()) {
@@ -229,6 +304,18 @@ int main(int argc, char *argv[]) {
     std::cout << "\n🚀 Starting arm position monitoring..." << std::endl;
     std::cout << "Press Ctrl+C to stop" << std::endl;
 
+    // Initialize standalone motor profiler
+    g_profiler = std::make_unique<MotorProfiler>();
+    std::cout << "📈 Motor profiling enabled" << std::endl;
+
+    // Initialize CAN bus logger
+    g_can_logger = std::make_unique<ic_can::CANBusLogger>("can_bus_analysis");
+    if (g_can_logger->start_logging()) {
+        std::cout << "📋 CAN bus logging enabled" << std::endl;
+    } else {
+        std::cout << "❌ Failed to start CAN bus logging" << std::endl;
+    }
+
     // Print header
     print_arm_header();
 
@@ -253,46 +340,83 @@ int main(int argc, char *argv[]) {
         }
       }
 
+      // Increment loop counter
+      g_profiler->increment_loop_count();
+
       // Profile get_joint_positions
       auto get_start = std::chrono::high_resolution_clock::now();
       auto positions = controller->get_joint_positions();
       auto get_end = std::chrono::high_resolution_clock::now();
 
-      // DEBUG: Print actual positions being read
-      std::cout << "🔍 DEBUG: Current positions read from motors: ";
-      for (int i = 0; i < positions.size(); i++) {
-        std::cout << "M" << (i + 1) << "=" << std::fixed << std::setprecision(3)
-                  << positions[i] << "rad (" << (positions[i] * 180.0 / M_PI)
-                  << "°)";
-        if (i < positions.size() - 1)
-          std::cout << ", ";
-      }
-      std::cout << std::endl;
-      auto get_duration = std::chrono::duration_cast<std::chrono::microseconds>(
-                              get_end - get_start)
-                              .count();
+      double get_duration =
+          std::chrono::duration_cast<std::chrono::microseconds>(get_end -
+                                                                get_start)
+              .count();
 
-      // Profile set_joint_positions
+      // DEBUG: Print actual positions being read (reduced frequency)
+      if (g_profiler->get_feedback_count(1) % 50 == 0 ||
+          g_profiler->get_feedback_count(1) == 0) {
+        std::cout << "🔍 DEBUG: Current positions read from motors: ";
+        for (int i = 0; i < positions.size(); i++) {
+          std::cout << "M" << (i + 1) << "=" << std::fixed
+                    << std::setprecision(3) << positions[i] << "rad ("
+                    << (positions[i] * 180.0 / M_PI) << "°)";
+          if (i < positions.size() - 1)
+            std::cout << ", ";
+        }
+        std::cout << std::endl;
+      }
+
+      // Profile set_joint_positions - track individual motor performance
       auto set_start = std::chrono::high_resolution_clock::now();
       std::vector<double> empty = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+
+      // Record timing for each motor
+      for (int i = 0; i < positions.size(); i++) {
+        g_profiler->record_send_attempt(i + 1); // Motor IDs are 1-9
+      }
+
       controller->set_joint_positions(positions, empty, empty);
       auto set_end = std::chrono::high_resolution_clock::now();
-      auto set_duration = std::chrono::duration_cast<std::chrono::microseconds>(
-                              set_end - set_start)
-                              .count();
 
-      // Print profiling results every 100 iterations
-      static int loop_count = 0;
-      if (++loop_count % 100 == 0) {
-        std::cout << "PROFILE: Loop " << loop_count
-                  << " | get_positions: " << get_duration << "μs"
+      double set_duration =
+          std::chrono::duration_cast<std::chrono::microseconds>(set_end -
+                                                                set_start)
+              .count();
+
+      // Record timing for all motors
+      for (int i = 0; i < positions.size(); i++) {
+        g_profiler->record_send_timing(i + 1, set_duration);
+      }
+
+      // Monitor feedback based on positions (temporary solution)
+      /*monitor_feedback_from_positions(positions);*/
+
+      // Simple timeout detection - if operation takes too long
+      if (set_duration > 10000) { // If send takes more than 10ms
+        for (int i = 0; i < positions.size(); i++) {
+          g_profiler->record_timeout(i + 1);
+        }
+      }
+
+      // Print profiling results every 50 iterations
+      if (g_profiler->get_feedback_count(1) % 50 == 0 &&
+          g_profiler->get_feedback_count(1) > 0) {
+        std::cout << "📊 PROFILE: Loop " << g_profiler->get_feedback_count(1)
+                  << " | get_positions: " << std::fixed << std::setprecision(0)
+                  << "μs"
                   << " | set_positions: " << set_duration << "μs"
                   << " | total: " << (get_duration + set_duration) << "μs"
+                  << " | timeouts: " << g_profiler->get_timeout_count(1)
                   << std::endl;
       }
     }
 
-    // Simple completion - no profiling
+    // Print final profiling summary
+    if (g_profiler) {
+      g_profiler->print_summary();
+    }
+
     // Disable motors
     controller->disable_all();
     std::cout << "\n🎉 Arm position monitoring completed!" << std::endl;

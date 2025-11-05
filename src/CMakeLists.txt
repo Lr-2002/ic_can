@@ -27,6 +27,10 @@ endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/ic_can/core/wrist_component.cpp")
     list(APPEND CORE_SOURCES "ic_can/core/wrist_component.cpp")
 endif()
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/ic_can/core/can_bus_logger.cpp")
+    list(APPEND CORE_SOURCES "ic_can/core/can_bus_logger.cpp")
+    message(STATUS "✅ Added CAN bus logger")
+endif()
 
 # Motor sources
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/ic_can/motors/base_motor.cpp")

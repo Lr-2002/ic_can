@@ -26,6 +26,7 @@ namespace ic_can {
 // Forward declarations
 class CANCommunicationInterface;
 class CANCommunicationFactory;
+class CANBusLogger;
 
 // Forward declarations
 class BaseMotor;

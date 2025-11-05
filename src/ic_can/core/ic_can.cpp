@@ -46,6 +46,9 @@
 #include <thread>
 #include <unistd.h>
 
+// CAN Bus Logger for monitoring real traffic
+#include "ic_can/core/can_bus_logger.hpp"
+
 // Use working dm-tools SDK directly
 #include "protocol/usb_class.h"
 
@@ -242,6 +245,23 @@ public:
     torque_predictor_ = std::make_unique<TorquePredictorUnified>();
     std::cout << "✅ Torque predictor initialized (stub)" << std::endl;
 
+    // Initialize CAN bus logger
+    std::cout << "🔧 Initializing CAN bus logger..." << std::endl;
+    can_logger_ = std::make_unique<CANBusLogger>("can_bus_log");
+    std::cout << "✅ CAN bus logger initialized" << std::endl;
+
+    // Start CAN bus logging
+    std::cout << "🚀 Starting CAN bus logging..." << std::endl;
+    if (can_logger_) {
+      if (can_logger_->start_logging()) {
+        std::cout << "✅ CAN bus logging started successfully" << std::endl;
+      } else {
+        std::cout << "❌ Failed to start CAN bus logging" << std::endl;
+      }
+    } else {
+      std::cout << "❌ CAN bus logger creation failed" << std::endl;
+    }
+
     // Initialize components
     wrist_component_ = std::make_unique<WristComponent>();
     gripper_component_ = std::make_unique<GripperComponent>();
@@ -268,11 +288,12 @@ public:
 
     // Initialize positions with safe zero values (not maximum!)
     for (int i = 0; i < 9; i++) {
-      positions_[i].store(0.0);  // Safe zero position
+      positions_[i].store(0.0); // Safe zero position
       velocities_[i].store(0.0);
       torques_[i].store(0.0);
     }
-    std::cout << "✅ Motor positions initialized to safe zero values" << std::endl;
+    std::cout << "✅ Motor positions initialized to safe zero values"
+              << std::endl;
   }
 
   // Constructor with communication backend configuration
@@ -349,6 +370,23 @@ public:
               << std::endl;
     torque_predictor_ = std::make_unique<TorquePredictorUnified>();
     std::cout << "✅ Torque predictor initialized (stub)" << std::endl;
+
+    // Initialize CAN bus logger
+    std::cout << "🔧 Initializing CAN bus logger..." << std::endl;
+    can_logger_ = std::make_unique<CANBusLogger>("can_bus_log");
+    std::cout << "✅ CAN bus logger initialized" << std::endl;
+
+    // Start CAN bus logging
+    std::cout << "🚀 Starting CAN bus logging..." << std::endl;
+    if (can_logger_) {
+      if (can_logger_->start_logging()) {
+        std::cout << "✅ CAN bus logging started successfully" << std::endl;
+      } else {
+        std::cout << "❌ Failed to start CAN bus logging" << std::endl;
+      }
+    } else {
+      std::cout << "❌ CAN bus logger creation failed" << std::endl;
+    }
 
     // Initialize components
     wrist_component_ = std::make_unique<WristComponent>();
@@ -453,10 +491,14 @@ public:
         // Register callback with communication adapter
         if (communication_adapter_) {
           communication_adapter_->register_receive_callback(
-            [this](const CANFrame &frame) { handle_can_frame_from_adapter(frame); });
-          std::cout << "✅ Communication adapter callback configured" << std::endl;
+              [this](const CANFrame &frame) {
+                handle_can_frame_from_adapter(frame);
+              });
+          std::cout << "✅ Communication adapter callback configured"
+                    << std::endl;
         } else {
-          std::cout << "❌ No communication adapter available for callback" << std::endl;
+          std::cout << "❌ No communication adapter available for callback"
+                    << std::endl;
         }
 
         // Test if communication is working by sending a refresh command
@@ -525,6 +567,15 @@ public:
                   << " CAN frames during test" << std::endl;
       }
 
+      // Start CAN bus logging
+      if (can_logger_) {
+        if (can_logger_->start_logging()) {
+          std::cout << "✅ CAN bus logging started" << std::endl;
+        } else {
+          std::cout << "⚠️  WARNING: Failed to start CAN bus logging" << std::endl;
+        }
+      }
+
       connected_ = true;
       return true;
 
@@ -542,6 +593,13 @@ public:
       stop_wrist_position_monitoring();
       stop_logging();
       disable_frequency_monitoring();
+
+      // Stop CAN bus logging
+      if (can_logger_ && can_logger_->is_logging()) {
+        can_logger_->stop_logging();
+        std::cout << "✅ CAN bus logging stopped" << std::endl;
+      }
+
       device_->USB_CMD_STOP_CAP();
       connected_ = false;
     }
@@ -849,9 +907,16 @@ public:
 
     bool all_success = true;
     for (int motor_id = 1; motor_id <= 9; motor_id++) {
-      send_can_frame(motor_id, enable_cmd,
-                     false); // Standard frame for all motors
-      std::cout << "   ✅ Motor " << motor_id << " enabled" << std::endl;
+      if (motor_id == 9) {
+        // Servo motor 9: use servo-specific enable command
+        send_servo_enable(motor_id);
+        std::cout << "   ✅ Servo Motor " << motor_id << " enabled" << std::endl;
+      } else {
+        // DM motors 1-8: use DM enable command
+        send_can_frame(motor_id, enable_cmd,
+                       false); // Standard frame for DM motors
+        std::cout << "   ✅ Motor " << motor_id << " enabled" << std::endl;
+      }
       /*usleep(100000); // 100ms between enables*/
     }
 
@@ -870,8 +935,14 @@ public:
                                         0xFF, 0xFF, 0xFF, 0xFD};
 
     for (int motor_id = 1; motor_id <= 9; motor_id++) {
-      send_can_frame(motor_id, disable_cmd,
-                     false); // Standard frame for all motors
+      if (motor_id == 9) {
+        // Servo motor 9: use servo-specific disable command
+        send_servo_disable(motor_id);
+      } else {
+        // DM motors 1-8: use DM disable command
+        send_can_frame(motor_id, disable_cmd,
+                       false); // Standard frame for DM motors
+      }
     }
 
     std::cout << "✅ All motors disabled" << std::endl;
@@ -1090,13 +1161,17 @@ public:
       }
 
       // Add gravity compensation to torque feedforward
-      std::cout << "🔧 Gravity compensation enabled: " << gravity_compensation_enabled_ << std::endl;
+      std::cout << "🔧 Gravity compensation enabled: "
+                << gravity_compensation_enabled_ << std::endl;
       if (gravity_compensation_enabled_) {
         if (i < 6) {
           tau += gravity_torques[i];
-          std::cout << "🔧 [GC] Motor " << (i+1) << " gravity torque: " << gravity_torques[i] << " Nm, total tau: " << tau << " Nm" << std::endl;
+          std::cout << "🔧 [GC] Motor " << (i + 1)
+                    << " gravity torque: " << gravity_torques[i]
+                    << " Nm, total tau: " << tau << " Nm" << std::endl;
         } else {
-          std::cout << "⚠️  [GC] Motor " << (i+1) << " (HT/Servo) - no gravity compensation" << std::endl;
+          std::cout << "⚠️  [GC] Motor " << (i + 1)
+                    << " (HT/Servo) - no gravity compensation" << std::endl;
         }
       }
 
@@ -1124,14 +1199,20 @@ public:
         send_dm_mit_command(i + 1, pos, vel, tau, kp, kd);
         /*}*/
       } else if (i == 8) {
-        // Servo motor 9: use servo CAN FD protocol
-        std::cout
-            << "PROFILE: Motor " << (i + 1) << " (Servo) command start at "
-            << std::chrono::duration_cast<std::chrono::microseconds>(
-                   std::chrono::high_resolution_clock::now().time_since_epoch())
-                   .count()
-            << std::endl;
-        /*send_servo_command(i + 1, pos, vel, tau);*/
+        // Servo motor 9 (gripper): use servo CAN FD protocol
+        // In TEACH_MODE, don't send position commands to gripper - let it stay open
+        // In other modes, send position commands to control gripper
+        if (control_mode_ != ControlMode::TEACH_MODE) {
+          std::cout
+              << "PROFILE: Motor " << (i + 1) << " (Servo) command start at "
+              << std::chrono::duration_cast<std::chrono::microseconds>(
+                     std::chrono::high_resolution_clock::now().time_since_epoch())
+                     .count()
+              << std::endl;
+          send_servo_command(i + 1, pos, vel, tau);
+        } else {
+          std::cout << "🎓 TEACH_MODE: Skipping gripper position command (keeping open)" << std::endl;
+        }
       } else if (i < 8) {
         // HT motors 7-8: use HT MIT protocol
         /*usleep(10000);*/
@@ -2653,6 +2734,13 @@ private:
       can_send_cv; // Condition variable for send-receive coordination
 
   void handle_can_frame_from_adapter(const CANFrame &frame) {
+    // Log received CAN frame
+    if (can_logger_ && can_logger_->is_logging()) {
+      can_logger_->log_received_frame(frame.id, frame.is_extended_id,
+                                     static_cast<uint8_t>(frame.data.size()),
+                                     frame.data);
+    }
+
     // Convert CANFrame to can_value_type for existing processing
     can_value_type dm_frame;
 
@@ -2663,7 +2751,8 @@ private:
     dm_frame.head.can_type = 0; // Classic CAN
     dm_frame.head.id_type = frame.is_extended_id ? 1 : 0;
     dm_frame.head.dir = 0; // Received
-    dm_frame.head.dlc = std::min(static_cast<uint8_t>(frame.data.size()), static_cast<uint8_t>(64));
+    dm_frame.head.dlc = std::min(static_cast<uint8_t>(frame.data.size()),
+                                 static_cast<uint8_t>(64));
 
     // Clear reserve
     memset(dm_frame.head.reserve, 0, 3);
@@ -2680,6 +2769,14 @@ private:
 
   void handle_can_frame(can_value_type &frame) {
     uint32_t can_id = frame.head.id;
+
+    // Log received CAN frame (for legacy device path)
+    if (can_logger_ && can_logger_->is_logging()) {
+      std::vector<uint8_t> data(frame.data, frame.data + frame.head.dlc);
+      can_logger_->log_received_frame(can_id, frame.head.id_type == 1,
+                                     frame.head.dlc, data);
+    }
+
     // Track receive frequency - count ALL frames
     std::cout << "[Can Recv] recv from can id is " << can_id << std::endl;
     receive_count_++;
@@ -2696,7 +2793,7 @@ private:
       can_send_cv.notify_one(); // Wake up the waiting sender
 
       if (debug_enabled_) {
-        std::cout << "\033[32m✅ [CAN SYNC] Response received from ID 0x"
+        std::cout << "\033[32m✅ [CAN RECV] Response received from ID 0x"
                   << std::hex << can_id << std::dec << " - send enabled\033[0m"
                   << std::endl;
       }
@@ -2858,10 +2955,10 @@ private:
   void process_dm_motor_feedback(can_value_type &frame, int motor_idx) {
     // DEBUG: Print received feedback
     std::cout << "🔥 FEEDBACK: Received DM Motor " << (motor_idx + 1)
-              << " feedback, DLC=" << (int)frame.head.dlc
-              << " Data: ";
+              << " feedback, DLC=" << (int)frame.head.dlc << " Data: ";
     for (int i = 0; i < frame.head.dlc; i++) {
-      std::cout << std::hex << std::setw(2) << std::setfill('0') << (int)frame.data[i] << " ";
+      std::cout << std::hex << std::setw(2) << std::setfill('0')
+                << (int)frame.data[i] << " ";
     }
     std::cout << std::dec << std::endl;
 
@@ -2915,10 +3012,10 @@ private:
   void process_ht_motor_feedback(can_value_type &frame, int motor_idx) {
     // DEBUG: Print received HT feedback
     std::cout << "🔥 FEEDBACK: Received HT Motor " << (motor_idx + 1)
-              << " feedback, DLC=" << (int)frame.head.dlc
-              << " Data: ";
+              << " feedback, DLC=" << (int)frame.head.dlc << " Data: ";
     for (int i = 0; i < frame.head.dlc; i++) {
-      std::cout << std::hex << std::setw(2) << std::setfill('0') << (int)frame.data[i] << " ";
+      std::cout << std::hex << std::setw(2) << std::setfill('0')
+                << (int)frame.data[i] << " ";
     }
     std::cout << std::dec << std::endl;
 
@@ -2985,10 +3082,10 @@ private:
   void process_servo_feedback(can_value_type &frame, int motor_idx) {
     // DEBUG: Print received servo feedback
     std::cout << "🔥 FEEDBACK: Received Servo Motor " << (motor_idx + 1)
-              << " feedback, DLC=" << (int)frame.head.dlc
-              << " Data: ";
+              << " feedback, DLC=" << (int)frame.head.dlc << " Data: ";
     for (int i = 0; i < frame.head.dlc; i++) {
-      std::cout << std::hex << std::setw(2) << std::setfill('0') << (int)frame.data[i] << " ";
+      std::cout << std::hex << std::setw(2) << std::setfill('0')
+                << (int)frame.data[i] << " ";
     }
     std::cout << std::dec << std::endl;
 
@@ -3040,14 +3137,15 @@ private:
       return;
     }
 
-    // Convert normalized position (0.0-1.0) to servo range (0-4095)
-    // Position range: 0-4095 represents one full rotation
-    uint16_t pos_raw = static_cast<uint16_t>(position * 4095.0);
+    // Convert position from radians to servo range (0-4095) - matching Python implementation
+    // Python: position = int(position / 2 / 3.14 * 4095)
+    double clamped_pos = std::max(0.0, std::min(position, 2.0 * M_PI)); // Clamp to 0-2π
+    uint16_t pos_raw = static_cast<uint16_t>(clamped_pos / (2.0 * M_PI) * 4095.0);
 
-    // Convert normalized velocity to servo range (1-4095)
-    // Clamp to reasonable range
-    uint16_t vel_raw = static_cast<uint16_t>(
-        std::max(1.0, std::min(velocity * 4095.0, 4095.0)));
+    // Convert velocity from radians to servo range (1-4095) - matching Python implementation
+    // Python: velocity = int(velocity / 2 / 3.14 * 4095)
+    double clamped_vel = std::max(1.0, std::min(velocity, 2.0 * M_PI)); // Clamp to 1-2π
+    uint16_t vel_raw = static_cast<uint16_t>(clamped_vel / (2.0 * M_PI) * 4095.0);
 
     // Create servo command based on Python implementation
     // Format: [mode, pos_high, pos_low, vel_high, vel_low, 0, 0, 0]
@@ -3615,10 +3713,24 @@ private:
                   << std::endl;
         return;
       }
+
+      // Log sent CAN frame
+      if (can_logger_ && can_logger_->is_logging()) {
+        can_logger_->log_sent_frame(can_frame.id, can_frame.is_extended_id,
+                                   static_cast<uint8_t>(can_frame.data.size()),
+                                   can_frame.data);
+      }
     } else {
       // Use legacy device path (old DM Tools)
       device_->set_tx_frame(&frame);
       device_->send_data();
+
+      // Log sent CAN frame
+      if (can_logger_ && can_logger_->is_logging()) {
+        can_logger_->log_sent_frame(can_id, is_extended_frame,
+                                   static_cast<uint8_t>(data.size()),
+                                   data);
+      }
     }
     /*if (can_id == 0x8007 or can_id == 0x8008) {*/
     /*  std::cout << "[CAN SEND] SLeep for big can ht " << std::endl;*/
@@ -3661,6 +3773,8 @@ private:
   std::unique_ptr<CANCommunicationInterface> communication_adapter_;
   std::string current_backend_name_;
   bool using_factory_backend_ = false;
+  // CAN bus traffic logger
+  std::unique_ptr<CANBusLogger> can_logger_;
 
   std::atomic<double> positions_[9];
   std::atomic<double> velocities_[9];

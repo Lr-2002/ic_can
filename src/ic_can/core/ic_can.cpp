@@ -572,7 +572,8 @@ public:
         if (can_logger_->start_logging()) {
           std::cout << "✅ CAN bus logging started" << std::endl;
         } else {
-          std::cout << "⚠️  WARNING: Failed to start CAN bus logging" << std::endl;
+          std::cout << "⚠️  WARNING: Failed to start CAN bus logging"
+                    << std::endl;
         }
       }
 
@@ -620,8 +621,8 @@ public:
       /*motor_kp_gains_ = {480, 120, 120, 80, 150, 30, 8, 8, 0};*/
       /*motor_kd_gains_ = {4, 2, 2, 1.8, 2.2, 1, 1.2, 1.2, 0};*/
 
-      motor_kp_gains_ = {400, 200, 200, 100, 150, 80, 80, 80, 0};
-      motor_kd_gains_ = {4, 2.5, 2.5, 1.5, 1.5, 1.5, 1, 1, 0};
+      motor_kp_gains_ = {400, 200, 200, 100, 150, 15, 80, 80, 0};
+      motor_kd_gains_ = {4, 2.5, 2.5, 1.5, 1.5, 0.8, 1, 1, 0};
     }
 
     if (debug_enabled_) {
@@ -910,7 +911,8 @@ public:
       if (motor_id == 9) {
         // Servo motor 9: use servo-specific enable command
         send_servo_enable(motor_id);
-        std::cout << "   ✅ Servo Motor " << motor_id << " enabled" << std::endl;
+        std::cout << "   ✅ Servo Motor " << motor_id << " enabled"
+                  << std::endl;
       } else {
         // DM motors 1-8: use DM enable command
         send_can_frame(motor_id, enable_cmd,
@@ -1200,18 +1202,20 @@ public:
         /*}*/
       } else if (i == 8) {
         // Servo motor 9 (gripper): use servo CAN FD protocol
-        // In TEACH_MODE, don't send position commands to gripper - let it stay open
-        // In other modes, send position commands to control gripper
         if (control_mode_ != ControlMode::TEACH_MODE) {
-          std::cout
-              << "PROFILE: Motor " << (i + 1) << " (Servo) command start at "
-              << std::chrono::duration_cast<std::chrono::microseconds>(
-                     std::chrono::high_resolution_clock::now().time_since_epoch())
-                     .count()
-              << std::endl;
+          std::cout << "PROFILE: Motor " << (i + 1)
+                    << " (Servo) command start at "
+                    << std::chrono::duration_cast<std::chrono::microseconds>(
+                           std::chrono::high_resolution_clock::now()
+                               .time_since_epoch())
+                           .count()
+                    << std::endl;
           send_servo_command(i + 1, pos, vel, tau);
         } else {
-          std::cout << "🎓 TEACH_MODE: Skipping gripper position command (keeping open)" << std::endl;
+          std::cout
+              << "🎓 TEACH_MODE: Disabling gripper servo for natural movement"
+              << std::endl;
+          send_servo_disable(i + 1);
         }
       } else if (i < 8) {
         // HT motors 7-8: use HT MIT protocol
@@ -1399,6 +1403,12 @@ public:
 
       std::cout << "✅ Generated " << trajectory_points_.size()
                 << " trajectory points" << std::endl;
+
+      if (trajectory_points_.empty()) {
+        std::cout << "❌ ERROR: No trajectory points generated!" << std::endl;
+        control_running_ = false;
+        return false;
+      }
     }
 
     control_thread_ = std::thread([this, frequency]() {
@@ -2737,8 +2747,8 @@ private:
     // Log received CAN frame
     if (can_logger_ && can_logger_->is_logging()) {
       can_logger_->log_received_frame(frame.id, frame.is_extended_id,
-                                     static_cast<uint8_t>(frame.data.size()),
-                                     frame.data);
+                                      static_cast<uint8_t>(frame.data.size()),
+                                      frame.data);
     }
 
     // Convert CANFrame to can_value_type for existing processing
@@ -2774,7 +2784,7 @@ private:
     if (can_logger_ && can_logger_->is_logging()) {
       std::vector<uint8_t> data(frame.data, frame.data + frame.head.dlc);
       can_logger_->log_received_frame(can_id, frame.head.id_type == 1,
-                                     frame.head.dlc, data);
+                                      frame.head.dlc, data);
     }
 
     // Track receive frequency - count ALL frames
@@ -3137,15 +3147,19 @@ private:
       return;
     }
 
-    // Convert position from radians to servo range (0-4095) - matching Python implementation
-    // Python: position = int(position / 2 / 3.14 * 4095)
-    double clamped_pos = std::max(0.0, std::min(position, 2.0 * M_PI)); // Clamp to 0-2π
-    uint16_t pos_raw = static_cast<uint16_t>(clamped_pos / (2.0 * M_PI) * 4095.0);
+    // Convert position from radians to servo range (0-4095) - matching Python
+    // implementation Python: position = int(position / 2 / 3.14 * 4095)
+    double clamped_pos =
+        std::max(0.0, std::min(position, 2.0 * M_PI)); // Clamp to 0-2π
+    uint16_t pos_raw =
+        static_cast<uint16_t>(clamped_pos / (2.0 * M_PI) * 4095.0);
 
-    // Convert velocity from radians to servo range (1-4095) - matching Python implementation
-    // Python: velocity = int(velocity / 2 / 3.14 * 4095)
-    double clamped_vel = std::max(1.0, std::min(velocity, 2.0 * M_PI)); // Clamp to 1-2π
-    uint16_t vel_raw = static_cast<uint16_t>(clamped_vel / (2.0 * M_PI) * 4095.0);
+    // Convert velocity from radians to servo range (1-4095) - matching Python
+    // implementation Python: velocity = int(velocity / 2 / 3.14 * 4095)
+    double clamped_vel =
+        std::max(1.0, std::min(velocity, 2.0 * M_PI)); // Clamp to 1-2π
+    uint16_t vel_raw =
+        static_cast<uint16_t>(clamped_vel / (2.0 * M_PI) * 4095.0);
 
     // Create servo command based on Python implementation
     // Format: [mode, pos_high, pos_low, vel_high, vel_low, 0, 0, 0]
@@ -3717,8 +3731,8 @@ private:
       // Log sent CAN frame
       if (can_logger_ && can_logger_->is_logging()) {
         can_logger_->log_sent_frame(can_frame.id, can_frame.is_extended_id,
-                                   static_cast<uint8_t>(can_frame.data.size()),
-                                   can_frame.data);
+                                    static_cast<uint8_t>(can_frame.data.size()),
+                                    can_frame.data);
       }
     } else {
       // Use legacy device path (old DM Tools)
@@ -3728,8 +3742,7 @@ private:
       // Log sent CAN frame
       if (can_logger_ && can_logger_->is_logging()) {
         can_logger_->log_sent_frame(can_id, is_extended_frame,
-                                   static_cast<uint8_t>(data.size()),
-                                   data);
+                                    static_cast<uint8_t>(data.size()), data);
       }
     }
     /*if (can_id == 0x8007 or can_id == 0x8008) {*/

@@ -284,9 +284,10 @@ public:
       positions.push_back(motor_positions);
     }
 
-    std::cout << "📋 Loaded " << positions.size()
-              << " motor state points from CSV (skipped first 100 unstable points)"
-              << std::endl;
+    std::cout
+        << "📋 Loaded " << positions.size()
+        << " motor state points from CSV (skipped first 100 unstable points)"
+        << std::endl;
 
     // Estimate frequency from timestamps
     if (time_points.size() > 1) {
@@ -646,7 +647,7 @@ int main(int argc, char *argv[]) {
     // Create IC_CAN controller
     std::cout << "\n🔧 Initializing IC_CAN controller..." << std::endl;
     auto controller = std::make_unique<ic_can::IC_CAN>(
-        "693D3DE86DF5940C8BC74A5B46A3CE2E", true);
+        "693D3DE86DF5940C8BC74A5B46A3CE2E", false);
 
     if (!controller->initialize()) {
       std::cout << "❌ FAILED: System initialization failed" << std::endl;

@@ -75,6 +75,7 @@ option(BUILD_PYTHON_BINDINGS "Build Python bindings" ON)
 option(BUILD_WITH_PINOCCHIO "Enable Pinocchio torque prediction" ON)
 option(BUILD_WITH_MATLAB "Enable MATLAB regressor libraries" OFF)
 option(BUILD_WITH_DM_TOOLS "Enable dm-tools SDK integration" ON)
+option(BUILD_WITH_ZLG_CANFD "Enable ZLG CAN FD communication backend" ON)
 
 # ===================================
 # DEPENDENCY CONFIGURATION
@@ -91,6 +92,7 @@ include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/regressor/lib/regressorWithMotorDynamics
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/regressor/lib/frictionRegressor
     ${CMAKE_CURRENT_BINARY_DIR}/nlohmann_json
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/zlg_canfd
 )
 
 # Pinocchio Configuration
@@ -156,6 +158,52 @@ if(APPLE AND BUILD_WITH_DM_TOOLS)
     endif()
 endif()
 
+# ZLG CAN FD Configuration
+if(BUILD_WITH_ZLG_CANFD)
+    # Check for ZLG CAN FD library
+    find_library(ZLG_CANFD_LIBRARY
+        NAMES controlcanfd
+        PATHS
+            ${CMAKE_CURRENT_SOURCE_DIR}/lib/zlg_canfd
+            ${CMAKE_CURRENT_SOURCE_DIR}/lib/zlg_canfd/lib
+            /usr/local/lib
+            /usr/lib
+        DOC "ZLG CAN FD communication library"
+    )
+
+    # Check for ZLG CAN FD header
+    find_path(ZLG_CANFD_INCLUDE_DIR
+        NAMES controlcanfd.h
+        PATHS
+            ${CMAKE_CURRENT_SOURCE_DIR}/lib/zlg_canfd
+            ${CMAKE_CURRENT_SOURCE_DIR}/lib/zlg_canfd/include
+            /usr/local/include
+            /usr/include
+        DOC "ZLG CAN FD header files"
+    )
+
+    if(ZLG_CANFD_LIBRARY AND ZLG_CANFD_INCLUDE_DIR)
+        message(STATUS "✅ Found ZLG CAN FD library: ${ZLG_CANFD_LIBRARY}")
+        message(STATUS "✅ Found ZLG CAN FD headers: ${ZLG_CANFD_INCLUDE_DIR}")
+        add_definitions(-DHAVE_ZLG_CANFD)
+
+        # Add the include directory if not already in global includes
+        if(NOT ${ZLG_CANFD_INCLUDE_DIR} STREQUAL ${CMAKE_CURRENT_SOURCE_DIR}/lib/zlg_canfd)
+            include_directories(${ZLG_CANFD_INCLUDE_DIR})
+        endif()
+    else()
+        message(WARNING "❌ ZLG CAN FD library or headers not found. ZLG CAN FD backend will not be available.")
+        message(STATUS "   - Expected library: libcontrolcanfd.so in lib/zlg_canfd/")
+        message(STATUS "   - Expected header: controlcanfd.h in lib/zlg_canfd/")
+        set(ZLG_CANFD_LIBRARY "")
+        add_definitions(-DZLG_CANFD_NOT_AVAILABLE)
+    endif()
+else()
+    message(STATUS "ZLG CAN FD backend disabled by BUILD_WITH_ZLG_CANFD=OFF")
+    set(ZLG_CANFD_LIBRARY "")
+    add_definitions(-DZLG_CANFD_NOT_AVAILABLE)
+endif()
+
 # ===================================
 # CORE LIBRARY
 # ===================================
@@ -205,7 +253,9 @@ message(STATUS "Build Python bindings: ${BUILD_PYTHON_BINDINGS}")
 message(STATUS "Build with Pinocchio: ${BUILD_WITH_PINOCCHIO}")
 message(STATUS "Build with MATLAB: ${BUILD_WITH_MATLAB}")
 message(STATUS "Build with dm-tools: ${BUILD_WITH_DM_TOOLS}")
+message(STATUS "Build with ZLG CAN FD: ${BUILD_WITH_ZLG_CANFD}")
 message(STATUS "libusb found: ${LIBUSB_LIBRARY}")
+message(STATUS "ZLG CAN FD library: ${ZLG_CANFD_LIBRARY}")
 if(BUILD_WITH_PINOCCHIO AND PINOCCHIO_FOUND)
     message(STATUS "Pinocchio version: ${PINOCCHIO_VERSION}")
 endif()

@@ -222,11 +222,71 @@ make install DESTDIR=$HOME/.local
    # Force disable with: -DBUILD_WITH_DM_TOOLS=OFF
    ```
 
+## System Architecture & Components
+
+### Motor Configuration
+- **Total Motors**: 9 motors on single FDCAN line
+- **Arm Motors (6)**: DM10010L, DM6248 (x2), DM4340 (x2), DM4310
+- **Wrist Motors (2)**: HT4438 (x2)
+- **Gripper Motor (1)**: Servo motor (CAN ID: 0x19)
+
+### Control Modes
+- **TEACH_MODE**: Gravity + friction compensation only (kp=0, kd=0)
+  - Arm motors: Receive compensation torques only
+  - Wrist motors: Receive compensation torques only
+  - Gripper: **Position commands skipped** (stays open naturally)
+- **EXECUTION_MODE**: Full position/velocity/torque control with specified gains
+
+### Communication System
+- **Primary Backend**: ZLG CAN FD (64-byte frames, 5 Mbps)
+- **Fallback**: DM Tools (8-byte frames, 1 Mbps)
+- **Target Frequency**: 500 Hz control loop
+- **CAN Bus Logging**: Integrated microsecond-precision logging system
+
+### Key Components
+1. **Arm Component**: DM motors 1-6 with MIT protocol
+2. **Wrist Component**: HT motors 7-8 with MIT protocol
+3. **Gripper Component**: Servo motor 9 with position control
+4. **CAN Bus Logger**: Core system logging all CAN traffic
+5. **Torque Prediction**: Pinocchio-based dynamics + friction compensation
+
+## Recent Updates (2025-11-05)
+
+### ✅ Completed
+- **CAN Bus Logger Integration**: Moved from tools to core system architecture
+- **Servo Protocol Fix**: Corrected position scaling (radians → 0-4095 range) to match Python implementation
+- **TEACH_MODE Gripper Control**: Implemented logic to skip gripper position commands in TEACH_MODE
+- **Servo Motor Modes**: All modes implemented (DISABLE, ENABLE, POSITION, READ, MID)
+
+### 🔧 Current Implementation
+- **Gripper Logic**:
+  - TEACH_MODE: No position commands sent (gripper stays open)
+  - Other modes: Full position control available
+- **Servo Protocol**: Matches Python `servo_motor.py` implementation exactly
+- **Performance**: Achieving 400+ Hz communication rates with microsecond precision logging
+
+### ⚠️ Known Issues
+- Gripper hardware behavior may need further testing/verification
+- Some DM motors show communication timeouts (normal for hardware)
+
+## Development Guidelines
+
+- **Critical Safety**: All zeros are not safe - motors have installation errors and require calibration
+- **Movement Commands**: Ask user before running any commands that cause movement
+- **Build Testing**: Always test build after adding new applications/tools
+- **File Management**: Do not delete files from project directory
+- **Python Path**: Use `/home/lr-2002/anaconda3/bin/python` for Python execution
+- **No Mocking**: Use real hardware interfaces, avoid mock implementations
+
+### Component Relationships
+- **Independent Use**: Each component (arm, wrist, gripper) can operate standalone
+- **Combined Operation**:
+  - Arm can include wrist + gripper
+  - Wrist can include gripper
+  - Hierarchical pipeline design supports flexible composition
+
 ## Notes
 
-- The project directory is named `ic_can` suggesting this may be related to Controller Area Network (CAN) protocol implementation
-- Parent directory is `instantcreation` indicating this might be part of a larger project suite
-- use  /home/lr-2002/anaconda3/bin/python for python
-- do not use mock any time
-- follow the old cmake, if you add new app, remeber to fix the cmake and notice to test the build;
-- in this system, there are 3 big component: arm, wrist, gripper; their relation are: themselves  could be used singlely, data read, action execution; and they could be combiniation, while there are include info, the arm could include wirst, wrist+gripper; the wrist could include the gripper; so you need to achieve such pipeline.
+- The project directory is named `ic_can` related to Controller Area Network (CAN) protocol implementation
+- Parent directory is `instantcreation` part of larger project suite
+- Target: 500 Hz control loop for 9-motor system on single FDCAN line

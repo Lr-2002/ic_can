@@ -1163,17 +1163,23 @@ public:
       }
 
       // Add gravity compensation to torque feedforward
-      std::cout << "🔧 Gravity compensation enabled: "
-                << gravity_compensation_enabled_ << std::endl;
+      if (debug_enabled_) {
+        std::cout << "🔧 Gravity compensation enabled: "
+                  << gravity_compensation_enabled_ << std::endl;
+      }
       if (gravity_compensation_enabled_) {
         if (i < 6) {
           tau += gravity_torques[i];
-          std::cout << "🔧 [GC] Motor " << (i + 1)
-                    << " gravity torque: " << gravity_torques[i]
-                    << " Nm, total tau: " << tau << " Nm" << std::endl;
+          if (debug_enabled_) {
+            std::cout << "🔧 [GC] Motor " << (i + 1)
+                      << " gravity torque: " << gravity_torques[i]
+                      << " Nm, total tau: " << tau << " Nm" << std::endl;
+          }
         } else {
-          std::cout << "⚠️  [GC] Motor " << (i + 1)
-                    << " (HT/Servo) - no gravity compensation" << std::endl;
+          if (debug_enabled_) {
+            std::cout << "⚠️  [GC] Motor " << (i + 1)
+                      << " (HT/Servo) - no gravity compensation" << std::endl;
+          }
         }
       }
 
@@ -1192,24 +1198,29 @@ public:
 
       if (i < 6) {
         // Damiao motors 1-6: use DM MIT protocol
-        std::cout
-            << "PROFILE: Motor " << (i + 1) << " (DM) command start at "
-            << std::chrono::duration_cast<std::chrono::microseconds>(
-                   std::chrono::high_resolution_clock::now().time_since_epoch())
-                   .count()
-            << std::endl;
-        send_dm_mit_command(i + 1, pos, vel, tau, kp, kd);
-        /*}*/
-      } else if (i == 8) {
-        // Servo motor 9 (gripper): use servo CAN FD protocol
-        if (control_mode_ != ControlMode::TEACH_MODE) {
-          std::cout << "PROFILE: Motor " << (i + 1)
-                    << " (Servo) command start at "
+        if (debug_enabled_) {
+          std::cout << "PROFILE: Motor " << (i + 1) << " (DM) command start at "
                     << std::chrono::duration_cast<std::chrono::microseconds>(
                            std::chrono::high_resolution_clock::now()
                                .time_since_epoch())
                            .count()
                     << std::endl;
+        }
+        send_dm_mit_command(i + 1, pos, vel, tau, kp, kd);
+        /*}*/
+      } else if (i == 8) {
+        // Servo motor 9 (gripper): use servo CAN FD protocol
+        if (control_mode_ != ControlMode::TEACH_MODE) {
+          if (debug_enabled_) {
+            std::cout << "PROFILE: Motor " << (i + 1)
+                      << " (Servo) command start at "
+                      << std::chrono::duration_cast<std::chrono::microseconds>(
+                             std::chrono::high_resolution_clock::now()
+                                 .time_since_epoch())
+                             .count()
+                      << std::endl;
+          }
+
           send_servo_command(i + 1, pos, vel, tau);
         } else {
           std::cout
@@ -1220,12 +1231,14 @@ public:
       } else if (i < 8) {
         // HT motors 7-8: use HT MIT protocol
         /*usleep(10000);*/
-        std::cout
-            << "PROFILE: Motor " << (i + 1) << " (HT) command start at "
-            << std::chrono::duration_cast<std::chrono::microseconds>(
-                   std::chrono::high_resolution_clock::now().time_since_epoch())
-                   .count()
-            << std::endl;
+        if (debug_enabled_) {
+          std::cout << "PROFILE: Motor " << (i + 1) << " (HT) command start at "
+                    << std::chrono::duration_cast<std::chrono::microseconds>(
+                           std::chrono::high_resolution_clock::now()
+                               .time_since_epoch())
+                           .count()
+                    << std::endl;
+        }
         send_ht_mit_command_single(i + 1, pos, vel, tau, kp, kd);
       }
       // PROFILE: Motor command completion
@@ -1234,8 +1247,10 @@ public:
           std::chrono::duration_cast<std::chrono::microseconds>(motor_end -
                                                                 motor_start)
               .count();
-      std::cout << "PROFILE: Motor " << (i + 1) << " command completed in "
-                << motor_duration << "μs" << std::endl;
+      if (debug_enabled_) {
+        std::cout << "PROFILE: Motor " << (i + 1) << " command completed in "
+                  << motor_duration << "μs" << std::endl;
+      }
     }
 
     // Record the actually sent positions, velocities, and torques for logging
@@ -1255,83 +1270,18 @@ public:
     auto end_time = std::chrono::duration_cast<std::chrono::microseconds>(
                         function_end.time_since_epoch())
                         .count();
-    std::cout << "PROFILE: set_joint_positions END at time " << end_time
-              << ", TOTAL duration: " << function_duration << "μs" << std::endl;
+    if (debug_enabled_) {
+      std::cout << "PROFILE: set_joint_positions END at time " << end_time
+                << ", TOTAL duration: " << function_duration << "μs"
+                << std::endl;
+    }
 
     return true;
   }
 
   bool start_high_frequency_control() {
-    if (hf_control_running_) {
-      std::cout << "⚠️ High-frequency control already running" << std::endl;
-      return true;
-    }
-
-    if (!connected_ || !device_) {
-      std::cout << "❌ Cannot start high-frequency control - not connected"
-                << std::endl;
-      return false;
-    }
-
-    std::cout << "🚀 Starting high-frequency control at 500Hz..." << std::endl;
-
-    hf_control_running_ = true;
-    hf_control_thread_ = std::thread([this]() {
-      auto target_period = std::chrono::microseconds(2000); // 500Hz = 2ms
-      auto last_time = std::chrono::steady_clock::now();
-      uint64_t iteration_count = 0;
-      auto performance_report_time = last_time + std::chrono::seconds(5);
-
-      while (hf_control_running_) {
-        auto start_time = std::chrono::steady_clock::now();
-
-        // Send refresh commands to all motors
-        bool refresh_success = refresh_all();
-
-        // Track performance
-        if (!refresh_success) {
-          std::cout << "⚠️ Refresh failed at iteration " << iteration_count
-                    << std::endl;
-        }
-
-        iteration_count++;
-
-        // Performance monitoring and reporting
-        auto current_time = std::chrono::steady_clock::now();
-        if (current_time >= performance_report_time) {
-          auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
-                             current_time - last_time)
-                             .count();
-          double actual_frequency =
-              static_cast<double>(iteration_count) / elapsed;
-
-          if (debug_enabled_) {
-            std::cout << "📊 HF Control Performance: " << std::fixed
-                      << std::setprecision(1) << actual_frequency
-                      << " Hz (target: 500Hz)" << std::endl;
-          }
-
-          // Reset counters
-          iteration_count = 0;
-          last_time = current_time;
-          performance_report_time = current_time + std::chrono::seconds(5);
-        }
-
-        // Calculate precise sleep time to maintain 500Hz
-        auto elapsed = std::chrono::steady_clock::now() - start_time;
-        auto sleep_time = target_period - elapsed;
-
-        if (sleep_time.count() > 0) {
-          std::this_thread::sleep_for(sleep_time);
-        } else if (sleep_time.count() < -1000) { // More than 1ms overtime
-          std::cout << "⚠️ HF control overtime: " << -sleep_time.count()
-                    << " microseconds" << std::endl;
-        }
-      }
-    });
-
-    std::cout << "✅ High-frequency control thread started" << std::endl;
-    return true;
+    // Use unified control loop with 500Hz refresh mode
+    return start_unified_control_loop(500.0, "refresh");
   }
 
   void stop_high_frequency_control() {
@@ -1344,6 +1294,185 @@ public:
   }
 
   bool is_hf_control_running() const { return hf_control_running_; }
+
+  // Unified control loop implementation with frequency and mode parameters
+  bool start_unified_control_loop(double frequency,
+                                  const std::string &mode = "trajectory") {
+    // Check if any control loop is already running
+    if (control_running_) {
+      std::cout << "⚠️ Control loop already running" << std::endl;
+      return true;
+    }
+
+    if (!connected_ || !device_) {
+      std::cout << "❌ Cannot start control loop - not connected" << std::endl;
+      return false;
+    }
+
+    if (frequency <= 0 || frequency > 1000) {
+      std::cout << "❌ Invalid frequency: " << frequency
+                << " Hz (must be 0-1000 Hz)" << std::endl;
+      return false;
+    }
+
+    // Validate mode
+    if (mode != "trajectory" && mode != "refresh") {
+      std::cout << "❌ Invalid mode: " << mode
+                << " (must be 'trajectory' or 'refresh')" << std::endl;
+      return false;
+    }
+
+    control_frequency_ = frequency;
+    control_mode_str_ = mode; // Store mode for debugging
+    control_running_ = true;
+
+    std::cout << "🚀 Starting unified control loop at " << frequency << "Hz ("
+              << mode << " mode)..." << std::endl;
+
+    // Reset performance counters for accurate loop timing measurement
+    {
+      std::lock_guard<std::mutex> lock(performance_mutex_);
+      send_count_ = 0;
+      receive_count_ = 0;
+      total_bytes_sent_ = 0;
+      total_bytes_received_ = 0;
+      performance_start_time_ = std::chrono::high_resolution_clock::now();
+    }
+
+    // Initialize interpolation state if using trajectory mode
+    if (mode == "trajectory") {
+      std::lock_guard<std::mutex> lock(interpolation_mutex_);
+
+      // Get current and target positions
+      current_positions_ = get_joint_positions();
+
+      if (target_positions_.empty()) {
+        std::cout << "⚠️ No target positions set, using current positions"
+                  << std::endl;
+        target_positions_ = current_positions_;
+      }
+
+      // Generate smooth interpolation trajectory
+      trajectory_points_.clear();
+      current_trajectory_index_ = 0;
+
+      double duration = 2.0; // 2 second transition by default
+      int steps = static_cast<int>(duration * frequency);
+
+      for (int step = 0; step <= steps; step++) {
+        double alpha = static_cast<double>(step) / steps;
+        alpha = alpha * alpha * (3.0 - 2.0 * alpha); // Smoothstep
+
+        std::vector<double> interpolated_pos(9, 0.0);
+        for (int i = 0; i < 9; i++) {
+          if (i < static_cast<int>(current_positions_.size()) &&
+              i < static_cast<int>(target_positions_.size())) {
+            interpolated_pos[i] = (1.0 - alpha) * current_positions_[i] +
+                                  alpha * target_positions_[i];
+          }
+        }
+        trajectory_points_.push_back(interpolated_pos);
+      }
+
+      std::cout << "✅ Generated " << trajectory_points_.size()
+                << " trajectory points" << std::endl;
+
+      if (trajectory_points_.empty()) {
+        std::cout << "❌ ERROR: No trajectory points generated!" << std::endl;
+        control_running_ = false;
+        return false;
+      }
+    }
+
+    // Start unified control thread
+    control_thread_ = std::thread([this, frequency, mode]() {
+      auto target_period = std::chrono::duration<double>(1.0 / frequency);
+      auto last_time = std::chrono::steady_clock::now();
+      uint64_t loop_iterations = 0;
+      auto performance_report_time = last_time + std::chrono::seconds(5);
+
+      std::cout << "🎮 Unified control loop started with period: "
+                << target_period.count() * 1000 << " ms" << std::endl;
+
+      while (control_running_) {
+        auto start_time = std::chrono::steady_clock::now();
+
+        if (mode == "trajectory") {
+          // Trajectory mode: use pre-computed positions
+          std::vector<double> next_position;
+          bool trajectory_complete = false;
+
+          {
+            std::lock_guard<std::mutex> lock(interpolation_mutex_);
+
+            if (current_trajectory_index_ < trajectory_points_.size()) {
+              next_position = trajectory_points_[current_trajectory_index_];
+              current_trajectory_index_++;
+
+              if (debug_enabled_ && (loop_iterations % 100 == 0)) {
+                std::cout << "🎯 Step " << current_trajectory_index_ << "/"
+                          << trajectory_points_.size() << ": ";
+                for (int i = 0; i < std::min(9, (int)next_position.size());
+                     i++) {
+                  std::cout << std::fixed << std::setprecision(3)
+                            << next_position[i] << " ";
+                }
+                std::cout << std::endl;
+              }
+            } else {
+              // Trajectory completed, hold final position
+              next_position = trajectory_points_.back();
+              trajectory_complete = true;
+
+              if (loop_iterations % 500 == 0) {
+                std::cout << "🏁 Trajectory completed, holding position"
+                          << std::endl;
+              }
+            }
+          }
+
+          // Send position command
+          if (!next_position.empty()) {
+            set_joint_positions(next_position, {}, {});
+          }
+
+        } else if (mode == "refresh") {
+          // Refresh mode: send refresh commands to all motors
+          bool refresh_success = refresh_all();
+          if (!refresh_success && (loop_iterations % 100 == 0)) {
+            std::cout << "⚠️ Refresh failed at iteration " << loop_iterations
+                      << std::endl;
+          }
+        }
+
+        loop_iterations++;
+
+        // Performance reporting
+        auto current_time = std::chrono::steady_clock::now();
+        if (current_time >= performance_report_time) {
+          auto elapsed = std::chrono::duration<double>(
+                             current_time - (performance_report_time -
+                                             std::chrono::seconds(5)))
+                             .count();
+          double actual_frequency = loop_iterations / elapsed;
+          std::cout << "📊 Unified control loop: " << actual_frequency
+                    << " Hz (target: " << frequency << "Hz, mode: " << mode
+                    << ")" << std::endl;
+          loop_iterations = 0;
+          performance_report_time = current_time + std::chrono::seconds(5);
+        }
+
+        // Sleep for remaining time to maintain frequency
+        auto end_time = std::chrono::steady_clock::now();
+        auto elapsed = end_time - start_time;
+        if (elapsed < target_period) {
+          std::this_thread::sleep_for(target_period - elapsed);
+        }
+      }
+    });
+
+    return true;
+  }
 
   // Configurable control loop implementation with offline trajectory
   // generation
@@ -2356,7 +2485,9 @@ private:
     }
 
     gravity_compensation_enabled_ = true;
-    std::cout << "✅ Gravity compensation enabled" << std::endl;
+    if (debug_enabled_) {
+      std::cout << "✅ Gravity compensation enabled" << std::endl;
+    }
     return true;
   }
 
@@ -2788,7 +2919,9 @@ private:
     }
 
     // Track receive frequency - count ALL frames
-    std::cout << "[Can Recv] recv from can id is " << can_id << std::endl;
+    if (debug_enabled_) {
+      std::cout << "[Can Recv] recv from can id is " << can_id << std::endl;
+    }
     receive_count_++;
     total_bytes_received_ += frame.head.dlc;
 
@@ -2964,13 +3097,15 @@ private:
 
   void process_dm_motor_feedback(can_value_type &frame, int motor_idx) {
     // DEBUG: Print received feedback
-    std::cout << "🔥 FEEDBACK: Received DM Motor " << (motor_idx + 1)
-              << " feedback, DLC=" << (int)frame.head.dlc << " Data: ";
-    for (int i = 0; i < frame.head.dlc; i++) {
-      std::cout << std::hex << std::setw(2) << std::setfill('0')
-                << (int)frame.data[i] << " ";
+    if (debug_enabled_) {
+      std::cout << "🔥 FEEDBACK: Received DM Motor " << (motor_idx + 1)
+                << " feedback, DLC=" << (int)frame.head.dlc << " Data: ";
+      for (int i = 0; i < frame.head.dlc; i++) {
+        std::cout << std::hex << std::setw(2) << std::setfill('0')
+                  << (int)frame.data[i] << " ";
+      }
+      std::cout << std::dec << std::endl;
     }
-    std::cout << std::dec << std::endl;
 
     if (frame.head.dlc < 6)
       return;
@@ -3021,13 +3156,15 @@ private:
 
   void process_ht_motor_feedback(can_value_type &frame, int motor_idx) {
     // DEBUG: Print received HT feedback
-    std::cout << "🔥 FEEDBACK: Received HT Motor " << (motor_idx + 1)
-              << " feedback, DLC=" << (int)frame.head.dlc << " Data: ";
-    for (int i = 0; i < frame.head.dlc; i++) {
-      std::cout << std::hex << std::setw(2) << std::setfill('0')
-                << (int)frame.data[i] << " ";
+    if (debug_enabled_) {
+      std::cout << "🔥 FEEDBACK: Received HT Motor " << (motor_idx + 1)
+                << " feedback, DLC=" << (int)frame.head.dlc << " Data: ";
+      for (int i = 0; i < frame.head.dlc; i++) {
+        std::cout << std::hex << std::setw(2) << std::setfill('0')
+                  << (int)frame.data[i] << " ";
+      }
+      std::cout << std::dec << std::endl;
     }
-    std::cout << std::dec << std::endl;
 
     if (frame.head.dlc < 7)
       return;
@@ -3091,13 +3228,15 @@ private:
 
   void process_servo_feedback(can_value_type &frame, int motor_idx) {
     // DEBUG: Print received servo feedback
-    std::cout << "🔥 FEEDBACK: Received Servo Motor " << (motor_idx + 1)
-              << " feedback, DLC=" << (int)frame.head.dlc << " Data: ";
-    for (int i = 0; i < frame.head.dlc; i++) {
-      std::cout << std::hex << std::setw(2) << std::setfill('0')
-                << (int)frame.data[i] << " ";
+    if (debug_enabled_) {
+      std::cout << "🔥 FEEDBACK: Received Servo Motor " << (motor_idx + 1)
+                << " feedback, DLC=" << (int)frame.head.dlc << " Data: ";
+      for (int i = 0; i < frame.head.dlc; i++) {
+        std::cout << std::hex << std::setw(2) << std::setfill('0')
+                  << (int)frame.data[i] << " ";
+      }
+      std::cout << std::dec << std::endl;
     }
-    std::cout << std::dec << std::endl;
 
     if (frame.head.dlc < 6) {
       return;
@@ -3486,14 +3625,18 @@ private:
       /*timeout = std::chrono::microseconds(10000); // 300us timeout*/
     }
     if (!can_send_flag.load()) {
-      std::cout
-          << "\033[33m⏳ [CAN SYNC] Waiting for previous response...\033[0m"
-          << std::endl;
+      if (debug_enabled_) {
+        std::cout
+            << "\033[33m⏳ [CAN SYNC] Waiting for previous response...\033[0m"
+            << std::endl;
+      }
       if (!can_send_cv.wait_for(lock, timeout,
                                 [this] { return can_send_flag.load(); })) {
-        std::cout << "\033[31m⚠️  [CAN SYNC] Timeout waiting for response - "
-                     "forcing send\033[0m"
-                  << std::endl;
+        if (debug_enabled_) {
+          std::cout << "\033[31m⚠️  [CAN SYNC] Timeout waiting for response - "
+                       "forcing send\033[0m"
+                    << std::endl;
+        }
         can_send_flag.store(true); // Force reset on timeout
         expecting_response.store(false);
       }
@@ -3810,6 +3953,7 @@ private:
   std::atomic<bool> control_running_;
   std::thread control_thread_;
   double control_frequency_;
+  std::string control_mode_str_; // Store control mode for debugging
 
   // Unified Control System
   std::atomic<bool> unified_control_running_;

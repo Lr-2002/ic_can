@@ -200,7 +200,6 @@ set(ADVANCED_TOOLS
     trajectory_executor
     friction_sweep
     friction_compensated_controller
-    dynamic_identifier
     regressor_wrapper
 )
 

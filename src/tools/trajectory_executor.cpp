@@ -27,6 +27,7 @@
 #include <cmath>
 #include <csignal>
 #include <filesystem>
+#include <algorithm>
 #include <fstream>
 #include <ic_can/core/ic_can.hpp>
 #include <iomanip>
@@ -573,6 +574,10 @@ void print_usage(const char *program_name) {
             << " [options] <trajectory_file.json|log_directory>" << std::endl;
   std::cout << "Options:" << std::endl;
   std::cout << "  -l             Enable logging" << std::endl;
+  std::cout << "  -i             Enable real-time interpolation (smooth motion)" << std::endl;
+  std::cout << "  -v <max_vel>   Maximum velocity for interpolation (rad/s, default: 1.0)" << std::endl;
+  std::cout << "  -s <smooth>    Enable trajectory preprocessing smoothing (0-1, default: 0)" << std::endl;
+  std::cout << "  --servo-100x   Enable 1:100 servo control ratio (smooth gripper motion)" << std::endl;
   std::cout << "  -h             Show this help message" << std::endl;
   std::cout << "\nExamples:" << std::endl;
   std::cout
@@ -587,10 +592,72 @@ void print_usage(const char *program_name) {
             << " -l trajectory.json                  # Execute with logging"
             << std::endl;
   std::cout << "  " << program_name
+            << " -i trajectory.json                  # Execute with interpolation (smooth)"
+            << std::endl;
+  std::cout << "  " << program_name
+            << " -i -v 0.5 trajectory.json           # Execute with limited velocity (0.5 rad/s)"
+            << std::endl;
+  std::cout << "  " << program_name
+            << " --servo-100x trajectory.json       # Execute with smooth gripper control"
+            << std::endl;
+  std::cout << "  " << program_name
             << " -l arm_monitor_20251101_231602/    # Replay with logging"
             << std::endl;
   std::cout << "\nLog directory must contain motor_states.csv file"
             << std::endl;
+}
+
+// Real-time interpolation function for smooth motion
+std::vector<double> interpolate_positions(
+    const std::vector<double> &current_positions,
+    const std::vector<double> &target_positions,
+    double dt, double max_velocity) {
+
+  std::vector<double> interpolated_positions(current_positions.size());
+  double max_step = max_velocity * dt;
+
+  for (size_t i = 0; i < current_positions.size(); ++i) {
+    double error = target_positions[i] - current_positions[i];
+    double step = std::clamp(error, -max_step, max_step);
+    interpolated_positions[i] = current_positions[i] + step;
+  }
+  return interpolated_positions;
+}
+
+// Apply trajectory preprocessing smoothing
+void smooth_trajectory(TrajectoryData &trajectory, double smooth_factor) {
+  if (smooth_factor <= 0 || trajectory.positions.empty()) {
+    return;
+  }
+
+  size_t num_joints = trajectory.positions[0].size();
+  size_t num_points = trajectory.positions.size();
+
+  for (size_t joint = 0; joint < num_joints; ++joint) {
+    // Simple moving average smoothing
+    std::vector<double> smoothed_values(num_points);
+    int window_size = static_cast<int>(smooth_factor * 10) + 1; // Window size 1-11
+
+    for (size_t i = 0; i < num_points; ++i) {
+      double sum = 0.0;
+      int count = 0;
+
+      for (int j = -window_size/2; j <= window_size/2; ++j) {
+        int idx = static_cast<int>(i) + j;
+        if (idx >= 0 && idx < static_cast<int>(num_points)) {
+          sum += trajectory.positions[idx][joint];
+          count++;
+        }
+      }
+
+      smoothed_values[i] = sum / count;
+    }
+
+    // Copy smoothed values back
+    for (size_t i = 0; i < num_points; ++i) {
+      trajectory.positions[i][joint] = smoothed_values[i];
+    }
+  }
 }
 
 int main(int argc, char *argv[]) {
@@ -601,6 +668,10 @@ int main(int argc, char *argv[]) {
 
   // Parse command line arguments
   bool enable_logging = false;
+  bool enable_interpolation = false;
+  bool enable_servo_100x = false;
+  double max_velocity = 1.0; // rad/s
+  double smooth_factor = 0.0; // 0 = no smoothing, 1 = maximum smoothing
   std::string input_path; // Can be JSON file or log directory
 
   for (int i = 1; i < argc; i++) {
@@ -611,6 +682,34 @@ int main(int argc, char *argv[]) {
       return 0;
     } else if (arg == "-l" || arg == "--log") {
       enable_logging = true;
+    } else if (arg == "-i" || arg == "--interpolate") {
+      enable_interpolation = true;
+    } else if ((arg == "-v" || arg == "--velocity") && i + 1 < argc) {
+      try {
+        max_velocity = std::stod(argv[++i]);
+        if (max_velocity <= 0 || max_velocity > 10.0) {
+          std::cout << "❌ Invalid max_velocity: " << max_velocity
+                    << " (must be 0-10 rad/s)" << std::endl;
+          return -1;
+        }
+      } catch (const std::exception& e) {
+        std::cout << "❌ Invalid velocity value: " << argv[i] << std::endl;
+        return -1;
+      }
+    } else if ((arg == "-s" || arg == "--smooth") && i + 1 < argc) {
+      try {
+        smooth_factor = std::stod(argv[++i]);
+        if (smooth_factor < 0 || smooth_factor > 1) {
+          std::cout << "❌ Invalid smooth factor: " << smooth_factor
+                    << " (must be 0-1)" << std::endl;
+          return -1;
+        }
+      } catch (const std::exception& e) {
+        std::cout << "❌ Invalid smooth factor value: " << argv[i] << std::endl;
+        return -1;
+      }
+    } else if (arg == "--servo-100x") {
+      enable_servo_100x = true;
     } else if (input_path.empty()) {
       input_path = arg;
     } else {
@@ -643,6 +742,13 @@ int main(int argc, char *argv[]) {
     }
 
     trajectory.print_info();
+
+    // Apply trajectory preprocessing smoothing if requested
+    if (smooth_factor > 0) {
+      std::cout << "🔧 Applying trajectory smoothing (factor: " << smooth_factor << ")..." << std::endl;
+      smooth_trajectory(trajectory, smooth_factor);
+      std::cout << "✅ Trajectory smoothing completed" << std::endl;
+    }
 
     // Create IC_CAN controller
     std::cout << "\n🔧 Initializing IC_CAN controller..." << std::endl;
@@ -743,10 +849,37 @@ int main(int argc, char *argv[]) {
     auto start_time = std::chrono::high_resolution_clock::now();
     size_t current_point = 0;
 
+    // Print execution settings
+    std::cout << "\n🚀 Starting trajectory execution..." << std::endl;
+    std::cout << "   Frequency: " << trajectory.frequency << " Hz" << std::endl;
+    std::cout << "   Duration: " << trajectory.total_points / trajectory.frequency << " seconds" << std::endl;
+    std::cout << "   Total points: " << trajectory.total_points << std::endl;
+    std::cout << "   Interpolation: " << (enable_interpolation ? "ENABLED" : "DISABLED") << std::endl;
+    if (enable_interpolation) {
+      std::cout << "   Max velocity: " << max_velocity << " rad/s" << std::endl;
+      double dt = 1.0 / trajectory.frequency;
+      double max_step = max_velocity * dt;
+      std::cout << "   Max step: " << max_step << " rad (" << (max_step * 180.0 / M_PI) << "°)" << std::endl;
+    }
+    std::cout << "   Pre-smoothing: " << (smooth_factor > 0 ? "ENABLED" : "DISABLED");
+    if (smooth_factor > 0) {
+      std::cout << " (factor: " << smooth_factor << ")";
+    }
+    std::cout << std::endl;
+    std::cout << "   Servo 100x Control: " << (enable_servo_100x ? "ENABLED" : "DISABLED") << std::endl;
+
     // Performance profiling variables
     auto profiling_start = std::chrono::high_resolution_clock::now();
     int commands_in_last_second = 0;
     auto last_profiling_time = profiling_start;
+
+    // Servo 100x control variables
+    int servo_control_counter = 0;
+    const int servo_ratio = 100; // 100 position updates for every 1 servo command
+    std::vector<double> servo_target_position(9, 0.0); // Store target for servo interpolation
+    std::vector<double> servo_current_position(9, 0.0); // Current interpolated position
+    auto last_servo_command_time = start_time;
+    bool servo_initialized = false;
 
     // Store timing stats for reporting (static to persist between loop
     // iterations)
@@ -756,41 +889,162 @@ int main(int argc, char *argv[]) {
     while (g_running && current_point < trajectory.total_points) {
       auto loop_start = std::chrono::high_resolution_clock::now();
 
-      // Check for large position changes (potential cause of jerky motion)
+      // Enhanced position jump detection using both trajectory deltas and current->target deltas
       static std::vector<double> last_positions(9, 0.0);
+      static bool first_iteration = true;
+
+      // Get current motor positions for delta-based jump detection
+      auto current_motor_positions = controller->get_joint_positions();
+
       double max_position_change = 0.0;
       int motor_with_max_change = 0;
+      std::string jump_type = "";
+
       for (int i = 0; i < 9; i++) {
-        double change = std::abs(trajectory.positions[current_point][i] -
-                                 last_positions[i]);
+        // 1. Check trajectory-to-trajectory changes (consecutive points)
+        double trajectory_change = std::abs(trajectory.positions[current_point][i] -
+                                          last_positions[i]);
+
+        // 2. Check current-to-target changes (from actual motor position to target)
+        double current_to_target_change = std::abs(trajectory.positions[current_point][i] -
+                                                 current_motor_positions[i]);
+
+        // Use the larger of the two changes for detection
+        double change = std::max(trajectory_change, current_to_target_change);
+
         if (change > max_position_change) {
           max_position_change = change;
           motor_with_max_change = i;
+
+          // Determine which type of jump this is
+          if (current_to_target_change > trajectory_change && current_to_target_change > 0.1) {
+            jump_type = " (from current position)";
+          } else if (trajectory_change > 0.1) {
+            jump_type = " (trajectory delta)";
+          }
         }
       }
 
-      // Warn about large position changes
-      if (max_position_change > 0.1) { // > 0.1 rad (~5.7 degrees)
-        std::cout << "⚠️  Large position jump detected: Motor "
-                  << (motor_with_max_change + 1) << " change=" << std::fixed
-                  << std::setprecision(4) << max_position_change << " rad ("
-                  << (max_position_change * 180.0 / M_PI) << "°)" << std::endl;
+      // Enhanced warning system with different thresholds for different scenarios
+      bool large_trajectory_delta = false;
+
+      for (int i = 0; i < 9; i++) {
+        double trajectory_change = std::abs(trajectory.positions[current_point][i] -
+                                          last_positions[i]);
+        double current_to_target_change = std::abs(trajectory.positions[current_point][i] -
+                                                 current_motor_positions[i]);
+
+        // More sensitive threshold for current->target jumps (potential safety issue)
+        if (current_to_target_change > 0.05) { // > 0.05 rad (~2.9 degrees)
+          std::cout << "⚠️  LARGE JUMP FROM CURRENT POSITION: Motor "
+                    << (i + 1) << " current=" << std::fixed << std::setprecision(3)
+                    << current_motor_positions[i] << " rad ("
+                    << (current_motor_positions[i] * 180.0 / M_PI) << "°) → target="
+                    << trajectory.positions[current_point][i] << " rad ("
+                    << (trajectory.positions[current_point][i] * 180.0 / M_PI)
+                    << "°) delta=" << current_to_target_change << " rad ("
+                    << (current_to_target_change * 180.0 / M_PI) << "°)" << std::endl;
+        }
+
+        // Standard threshold for trajectory deltas
+        if (trajectory_change > 0.1) { // > 0.1 rad (~5.7 degrees)
+          large_trajectory_delta = true;
+        }
       }
 
-      // Apply position directly without filtering for maximum fidelity
-      const auto &target_positions = trajectory.positions[current_point];
+      // Report trajectory delta jumps if present (but less critical)
+      if (large_trajectory_delta && max_position_change > 0.1) {
+        std::cout << "⚠️  Large trajectory delta: Motor "
+                  << (motor_with_max_change + 1) << " change=" << std::fixed
+                  << std::setprecision(4) << max_position_change << " rad ("
+                  << (max_position_change * 180.0 / M_PI) << "°)" << jump_type << std::endl;
+      }
 
-      // Measure set_joint_positions timing
+      // Initialize last_positions on first iteration
+      if (first_iteration) {
+        last_positions = trajectory.positions[current_point];
+        first_iteration = false;
+      }
+
+      // Apply position with real-time interpolation if enabled
+      const auto &target_positions = trajectory.positions[current_point];
+      std::vector<double> actual_positions;
+
+      if (enable_interpolation) {
+        // Calculate time step
+        double dt = 1.0 / trajectory.frequency;
+
+        // Interpolate between current and target positions
+        actual_positions = interpolate_positions(
+            current_motor_positions, target_positions, dt, max_velocity);
+      } else {
+        // Use raw target positions (original behavior)
+        actual_positions = target_positions;
+      }
+
+      // Measure set_joint_positions timing (declare outside blocks for scope)
       auto cmd_start = std::chrono::high_resolution_clock::now();
-      controller->set_joint_positions(target_positions, {}, {});
+
+      // Handle servo 100x control if enabled
+      if (enable_servo_100x) {
+        // Initialize servo positions on first iteration
+        if (!servo_initialized) {
+          servo_target_position = actual_positions;
+          servo_current_position = actual_positions;
+          servo_initialized = true;
+        }
+
+        // Update target position for servo interpolation
+        servo_target_position = actual_positions;
+
+        // Interpolate servo position (servo is motor 9, index 8)
+        double servo_interpolation_factor = 1.0 / servo_ratio;
+        double servo_step = (servo_target_position[8] - servo_current_position[8]) * servo_interpolation_factor;
+        servo_current_position[8] += servo_step;
+
+        // Create position vector: normal positions for motors 1-8, interpolated for motor 9
+        std::vector<double> servo_control_positions = actual_positions;
+        servo_control_positions[8] = servo_current_position[8]; // Use interpolated servo position
+
+        // Send interpolated positions to motors
+        controller->set_joint_positions(servo_control_positions, {}, {});
+
+        // Increment servo counter
+        servo_control_counter++;
+
+        // Send actual servo command every 100 iterations
+        if (servo_control_counter >= servo_ratio) {
+          // Send direct servo command to ensure final position is reached
+          controller->set_joint_positions(servo_target_position, {}, {});
+
+          // Reset counter and update current position
+          servo_control_counter = 0;
+          servo_current_position[8] = servo_target_position[8];
+          last_servo_command_time = std::chrono::high_resolution_clock::now();
+        }
+
+        // Count motor 1 commands (each set_joint_positions sends to all motors including motor 1)
+        motor1_command_count++;
+        commands_in_last_second++;
+
+      } else {
+        // Standard control (original behavior)
+        controller->set_joint_positions(actual_positions, {}, {});
+
+        // Count motor 1 commands (each set_joint_positions sends to all motors
+        // including motor 1)
+        motor1_command_count++;
+        commands_in_last_second++;
+      }
+
       auto cmd_end = std::chrono::high_resolution_clock::now();
 
-      // Count motor 1 commands (each set_joint_positions sends to all motors
-      // including motor 1)
-      motor1_command_count++;
-      commands_in_last_second++;
-
       current_point++;
+
+      // Update last_positions for next iteration's delta calculations
+      if (current_point < trajectory.total_points) {
+        last_positions = trajectory.positions[current_point - 1];
+      }
 
       // Detailed profiling every 1 second
       auto current_time = std::chrono::high_resolution_clock::now();

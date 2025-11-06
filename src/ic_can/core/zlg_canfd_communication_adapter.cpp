@@ -42,6 +42,7 @@ ZLGCanFDCommunicationAdapter::ZLGCanFDCommunicationAdapter(
     const ZLGCanFDConfig &config)
     : config_(config), device_handle_(nullptr), channel_handle_(nullptr),
       library_handle_(nullptr), open_device_func_(nullptr),
+      debug_enabled_(config.debug),
       close_device_func_(nullptr), init_can_func_(nullptr),
       start_can_func_(nullptr), stop_can_func_(nullptr),
       reset_can_func_(nullptr), transmit_fd_func_(nullptr),
@@ -197,22 +198,23 @@ bool ZLGCanFDCommunicationAdapter::send_frame(const CANFrame &frame) {
   // Send frame - DIRECT LIBRARY CALL (no dlsym) exactly like working test
   UINT result = ZCAN_TransmitFD(channel_handle_, &zlg_frame, 1);
 
-  // ALWAYS print the CAN frame being sent for debugging - with std::flush to
-  // ensure it shows up
-  std::cout << "🔥 ZLG SENT: ID=0x" << std::hex << zlg_frame.frame.can_id
-            << std::dec << " Standard Data DLC=" << zlg_frame.frame.len
-            << " data:(0x)";
-  for (uint32_t i = 0; i < zlg_frame.frame.len; i++) {
-    printf(" %02X", zlg_frame.frame.data[i]);
-  }
+  // Print CAN frame being sent for debugging
+  if (debug_enabled_) {
+    std::cout << "🔥 ZLG SENT: ID=0x" << std::hex << zlg_frame.frame.can_id
+              << std::dec << " Standard Data DLC=" << zlg_frame.frame.len
+              << " data:(0x)";
+    for (uint32_t i = 0; i < zlg_frame.frame.len; i++) {
+      printf(" %02X", zlg_frame.frame.data[i]);
+    }
 
-  // CRITICAL: Check if data was actually sent to hardware
-  if (result == 1) {
-    std::cout << " ✅ ZLG HARDWARE: Frame successfully transmitted" << std::endl;
-  } else {
-    std::cout << " ❌ ZLG HARDWARE ERROR: Failed to transmit frame (result=" << result << ")" << std::endl;
+    // CRITICAL: Check if data was actually sent to hardware
+    if (result == 1) {
+      std::cout << " ✅ ZLG HARDWARE: Frame successfully transmitted" << std::endl;
+    } else {
+      std::cout << " ❌ ZLG HARDWARE ERROR: Failed to transmit frame (result=" << result << ")" << std::endl;
+    }
+    std::cout << std::dec << std::flush;
   }
-  std::cout << std::dec << std::flush;
 
   auto end_time = std::chrono::high_resolution_clock::now();
   auto latency = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -296,7 +298,7 @@ size_t ZLGCanFDCommunicationAdapter::receive_frames(
   int received = ZCAN_ReceiveFD(channel_handle_, zlg_frames.data(), max_frames, timeout_ms);
 
   // Debug: Print receive results
-  if (received > 0) {
+  if (received > 0 && debug_enabled_) {
     std::cout << "🔥 ZLG RECEIVED: " << received << " frames from device" << std::endl;
   }
 
@@ -318,14 +320,16 @@ size_t ZLGCanFDCommunicationAdapter::receive_frames(
     frames.push_back(frame);
 
     // Debug: Print received frame details
-    std::cout << "🔥 ZLG FRAME: ID=0x" << std::hex << frame.id
-              << (frame.is_extended_id ? " Ext" : " Std")
-              << " DLC=" << (int)zlg_frames[i].frame.len << " Data:";
-    for (int j = 0; j < zlg_frames[i].frame.len; j++) {
-      std::cout << " " << std::hex << std::setw(2) << std::setfill('0')
-                << (int)zlg_frames[i].frame.data[j];
+    if (debug_enabled_) {
+      std::cout << "🔥 ZLG FRAME: ID=0x" << std::hex << frame.id
+                << (frame.is_extended_id ? " Ext" : " Std")
+                << " DLC=" << (int)zlg_frames[i].frame.len << " Data:";
+      for (int j = 0; j < zlg_frames[i].frame.len; j++) {
+        std::cout << " " << std::hex << std::setw(2) << std::setfill('0')
+                  << (int)zlg_frames[i].frame.data[j];
+      }
+      std::cout << std::dec << std::endl;
     }
-    std::cout << std::dec << std::endl;
   }
 
   // Update statistics
@@ -973,9 +977,13 @@ void ZLGCanFDCommunicationAdapter::receive_thread_function() {
     if (received > 0) {
       std::lock_guard<std::mutex> lock(callback_mutex_);
       if (receive_callback_) {
-        std::cout << "🔥 CALLBACK: Calling receive_callback for " << received << " frames" << std::endl;
+        if (debug_enabled_) {
+          std::cout << "🔥 CALLBACK: Calling receive_callback for " << received << " frames" << std::endl;
+          for (const auto &frame : frames) {
+            std::cout << "🔥 CALLBACK: Processing frame ID=0x" << std::hex << frame.id << std::dec << std::endl;
+          }
+        }
         for (const auto &frame : frames) {
-          std::cout << "🔥 CALLBACK: Processing frame ID=0x" << std::hex << frame.id << std::dec << std::endl;
           receive_callback_(frame);
         }
       } else {

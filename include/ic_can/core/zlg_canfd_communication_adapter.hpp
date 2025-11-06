@@ -369,6 +369,12 @@ public:
      */
     bool set_termination_enabled(bool enabled);
 
+    /**
+     * @brief Enable/disable debug output
+     * @param enabled Whether to enable debug messages
+     */
+    void set_debug_enabled(bool enabled) { debug_enabled_ = enabled; }
+
 private:
     // ===================================
     // PRIVATE IMPLEMENTATION
@@ -438,6 +444,9 @@ private:
     std::unique_ptr<std::thread> receive_thread_;
     std::atomic<bool> receive_thread_running_;
     std::atomic<bool> performance_monitoring_enabled_;
+
+    // Debug control
+    bool debug_enabled_ = false;
 
     // Callback management
     std::function<void(const CANFrame&)> receive_callback_;

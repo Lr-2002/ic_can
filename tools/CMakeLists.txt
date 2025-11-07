@@ -152,6 +152,7 @@ set(BASIC_TOOLS
     test_sync_can
     test_unified_control
     demo_unified_control_features
+    can_test
 )
 
 foreach(tool ${BASIC_TOOLS})

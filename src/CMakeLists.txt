@@ -32,6 +32,12 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/ic_can/core/can_bus_logger.cpp")
     message(STATUS "✅ Added CAN bus logger")
 endif()
 
+# Configuration system sources
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/ic_can/core/config_manager.cpp")
+    list(APPEND CORE_SOURCES "ic_can/core/config_manager.cpp")
+    message(STATUS "✅ Added configuration manager")
+endif()
+
 # Motor sources
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/ic_can/motors/base_motor.cpp")
     list(APPEND MOTORS_SOURCES "ic_can/motors/base_motor.cpp")
@@ -166,6 +172,7 @@ if(IC_CAN_CORE_SOURCES)
     target_link_libraries(ic_can_core
         Threads::Threads
         ${LIBUSB_LIBRARY}
+        yaml-cpp
     )
 
     # Add Pinocchio if available

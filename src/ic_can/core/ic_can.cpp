@@ -228,6 +228,7 @@ public:
 
     // Initialize performance counters
     send_count_ = 0;
+    servo_send_count_ = 0;
     receive_count_ = 0;
     total_bytes_sent_ = 0;
     total_bytes_received_ = 0;
@@ -354,6 +355,7 @@ public:
 
     // Initialize performance counters
     send_count_ = 0;
+    servo_send_count_ = 0;
     receive_count_ = 0;
     total_bytes_sent_ = 0;
     total_bytes_received_ = 0;
@@ -1333,6 +1335,7 @@ public:
     {
       std::lock_guard<std::mutex> lock(performance_mutex_);
       send_count_ = 0;
+      servo_send_count_ = 0;
       receive_count_ = 0;
       total_bytes_sent_ = 0;
       total_bytes_received_ = 0;
@@ -1500,6 +1503,7 @@ public:
     {
       std::lock_guard<std::mutex> lock(performance_mutex_);
       send_count_ = 0;
+      servo_send_count_ = 0;
       receive_count_ = 0;
       total_bytes_sent_ = 0;
       total_bytes_received_ = 0;
@@ -3032,9 +3036,8 @@ private:
         uint16_t temp_error =
             (static_cast<uint16_t>(frame.data[6]) << 8) | frame.data[7];
 
-        double pos =
-            static_cast<double>(pos_int) / 4095.0 * 270.0; // 270 degrees range
-        double vel = static_cast<double>(vel_int);         // Raw velocity
+        double vel = static_cast<double>(vel_int); // Raw velocity
+        double pos = static_cast<double>(pos_int) / 4095.0 * 2 * M_PI;
         double torque =
             static_cast<double>(torque_int) / 4095.0; // Normalized torque
         uint8_t temp = static_cast<uint8_t>((temp_error >> 8) & 0xFF);
@@ -3253,9 +3256,11 @@ private:
         (static_cast<uint16_t>(frame.data[4]) << 8) | frame.data[5];
 
     // Convert from servo range (0-4095) to normalized range (0.0-1.0)
-    double position = static_cast<double>(pos_int) / 4095.0;
-    double velocity = static_cast<double>(vel_int) / 4095.0;  // Raw velocity
-    double torque = static_cast<double>(torque_int) / 4095.0; // Raw torque
+    double position = static_cast<double>(pos_int) / 4095.0 * 2 * M_PI;
+    double velocity =
+        static_cast<double>(vel_int) / 4095.0 * 2 * M_PI; // Raw velocity
+    double torque =
+        static_cast<double>(torque_int) / 4095.0 * 2 * M_PI; // Raw torque
 
     if (debug_enabled_) {
       std::cout << "   Raw - pos: " << pos_int << ", vel: " << vel_int
@@ -3285,13 +3290,12 @@ private:
       std::cout << "❌ Servo motor not initialized" << std::endl;
       return;
     }
-
+    servo_send_count_++;
     // Convert position from radians to servo range (0-4095) - matching Python
     // implementation Python: position = int(position / 2 / 3.14 * 4095)
-    double clamped_pos =
-        std::max(0.0, std::min(position, 2.0 * M_PI)); // Clamp to 0-2π
-    uint16_t pos_raw =
-        static_cast<uint16_t>(clamped_pos / (2.0 * M_PI) * 4095.0);
+    /*double clamped_pos =*/
+    /*    std::max(0.0, std::min(position, 2.0 * M_PI)); // Clamp to 0-2π*/
+    uint16_t pos_raw = static_cast<uint16_t>(position / (2.0 * M_PI) * 4095.0);
 
     // Convert velocity from radians to servo range (1-4095) - matching Python
     // implementation Python: velocity = int(velocity / 2 / 3.14 * 4095)
@@ -3312,11 +3316,33 @@ private:
         0x00,
         0x00 // Padding bytes
     };
-
+    /**/
+    /*std::vector<uint8_t> command_data = {*/
+    /*    0x02, // POSITION mode*/
+    /*    0x05, // Position high byte*/
+    /*    0x00, // Position low byte*/
+    /*    0x00, // Velocity high byte*/
+    /*    0x00, // Velocity low byte*/
+    /*    0x00, 0x00,*/
+    /*    0x00 // Padding bytes*/
+    /*};*/
     // Send CAN frame to servo motor (use 0x09 as send ID per Python
     // implementation)
-    send_can_frame(0x09, command_data, false); // Standard frame for servo
+    std::cout << " the send_count is " << std::dec << servo_send_count_
+              << std::endl;
+    if (servo_send_count_ % 50 == 0) {
+      std::cout << "send to servo \n";
+      send_can_frame(0x09, command_data, false); // Standard frame for servo
+    } else {
+      std::cout << "skip send of servo \n";
+    }
 
+    std::cout << "send to " << 0x09 << " data is ";
+    for (size_t i = 0; i < command_data.size(); ++i) {
+      std::cout << "0x" << std::hex << std::setw(2) << std::setfill('0')
+                << static_cast<int>(command_data[i]) << " ";
+    }
+    std::cout << std::endl;
     if (debug_enabled_) {
       std::cout << "📤 Sent servo command to motor " << motor_id
                 << " - pos_norm: " << std::fixed << std::setprecision(4)
@@ -3684,6 +3710,7 @@ private:
     frame.send_time = 1;
     frame.interval = 0;
 
+    send_count_++;
     // Copy data to frame
     uint8_t *dest = frame.data;
     uint8_t *src = const_cast<uint8_t *>(data.data());
@@ -3700,8 +3727,6 @@ private:
                            send_time.time_since_epoch())
                            .count() %
                        1000000;
-
-      send_count_++;
 
       // Determine motor type based on CAN ID
       std::string motor_type = "Unknown";
@@ -4083,6 +4108,7 @@ private:
   std::atomic<uint64_t> receive_count_;
   std::atomic<uint64_t> total_bytes_sent_;
   std::atomic<uint64_t> total_bytes_received_;
+  std::atomic<uint64_t> servo_send_count_;
   std::chrono::high_resolution_clock::time_point performance_start_time_;
   std::mutex performance_mutex_;
 
@@ -4253,6 +4279,7 @@ void IC_CAN::Impl::performance_monitor_thread_function() {
       // Reset counters every 10 seconds to get current rates
       if (elapsed_sec > 10.0) {
         send_count_ = 0;
+        servo_send_count_ = 0;
         receive_count_ = 0;
         total_bytes_sent_ = 0;
         total_bytes_received_ = 0;

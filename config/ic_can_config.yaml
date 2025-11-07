@@ -1,0 +1,380 @@
+# IC_CAN Robot Control Configuration
+# Central configuration file for the IC_CAN system with 9 motors (6 arm + 2 wrist + 1 gripper)
+
+# ===================================
+# METADATA
+# ===================================
+config_version: "1.0.0"
+config_description: "IC_CAN Robot Control Configuration"
+
+# ===================================
+# SYSTEM CONFIGURATION
+# ===================================
+system:
+  frequency: 500.0                                    # Control frequency in Hz
+  control_mode: "EXECUTION_MODE"                      # TEACH_MODE or EXECUTION_MODE
+  safety_enabled: true                                # Enable safety monitoring
+  performance_monitoring: true                        # Enable performance monitoring
+  command_timeout_ms: 100                            # Command timeout in milliseconds
+  receive_timeout_ms: 50                             # Receive timeout in milliseconds
+
+# ===================================
+# DEBUG CONFIGURATION
+# ===================================
+debug:
+  debug_level: "INFO"                                # DEBUG, INFO, WARN, ERROR
+  can_debug: false                                   # Enable CAN frame debugging
+  motor_debug: false                                  # Enable motor-specific debugging
+  system_debug: true                                  # Enable system-level debugging
+  communication_debug: false                         # Enable communication debugging
+  performance_debug: true                            # Enable performance debugging
+
+# ===================================
+# LOGGING CONFIGURATION
+# ===================================
+logging:
+  # CAN bus logging
+  can_logger:
+    enabled: false
+    directory: "./logs"
+    format: "csv"                                     # csv, json, human_readable
+    frequency: 100.0                                  # Logging frequency in Hz
+    rotation_size_mb: 100
+    timestamp_enabled: true
+
+  # Motor states logging
+  states_logger:
+    enabled: false
+    directory: "./logs"
+    format: "csv"
+    frequency: 50.0                                   # States logging frequency
+    rotation_size_mb: 100
+    timestamp_enabled: true
+
+  # Command logging
+  cmd_logger:
+    enabled: false
+    directory: "./logs"
+    format: "csv"
+    frequency: 100.0
+    rotation_size_mb: 50
+    timestamp_enabled: true
+
+  # Unified logging (single file for all)
+  unified_logging: false
+  unified_log_filename: "ic_can_unified.log"
+
+# ===================================
+# MOTOR CONFIGURATION
+# ===================================
+motors:
+  # Arm motors (6 joints)
+  arm_motors:
+    - joint: 1
+      type: "DM10010L"
+      can_send_id: 0x201
+      can_receive_id: 0x201
+      enabled: true
+      description: "Shoulder joint 1"
+      gains:
+        kp: 50.0
+        kd: 5.0
+        ki: 0.0
+      limits:
+        position_limits: [-3.14159, 3.14159]           # Min, max position in radians
+        velocity_limits: [-10.0, 10.0]                 # Min, max velocity in rad/s
+        torque_limits: [-50.0, 50.0]                   # Min, max torque in Nm
+        max_acceleration: 20.0                          # Max acceleration in rad/s^2
+      friction_params:
+        Fc: 1.2                                         # Coulomb friction coefficient
+        Fv: 0.8                                         # Viscous friction coefficient
+        Fs: 1.5                                         # Static friction coefficient
+        velocity_threshold: 0.1                         # Velocity threshold for friction compensation
+        stribeck_velocity: 0.01                         # Stribeck velocity parameter
+        smooth_transition: true                         # Enable smooth friction transitions
+      zero_calibration: 0.0
+
+    - joint: 2
+      type: "DM10010L"
+      can_send_id: 0x202
+      can_receive_id: 0x202
+      enabled: true
+      description: "Shoulder joint 2"
+      gains:
+        kp: 45.0
+        kd: 4.5
+        ki: 0.0
+      limits:
+        position_limits: [-2.96706, 2.96706]           # Min, max position in radians
+        velocity_limits: [-10.0, 10.0]
+        torque_limits: [-50.0, 50.0]
+        max_acceleration: 20.0
+      friction_params:
+        Fc: 1.1
+        Fv: 0.7
+        Fs: 1.4
+        velocity_threshold: 0.1
+        stribeck_velocity: 0.01
+        smooth_transition: true
+      zero_calibration: 0.0
+
+    - joint: 3
+      type: "DM6248"
+      can_send_id: 0x203
+      can_receive_id: 0x203
+      enabled: true
+      description: "Elbow joint 1"
+      gains:
+        kp: 40.0
+        kd: 4.0
+        ki: 0.0
+      limits:
+        position_limits: [-3.14159, 3.14159]
+        velocity_limits: [-8.0, 8.0]
+        torque_limits: [-30.0, 30.0]
+        max_acceleration: 15.0
+      friction_params:
+        Fc: 0.9
+        Fv: 0.6
+        Fs: 1.2
+        velocity_threshold: 0.08
+        stribeck_velocity: 0.01
+        smooth_transition: true
+      zero_calibration: 0.0
+
+    - joint: 4
+      type: "DM6248"
+      can_send_id: 0x204
+      can_receive_id: 0x204
+      enabled: true
+      description: "Elbow joint 2"
+      gains:
+        kp: 35.0
+        kd: 3.5
+        ki: 0.0
+      limits:
+        position_limits: [-2.96706, 2.96706]
+        velocity_limits: [-8.0, 8.0]
+        torque_limits: [-30.0, 30.0]
+        max_acceleration: 15.0
+      friction_params:
+        Fc: 0.8
+        Fv: 0.5
+        Fs: 1.1
+        velocity_threshold: 0.08
+        stribeck_velocity: 0.01
+        smooth_transition: true
+      zero_calibration: 0.0
+
+    - joint: 5
+      type: "DM4340"
+      can_send_id: 0x205
+      can_receive_id: 0x205
+      enabled: true
+      description: "Wrist joint 1"
+      gains:
+        kp: 30.0
+        kd: 3.0
+        ki: 0.0
+      limits:
+        position_limits: [-3.14159, 3.14159]
+        velocity_limits: [-6.0, 6.0]
+        torque_limits: [-20.0, 20.0]
+        max_acceleration: 12.0
+      friction_params:
+        Fc: 0.6
+        Fv: 0.4
+        Fs: 0.9
+        velocity_threshold: 0.05
+        stribeck_velocity: 0.008
+        smooth_transition: true
+      zero_calibration: 0.0
+
+    - joint: 6
+      type: "DM4340"
+      can_send_id: 0x206
+      can_receive_id: 0x206
+      enabled: true
+      description: "Wrist joint 2"
+      gains:
+        kp: 25.0
+        kd: 2.5
+        ki: 0.0
+      limits:
+        position_limits: [-3.14159, 3.14159]
+        velocity_limits: [-6.0, 6.0]
+        torque_limits: [-20.0, 20.0]
+        max_acceleration: 12.0
+      friction_params:
+        Fc: 0.5
+        Fv: 0.3
+        Fs: 0.8
+        velocity_threshold: 0.05
+        stribeck_velocity: 0.008
+        smooth_transition: true
+      zero_calibration: 0.0
+
+  # Wrist motors (2 joints)
+  wrist_motors:
+    - joint: 7
+      type: "HT4438"
+      can_send_id: 0x207
+      can_receive_id: 0x207
+      enabled: true
+      description: "Wrist flexion"
+      gains:
+        kp: 30.0
+        kd: 3.0
+        ki: 0.0
+      limits:
+        position_limits: [-1.5708, 1.5708]               # Min, max position in radians
+        velocity_limits: [-5.0, 5.0]                   # Min, max velocity in rad/s
+        torque_limits: [-15.0, 15.0]                  # Min, max torque in Nm
+        max_acceleration: 10.0                         # Max acceleration in rad/s^2
+      friction_params:
+        Fc: 0.4
+        Fv: 0.3
+        Fs: 0.6
+        velocity_threshold: 0.03
+        stribeck_velocity: 0.005
+        smooth_transition: true
+      zero_calibration: 0.0
+
+    - joint: 8
+      type: "HT4438"
+      can_send_id: 0x208
+      can_receive_id: 0x208
+      enabled: true
+      description: "Wrist rotation"
+      gains:
+        kp: 25.0
+        kd: 2.5
+        ki: 0.0
+      limits:
+        position_limits: [-3.14159, 3.14159]
+        velocity_limits: [-5.0, 5.0]
+        torque_limits: [-15.0, 15.0]
+        max_acceleration: 10.0
+      friction_params:
+        Fc: 0.3
+        Fv: 0.2
+        Fs: 0.5
+        velocity_threshold: 0.03
+        stribeck_velocity: 0.005
+        smooth_transition: true
+      zero_calibration: 0.0
+
+  # Gripper motor (1 joint)
+  gripper_motors:
+    - joint: 9
+      type: "SERVO"
+      can_send_id: 0x209
+      can_receive_id: 0x209
+      enabled: true
+      description: "Gripper servo"
+      gains:
+        kp: 100.0                                       # Higher gains for servo control
+        kd: 10.0
+        ki: 0.0
+      limits:
+        position_limits: [0.0, 1.0]                     # Servo range (0-1 normalized)
+        velocity_limits: [-5.0, 5.0]
+        torque_limits: [-10.0, 10.0]
+        max_acceleration: 20.0
+      friction_params:
+        Fc: 0.1                                         # Lower friction for servo
+        Fv: 0.1
+        Fs: 0.2
+        velocity_threshold: 0.02
+        stribeck_velocity: 0.003
+        smooth_transition: true
+      zero_calibration: 0.5                           # Mid-point position for servo
+
+# ===================================
+# COMMUNICATION CONFIGURATION
+# ===================================
+communication:
+  preferred_backend: "zlg"                           # zlg, dm_tools, simulation, auto
+  fallback_backends: ["dm_tools", "simulation", "auto"]
+
+  # ZLG CAN FD configuration
+  zlg_can_fd:
+    enabled: true
+    device_serial: ""                                 # Device serial number (empty = auto-detect)
+    channel: -1                                       # Channel index (-1 = auto-detect)
+    arbitration_baud: 1000000                         # Arbitration phase baud rate
+    data_baud: 5000000                                # Data phase baud rate
+    library_path: ""                                  # Custom library path
+    auto_detect_device: true
+    can_fd_mode: true
+    classic_can_fallback: true
+    enable_termination: true
+    debug_enabled: false
+
+  # DM Tools configuration
+  dm_tools:
+    enabled: true
+    device_serial: ""                                 # Device serial number
+    channel: -1                                       # Channel index (-1 = auto-detect)
+    auto_detect_device: true
+    debug_enabled: false
+    sdk_path: ""                                      # Custom SDK path
+
+  # Simulation configuration
+  simulation:
+    enabled: false
+    update_frequency: 500.0                           # Simulation update frequency
+    simulation_model: "default"                       # Simulation model type
+    noise_simulation: false                           # Enable sensor noise simulation
+    noise_std_dev: 0.001                              # Noise standard deviation
+
+# ===================================
+# ADVANCED FEATURES CONFIGURATION
+# ===================================
+features:
+  # Gravity compensation
+  gravity_compensation:
+    enabled: true
+    method: "pinocchio"                               # pinocchio, regressor, pure_c
+    gravity_vector: [0.0, 0.0, -9.81]                # Gravity vector in world frame
+    robot_model_path: ""                              # Path to robot model file
+    include_motor_inertia: true
+
+  # Friction compensation
+  friction_compensation:
+    enabled: true
+    method: "stribeck"                                # stribeck, coulomb, viscous
+    smooth_transition: true
+    sgn_threshold: 0.01                               # Threshold for sign function smoothing
+    adaptive_friction: false                           # Enable adaptive friction estimation
+    adaptation_rate: 0.01                             # Friction parameter adaptation rate
+
+  # Trajectory execution
+  trajectory_execution:
+    enabled: true
+    interpolation_method: "linear"                    # linear, cubic, quintic
+    max_velocity: 1.0                                 # Maximum trajectory velocity in rad/s
+    max_acceleration: 2.0                             # Maximum trajectory acceleration in rad/s^2
+    servo_100x_control: false                         # Enable 1:100 servo control ratio
+    smoothing_factor: 0.0                             # Trajectory preprocessing smoothing (0-1)
+    continuity_check: true                            # Check trajectory continuity
+    max_position_jump: 0.1                            # Maximum allowed position jump
+
+  # Safety monitoring
+  safety_monitoring:
+    enabled: true
+    collision_detection: false
+    torque_limiting: true
+    velocity_limiting: true
+    position_limiting: true
+    torque_limits: [80.0, 80.0, 80.0, 80.0, 80.0, 80.0, 30.0, 30.0, 15.0]
+    velocity_limits: [3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0]
+    position_limits: [-3.14, -3.14, -3.14, -3.14, -3.14, -3.14, -3.14, -3.14, -3.14]
+    emergency_stop_threshold: 0.5                     # Emergency stop trigger threshold
+    safety_check_interval_ms: 10                      # Safety monitoring interval
+
+  # Experimental features
+  adaptive_control: false                            # Enable adaptive control
+  learning_enabled: false                            # Enable learning algorithms
+  predictive_control: false                           # Enable predictive control
+  remote_monitoring: false                           # Enable remote monitoring

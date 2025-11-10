@@ -1061,8 +1061,19 @@ public:
     std::lock_guard<std::mutex> lock(positions_mutex_);
     std::vector<double> positions(9, 0.0);
 
-    for (int i = 0; i < 9; i++) {
+    // Get CAN motor positions (motors 1-8)
+    for (int i = 0; i < 8; i++) {
       positions[i] = positions_[i].load();
+    }
+
+    // Get USB servo position (motor 9) from gripper component
+    if (gripper_component_) {
+      uint16_t servo_pos = gripper_component_->read_servo_position();
+      if (servo_pos >= 1000 && servo_pos <= 2100) {
+        // Convert servo position (1000-2100) to radians (0 to 2π)
+        double raw_openness = static_cast<double>(servo_pos - 1000) / 1100.0;
+        positions[8] = raw_openness * 2.0 * M_PI;
+      }
     }
 
     return positions;
@@ -1102,18 +1113,6 @@ public:
     auto start_time = std::chrono::duration_cast<std::chrono::microseconds>(
                           function_start.time_since_epoch())
                           .count();
-    /*std::cout << "PROFILE: set_joint_positions START at time " << start_time*/
-    /*          << std::endl;*/
-    /*if (!connected_) {*/
-    /*  std::cout << " debug: FAILED - not connected" << std::endl;*/
-    /*  return false;*/
-    /*}*/
-    /*if (positions.size() < 9) {*/
-    /*  std::cout << " debug: FAILED - positions size < 9" << std::endl;*/
-    /*  return false;*/
-    /*}*/
-    /*std::cout << "[PD]: ";*/
-
     // Get motor-specific gains
     std::array<double, 9> kp_values, kd_values;
     {
@@ -1222,13 +1221,15 @@ public:
                              .count()
                       << std::endl;
           }
-
-          send_servo_command(i + 1, pos, vel, tau);
+          gripper_component_->set_position(pos);
+          /*send_servo_command(i + 1, pos, vel, tau);*/
         } else {
-          std::cout
-              << "🎓 TEACH_MODE: Disabling gripper servo for natural movement"
-              << std::endl;
-          send_servo_disable(i + 1);
+          /*std::cout*/
+          /*    << "🎓 TEACH_MODE: Disabling gripper servo for natural
+           * movement"*/
+          /*    << std::endl;*/
+          gripper_component_->servo_read_position();
+          /*send_servo_disable(i + 1);*/
         }
       } else if (i < 8) {
         // HT motors 7-8: use HT MIT protocol

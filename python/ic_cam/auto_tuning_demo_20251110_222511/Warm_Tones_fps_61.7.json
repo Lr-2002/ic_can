@@ -1,0 +1,15 @@
+{
+  "name": "Warm_Tones",
+  "timestamp": "2025-11-10T22:25:32.772507",
+  "settings": {
+    "brightness": 2,
+    "contrast": 80,
+    "saturation": 85,
+    "gamma": 140,
+    "white_balance_temperature": 6000
+  },
+  "performance": {
+    "fps": 61.666666666666664,
+    "timestamp": "2025-11-10T22:25:32.772517"
+  }
+}

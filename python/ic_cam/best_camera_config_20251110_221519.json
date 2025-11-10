@@ -1,0 +1,201 @@
+{
+  "timestamp": "2025-11-10T22:15:19.536284",
+  "camera_id": 2,
+  "best_result": {
+    "config": {
+      "brightness": 5,
+      "contrast": 90,
+      "saturation": 100,
+      "gamma": 130,
+      "white_balance_temperature": 5500
+    },
+    "fps": 61.56047740284374,
+    "frame_count": 185,
+    "avg_frame_time_ms": 16.241893252810915,
+    "frame_time_std_ms": 2.9006725379713747,
+    "score": 118.5496637310143,
+    "timestamp": "2025-11-10T22:14:44.051325"
+  },
+  "all_results": [
+    {
+      "config": {
+        "brightness": 0,
+        "contrast": 75,
+        "saturation": 85,
+        "gamma": 140,
+        "white_balance_temperature": 5000
+      },
+      "fps": 56.062695162118864,
+      "frame_count": 169,
+      "avg_frame_time_ms": 17.83515151435807,
+      "frame_time_std_ms": 15.295623577826778,
+      "score": 112.35218821108661,
+      "timestamp": "2025-11-10T22:14:40.519386"
+    },
+    {
+      "config": {
+        "brightness": 5,
+        "contrast": 90,
+        "saturation": 100,
+        "gamma": 130,
+        "white_balance_temperature": 5500
+      },
+      "fps": 61.56047740284374,
+      "frame_count": 185,
+      "avg_frame_time_ms": 16.241893252810915,
+      "frame_time_std_ms": 2.9006725379713747,
+      "score": 118.5496637310143,
+      "timestamp": "2025-11-10T22:14:44.051325"
+    },
+    {
+      "config": {
+        "brightness": -5,
+        "contrast": 70,
+        "saturation": 75,
+        "gamma": 160,
+        "white_balance_temperature": 4500
+      },
+      "fps": 61.464408612013735,
+      "frame_count": 185,
+      "avg_frame_time_ms": 16.26761926187051,
+      "frame_time_std_ms": 2.945703816955001,
+      "score": 118.5271480915225,
+      "timestamp": "2025-11-10T22:14:47.603376"
+    },
+    {
+      "config": {
+        "brightness": 0,
+        "contrast": 100,
+        "saturation": 90,
+        "gamma": 120,
+        "white_balance_temperature": 5200
+      },
+      "fps": 61.36746465451797,
+      "frame_count": 185,
+      "avg_frame_time_ms": 16.29369709942792,
+      "frame_time_std_ms": 2.9871509879254425,
+      "score": 118.50642450603728,
+      "timestamp": "2025-11-10T22:14:51.151237"
+    },
+    {
+      "config": {
+        "brightness": -10,
+        "contrast": 65,
+        "saturation": 85,
+        "gamma": 140,
+        "white_balance_temperature": 5000
+      },
+      "fps": 61.45533463718486,
+      "frame_count": 185,
+      "avg_frame_time_ms": 16.27022382375356,
+      "frame_time_std_ms": 2.951871601418946,
+      "score": 118.52406419929052,
+      "timestamp": "2025-11-10T22:14:54.703260"
+    },
+    {
+      "config": {
+        "brightness": -10,
+        "contrast": 75,
+        "saturation": 85,
+        "gamma": 140,
+        "white_balance_temperature": 5000
+      },
+      "fps": 61.39586524003174,
+      "frame_count": 185,
+      "avg_frame_time_ms": 16.286027753675306,
+      "frame_time_std_ms": 2.9579349314313435,
+      "score": 118.52103253428433,
+      "timestamp": "2025-11-10T22:14:58.251264"
+    },
+    {
+      "config": {
+        "brightness": -10,
+        "contrast": 85,
+        "saturation": 85,
+        "gamma": 140,
+        "white_balance_temperature": 5000
+      },
+      "fps": 61.31092932597472,
+      "frame_count": 184,
+      "avg_frame_time_ms": 16.308479982873667,
+      "frame_time_std_ms": 3.0489027945553753,
+      "score": 118.47554860272231,
+      "timestamp": "2025-11-10T22:15:01.787219"
+    },
+    {
+      "config": {
+        "brightness": 0,
+        "contrast": 65,
+        "saturation": 85,
+        "gamma": 140,
+        "white_balance_temperature": 5000
+      },
+      "fps": 61.34714055872459,
+      "frame_count": 185,
+      "avg_frame_time_ms": 16.29962019018225,
+      "frame_time_std_ms": 3.026247905152531,
+      "score": 118.48687604742373,
+      "timestamp": "2025-11-10T22:15:05.335151"
+    },
+    {
+      "config": {
+        "brightness": 0,
+        "contrast": 85,
+        "saturation": 85,
+        "gamma": 140,
+        "white_balance_temperature": 5000
+      },
+      "fps": 61.40661760708264,
+      "frame_count": 185,
+      "avg_frame_time_ms": 16.283427058039486,
+      "frame_time_std_ms": 2.9486098462227344,
+      "score": 118.52569507688864,
+      "timestamp": "2025-11-10T22:15:08.886617"
+    },
+    {
+      "config": {
+        "brightness": 10,
+        "contrast": 65,
+        "saturation": 85,
+        "gamma": 140,
+        "white_balance_temperature": 5000
+      },
+      "fps": 61.5064740048974,
+      "frame_count": 185,
+      "avg_frame_time_ms": 16.257104358157594,
+      "frame_time_std_ms": 3.003952987702367,
+      "score": 118.49802350614881,
+      "timestamp": "2025-11-10T22:15:12.434723"
+    },
+    {
+      "config": {
+        "brightness": 10,
+        "contrast": 75,
+        "saturation": 85,
+        "gamma": 140,
+        "white_balance_temperature": 5000
+      },
+      "fps": 61.4377152201028,
+      "frame_count": 185,
+      "avg_frame_time_ms": 16.275325981346338,
+      "frame_time_std_ms": 3.0201863017544066,
+      "score": 118.4899068491228,
+      "timestamp": "2025-11-10T22:15:15.986826"
+    },
+    {
+      "config": {
+        "brightness": 10,
+        "contrast": 85,
+        "saturation": 85,
+        "gamma": 140,
+        "white_balance_temperature": 5000
+      },
+      "fps": 61.50609860158258,
+      "frame_count": 185,
+      "avg_frame_time_ms": 16.256917489541543,
+      "frame_time_std_ms": 2.9832121448998925,
+      "score": 118.50839392755006,
+      "timestamp": "2025-11-10T22:15:19.535026"
+    }
+  ]
+}

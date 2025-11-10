@@ -1,0 +1,22 @@
+{
+    "preferred_backend": "zlg",
+    "device_serial": "",
+    "preferred_channel": 0,
+    "auto_detect_device": true,
+    "zlg_can_fd_mode": true,
+    "zlg_arbitration_baud": 1000000,
+    "zlg_data_baud": 5000000,
+    "enable_performance_monitoring": true,
+    "verbose_logging": false,
+    "fallback_backends": ["dm_tools"],
+    "motor_mapping": {
+        "motor_indices": [1, 2, 3, 4, 5, 6, 7, 8, 9],
+        "can_send_ids": [1, 2, 3, 4, 5, 6, 7, 8, 9],
+        "can_receive_ids": [17, 18, 19, 20, 21, 22, 23, 24, 25],
+        "servo_motor_index": 9,
+        "servo_can_send_id": 9,
+        "servo_can_receive_id": 25
+    },
+    "arm_id": "left",
+    "channel": 0
+}

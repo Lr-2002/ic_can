@@ -1,0 +1,17 @@
+{
+  "config_number": 1,
+  "timestamp": "2025-11-10T22:24:37.680426",
+  "note": "Initial settings",
+  "settings": {
+    "brightness": 0,
+    "contrast": 80,
+    "saturation": 80,
+    "gamma": 150,
+    "white_balance_automatic": 0,
+    "white_balance_temperature": 5000
+  },
+  "performance": {
+    "fps": 55.333333333333336,
+    "timestamp": "2025-11-10T22:24:37.680442"
+  }
+}

@@ -16,7 +16,12 @@ from typing import List, Optional, Union
 from threading import Lock
 
 from .motor_state import MotorState, MotorCommand, ControlMode
-from .ic_can_python import IC_CAN
+
+try:
+    from .ic_can_python import IC_CAN
+except ImportError:
+    # Use mock implementation for testing
+    from .ic_can_python_mock import IC_CAN
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -395,6 +400,13 @@ class RobotArm:
                 f"initialized={self._initialized}, "
                 f"enabled={self._motors_enabled}, "
                 f"mode={self._control_mode.value})")
+
+    def is_connected(self) -> bool:
+        """Check if the arm is connected to hardware."""
+        try:
+            return hasattr(self, '_controller') and self._controller.is_connected()
+        except:
+            return False
 
 
 # Convenience function for quick initialization

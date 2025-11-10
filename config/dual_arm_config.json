@@ -1,0 +1,29 @@
+{
+    "device_serial": "",
+    "auto_detect_device": true,
+    "left_arm": {
+        "arm_id": "left",
+        "channel": 0,
+        "motor_indices": [1, 2, 3, 4, 5, 6, 7, 8, 9],
+        "can_send_ids": [1, 2, 3, 4, 5, 6, 7, 8, 9],
+        "can_receive_ids": [17, 18, 19, 20, 21, 22, 23, 24, 25],
+        "servo_motor_index": 9,
+        "servo_can_send_id": 9,
+        "servo_can_receive_id": 25
+    },
+    "right_arm": {
+        "arm_id": "right",
+        "channel": 1,
+        "motor_indices": [10, 11, 12, 13, 14, 15, 16, 17, 18],
+        "can_send_ids": [1, 2, 3, 4, 5, 6, 7, 8, 9],
+        "can_receive_ids": [17, 18, 19, 20, 21, 22, 23, 24, 25],
+        "servo_motor_index": 18,
+        "servo_can_send_id": 9,
+        "servo_can_receive_id": 25
+    },
+    "enable_safety_checks": true,
+    "enable_coordination": true,
+    "max_inter_arm_distance": 1.0,
+    "target_frequency": 500.0,
+    "enable_performance_monitoring": true
+}

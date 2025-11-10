@@ -15,6 +15,7 @@
 #include "ic_can/core/gripper_component.hpp"
 #include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
@@ -60,10 +61,29 @@ GripperComponent::GripperComponent()
   is_moving_.store(false);
   is_grasping_.store(false);
 
+  // Initialize thread state
+  last_position_update_ = std::chrono::steady_clock::now();
+
   std::cout << "   USB Protocol: FEETECH Servo" << std::endl;
   std::cout << "   Position Range: " << POSITION_MIN << "-" << POSITION_MAX
             << std::endl;
   std::cout << "   Speed Range: " << SPEED_MIN << "-" << SPEED_MAX << std::endl;
+  std::cout << "   Threaded USB Control: Enabled" << std::endl;
+
+  // Start USB servo thread
+  usb_thread_running_ = true;
+  usb_thread_ = std::thread(&GripperComponent::usb_servo_thread_main, this);
+}
+
+GripperComponent::~GripperComponent() {
+  // Stop USB thread
+  usb_thread_running_ = false;
+  if (usb_thread_.joinable()) {
+    usb_thread_.join();
+  }
+
+  // Disconnect USB
+  usb_disconnect();
 }
 
 // ========== CANProtocolInterface Implementation ==========
@@ -158,14 +178,14 @@ bool GripperComponent::usb_send_command(const std::vector<uint8_t> &command) {
   }
 
   // Log command
-  std::stringstream ss;
-  ss << "USB SENT: ";
-  for (uint8_t byte : full_command) {
-    ss << std::hex << std::setw(2) << std::setfill('0')
-       << static_cast<int>(byte) << " ";
-  }
-  debug_print(ss.str());
-
+  /*std::stringstream ss;*/
+  /*ss << "USB SENT: ";*/
+  /*for (uint8_t byte : full_command) {*/
+  /*  ss << std::hex << std::setw(2) << std::setfill('0')*/
+  /*     << static_cast<int>(byte) << " ";*/
+  /*}*/
+  /*debug_print(ss.str());*/
+  /**/
   return true;
 }
 
@@ -188,12 +208,12 @@ bool GripperComponent::usb_read_response(std::vector<uint8_t> &response,
 
   // Log response
   std::stringstream ss;
-  ss << "USB RECV: ";
-  for (uint8_t byte : response) {
-    ss << std::hex << std::setw(2) << std::setfill('0')
-       << static_cast<int>(byte) << " ";
-  }
-  debug_print(ss.str());
+  /*ss << "USB RECV: ";*/
+  /*for (uint8_t byte : response) {*/
+  /*  ss << std::hex << std::setw(2) << std::setfill('0')*/
+  /*     << static_cast<int>(byte) << " ";*/
+  /*}*/
+  /*debug_print(ss.str());*/
 
   return true;
 }
@@ -207,6 +227,11 @@ bool GripperComponent::servo_enable_torque() {
 bool GripperComponent::servo_disable_torque() {
   std::vector<uint8_t> command = {0xFF, 0xFF, 0x01, 0x04, 0x03, 0x28, 0x00};
   return usb_send_command(command);
+}
+bool GripperComponent::set_position(double position) {
+  uint16_t position_16t = static_cast<uint16_t>(
+      position * 1000); // todo , this is the wrong positions
+  return servo_position_control(position_16t, uint16_t(100));
 }
 
 bool GripperComponent::servo_position_control(uint16_t position,
@@ -249,26 +274,19 @@ uint16_t GripperComponent::servo_read_position() {
   if (!usb_read_response(response, 8)) {
     return 0;
   }
-  std::cout << " read feed back from usb ";
-  // Parse position from response - try different byte combinations
+  // Parse position from response - FEETACH protocol format: FF FF 01 XX XX
+  // POS_L POS_H ...
   if (response.size() >= 8 && response[0] == 0xFF && response[1] == 0xFF &&
       response[2] == 0x01) {
-    // Try bytes 4-5 first (fe 06 = 0x06fe = 1790)
-    uint16_t position1 = static_cast<uint16_t>(response[4] | (response[5] << 8));
-    // Try bytes 5-6 (06 f6 = 0xf606 = invalid)
-    uint16_t position2 = static_cast<uint16_t>(response[5] | (response[6] << 8));
-    // Try bytes 6-7 (f6 from previous responses, but current has no 7th byte)
+    // Parse position from bytes 5-6 (little-endian format)
+    uint16_t position = static_cast<uint16_t>(response[5] | (response[6] << 8));
 
-    uint16_t position = position1; // Use position1 as default
-
-    // Check if position is in reasonable range
+    // Validate position range (1000-2100 for typical servo range)
     if (position >= 1000 && position <= 2100) {
       return position;
-    } else if (position2 >= 1000 && position2 <= 2100) {
-      return position2;
     } else {
-      // Return the position even if out of range for debugging
-      return position;
+      // Return 0 for invalid position data
+      return 0;
     }
   }
 
@@ -568,17 +586,175 @@ bool GripperComponent::set_openness_limits(double min_openness,
 }
 
 uint16_t GripperComponent::read_servo_position() {
-  // Ensure USB connection is established for reading
-  if (usb_fd_ < 0) {
-    if (!usb_connect()) {
-      debug_print("Failed to connect USB for position reading");
-      return 0;
+  // Use the threaded version - just return latest cached position
+  return get_latest_position();
+}
+
+bool GripperComponent::is_position_fresh(int max_age_ms) const {
+  if (!position_valid_.load()) {
+    return false;
+  }
+
+  auto now = std::chrono::steady_clock::now();
+  auto age = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_position_update_);
+
+  return age.count() <= max_age_ms;
+}
+
+// ========== USB Servo Threading Implementation ==========
+
+void GripperComponent::usb_servo_thread_main() {
+  // Initialize USB connection once
+  if (!usb_connect()) {
+    debug_print("USB thread: Failed to connect to servo");
+    return;
+  }
+
+  debug_print("USB thread: Started with dual-frequency mode (Read: 100Hz, Write: 10Hz)");
+
+  // Dual-frequency control loop
+  // High-frequency reads for monitoring (100Hz = 10ms period)
+  // Low-frequency writes for control (10Hz = 100ms period)
+  constexpr double READ_FREQUENCY = 100.0;  // Fast reads for monitoring
+  constexpr double WRITE_FREQUENCY = 10.0;  // Limited writes for control
+
+  constexpr auto READ_INTERVAL =
+      std::chrono::microseconds(static_cast<int>(1000000.0 / READ_FREQUENCY));
+  constexpr auto WRITE_INTERVAL =
+      std::chrono::microseconds(static_cast<int>(1000000.0 / WRITE_FREQUENCY));
+
+  auto next_read_time = std::chrono::steady_clock::now();
+  auto next_write_time = next_read_time;
+
+  while (usb_thread_running_) {
+    auto now = std::chrono::steady_clock::now();
+    bool should_read = now >= next_read_time;
+    bool should_write = now >= next_write_time;
+
+    // High-frequency position reading for monitoring
+    if (should_read) {
+      auto read_cmd =
+          std::make_shared<USBServoCommand>(USBServoCommand::READ_POSITION);
+      execute_usb_command(read_cmd);
+
+      next_read_time = now + READ_INTERVAL;
+    }
+
+    // Low-frequency command processing (write operations)
+    if (should_write) {
+      // Process pending commands (position control, etc.)
+      std::unique_lock<std::mutex> lock(command_mutex_);
+      while (!command_queue_.empty()) {
+        auto command = command_queue_.front();
+        command_queue_.pop();
+        lock.unlock();
+
+        // Execute write command
+        bool success = execute_usb_command(command);
+        command->promise.set_value(success);
+
+        lock.lock();
+      }
+      lock.unlock();
+
+      next_write_time = now + WRITE_INTERVAL;
+    }
+
+    // Sleep until next operation
+    auto next_operation = std::min(next_read_time, next_write_time);
+    if (now < next_operation) {
+      std::this_thread::sleep_until(next_operation);
+    } else {
+      // If we're behind, reset timing
+      if (should_read) next_read_time = now;
+      if (should_write) next_write_time = now;
+
+      // Only log warnings when write operations fall behind
+      if (should_write) {
+        static int behind_counter = 0;
+        if (++behind_counter % 10 == 0) { // Log every 10th occurrence
+          debug_print("USB thread: Write operations behind schedule");
+        }
+      }
     }
   }
 
-  // Read actual position from servo
-  uint16_t position = servo_read_position();
-  return position;
+  usb_disconnect();
+  debug_print("USB thread: Stopped");
+}
+
+bool GripperComponent::execute_usb_command(
+    std::shared_ptr<USBServoCommand> command) {
+  if (!command || usb_fd_ < 0) {
+    return false;
+  }
+
+  switch (command->type) {
+  case USBServoCommand::READ_POSITION: {
+    uint16_t position = servo_read_position();
+    if (position > 0) {
+      latest_position_.store(position);
+      position_valid_.store(true);
+      last_position_update_ = std::chrono::steady_clock::now();
+
+      // Update openness based on new position
+      double raw_openness = static_cast<double>(position - POSITION_MIN) /
+                            (POSITION_MAX - POSITION_MIN);
+      double openness = std::clamp(raw_openness, 0.0, 1.0);
+      current_openness_.store(openness);
+
+      return true;
+    }
+    return false;
+  }
+
+  case USBServoCommand::SET_POSITION: {
+    return servo_position_control(command->position, command->velocity);
+  }
+
+  case USBServoCommand::ENABLE_TORQUE: {
+    return servo_enable_torque();
+  }
+
+  case USBServoCommand::DISABLE_TORQUE: {
+    return servo_disable_torque();
+  }
+
+  default:
+    return false;
+  }
+}
+
+std::future<bool> GripperComponent::enqueue_usb_command(
+    std::shared_ptr<USBServoCommand> command) {
+  auto future = command->promise.get_future();
+
+  {
+    std::lock_guard<std::mutex> lock(command_mutex_);
+    command_queue_.push(command);
+  }
+
+  command_cv_.notify_one();
+  return future;
+}
+
+uint16_t GripperComponent::get_latest_position() const {
+  if (!position_valid_.load()) {
+    return 0;
+  }
+  return latest_position_.load();
+}
+
+bool GripperComponent::is_position_fresh(uint64_t max_age_ms) const {
+  if (!position_valid_.load()) {
+    return false;
+  }
+
+  auto now = std::chrono::steady_clock::now();
+  auto age = std::chrono::duration_cast<std::chrono::milliseconds>(
+                 now - last_position_update_)
+                 .count();
+  return age <= static_cast<int64_t>(max_age_ms);
 }
 
 } // namespace ic_can

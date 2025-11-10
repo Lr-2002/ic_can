@@ -1,0 +1,15 @@
+{
+  "name": "Natural",
+  "timestamp": "2025-11-10T22:25:25.672457",
+  "settings": {
+    "brightness": -5,
+    "contrast": 70,
+    "saturation": 75,
+    "gamma": 160,
+    "white_balance_temperature": 4500
+  },
+  "performance": {
+    "fps": 61.666666666666664,
+    "timestamp": "2025-11-10T22:25:25.672466"
+  }
+}

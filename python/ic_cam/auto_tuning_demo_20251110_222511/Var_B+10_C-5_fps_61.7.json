@@ -1,0 +1,15 @@
+{
+  "name": "Var_B+10_C-5",
+  "timestamp": "2025-11-10T22:25:57.520610",
+  "settings": {
+    "brightness": 15,
+    "contrast": 85,
+    "saturation": 100,
+    "gamma": 130,
+    "white_balance_temperature": 5500
+  },
+  "performance": {
+    "fps": 61.666666666666664,
+    "timestamp": "2025-11-10T22:25:57.520620"
+  }
+}

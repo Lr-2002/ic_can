@@ -1,0 +1,15 @@
+{
+  "config": {
+    "brightness": 10,
+    "contrast": 65,
+    "saturation": 85,
+    "gamma": 140,
+    "white_balance_temperature": 5000
+  },
+  "fps": 61.5064740048974,
+  "frame_count": 185,
+  "avg_frame_time_ms": 16.257104358157594,
+  "frame_time_std_ms": 3.003952987702367,
+  "score": 118.49802350614881,
+  "timestamp": "2025-11-10T22:15:12.434723"
+}

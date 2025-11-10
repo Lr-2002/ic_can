@@ -1,0 +1,42 @@
+{
+    "cameras": [
+        {
+            "camera_id": 0,
+            "camera_name": "left_hand_eye",
+            "device_path": "/dev/video0",
+            "associated_arm": "left",
+            "is_hand_eye_camera": true,
+            "calibration_file": "calibration/left_camera.json",
+            "resolution_width": 640,
+            "resolution_height": 480,
+            "framerate": 30.0,
+            "enabled": true
+        },
+        {
+            "camera_id": 1,
+            "camera_name": "right_hand_eye",
+            "device_path": "/dev/video1",
+            "associated_arm": "right",
+            "is_hand_eye_camera": true,
+            "calibration_file": "calibration/right_camera.json",
+            "resolution_width": 640,
+            "resolution_height": 480,
+            "framerate": 30.0,
+            "enabled": true
+        },
+        {
+            "camera_id": 2,
+            "camera_name": "overhead_fixed",
+            "device_path": "/dev/video2",
+            "associated_arm": "left",
+            "is_hand_eye_camera": false,
+            "calibration_file": "calibration/overhead_camera.json",
+            "resolution_width": 1280,
+            "resolution_height": 720,
+            "framerate": 30.0,
+            "enabled": true
+        }
+    ],
+    "enable_synchronized_capture": true,
+    "enable_depth_sensing": false
+}

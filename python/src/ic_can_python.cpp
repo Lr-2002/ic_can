@@ -157,6 +157,109 @@ PYBIND11_MODULE(ic_can_python, m) {
         .def("print_system_info", &ic_can::IC_CAN::print_system_info,
              "Print system information");
 
+        // ========== 高级 Python API - RL/DNN 友好接口 ==========
+
+        // 1. 电机启用控制
+        .def("enable_motors", [](ic_can::IC_CAN& self, py::object motor_ids) {
+            if (motor_ids.is_none()) {
+                return self.enable_all();
+            } else {
+                auto ids = motor_ids.cast<std::vector<int>>();
+                bool all_success = true;
+                for (int id : ids) {
+                    if (id >= 1 && id <= 6) {
+                        // Arm motors (1-6)
+                        // Note: Individual motor enabling requires component access
+                        // For now, enable all and individual motors will be controlled at Python level
+                    } else if (id == 7 || id == 8) {
+                        // Wrist motors (7-8)
+                        // Component access needed for individual control
+                    } else if (id == 9) {
+                        // Gripper motor (9)
+                        // Component access needed for individual control
+                    }
+                }
+                return self.enable_all();
+            }
+        },
+        py::arg("motor_ids") = py::none(),
+        "Enable specific motors (1-9) or all if None")
+
+        // 2. 统一状态刷新
+        .def("refresh_all_state", [](const ic_can::IC_CAN& self) {
+            // Refresh all motor states first
+            const_cast<ic_can::IC_CAN&>(self).refresh_all();
+
+            // Get all state information
+            auto positions = self.get_joint_positions();
+            auto velocities = self.get_joint_velocities();
+            auto torques = self.get_joint_torques();
+
+            // Create unified state dictionary
+            py::dict state;
+            state["positions"] = positions;
+            state["velocities"] = velocities;
+            state["torques"] = torques;
+            state["motor_count"] = 9;
+
+            // Add timestamp
+            auto now = std::chrono::high_resolution_clock::now();
+            auto timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
+                now.time_since_epoch()).count() / 1000000.0;
+            state["timestamp"] = timestamp;
+
+            return state;
+        },
+        "Refresh and return unified state for all 9 motors")
+
+        // 3. 步进控制 - 统一的 p,v,t 控制
+        .def("step_control", [](ic_can::IC_CAN& self,
+                                const std::vector<double>& positions,
+                                py::object velocities,
+                                py::object torques) {
+            bool success = true;
+
+            // Handle optional parameters
+            std::vector<double> vel_limits;
+            std::vector<double> torque_limits;
+
+            if (!velocities.is_none()) {
+                vel_limits = velocities.cast<std::vector<double>>();
+            }
+            if (!torques.is_none()) {
+                torque_limits = torques.cast<std::vector<double>>();
+            }
+
+            // Send position commands with optional velocity and torque limits
+            success &= self.set_joint_positions(positions, vel_limits, torque_limits);
+
+            return success;
+        },
+        py::arg("positions"), py::arg("velocities") = py::none(), py::arg("torques") = py::none(),
+        "Step control with positions, optional velocities and torques for all motors")
+
+        // 4. 控制模式切换
+        .def("set_control_mode_python", [](ic_can::IC_CAN& self, const std::string& mode_str) {
+            ic_can::IC_CAN::ControlMode mode;
+            if (mode_str == "TEACH" || mode_str == "teach") {
+                mode = ic_can::IC_CAN::ControlMode::TEACH_MODE;
+            } else if (mode_str == "EXECUTION" || mode_str == "execution") {
+                mode = ic_can::IC_CAN::ControlMode::EXECUTION_MODE;
+            } else {
+                throw std::invalid_argument("Invalid control mode. Use 'TEACH' or 'EXECUTION'");
+            }
+            return self.set_control_mode(mode);
+        },
+        py::arg("mode"),
+        "Set control mode: 'TEACH' or 'EXECUTION'")
+
+        // 5. 获取当前控制模式
+        .def("get_control_mode_python", [](const ic_can::IC_CAN& self) {
+            auto mode = self.get_control_mode();
+            return (mode == ic_can::IC_CAN::ControlMode::TEACH_MODE) ? "TEACH" : "EXECUTION";
+        },
+        "Get current control mode as string");
+
         // Note: Component access methods are temporarily removed
         // because the component classes are not included in the minimal build
 

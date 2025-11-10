@@ -147,6 +147,12 @@ public:
     bool is_moving() const;
 
     /**
+     * @brief Read servo position (read-only, no control commands)
+     * @return Current position in range 1000-2100, or 0 if failed
+     */
+    uint16_t read_servo_position();
+
+    /**
      * @brief 设置夹爪开合限制
      * @param min_openness 最小开合度 (0.0-1.0)
      * @param max_openness 最大开合度 (0.0-1.0)

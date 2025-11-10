@@ -213,7 +213,8 @@ bool GripperComponent::servo_position_control(uint16_t position,
                                               uint16_t velocity) {
   // Validate position range
   position = std::clamp(position, POSITION_MIN, POSITION_MAX);
-  velocity = std::clamp(velocity, static_cast<uint16_t>(SPEED_MIN), static_cast<uint16_t>(SPEED_MAX));
+  velocity = std::clamp(velocity, static_cast<uint16_t>(SPEED_MIN),
+                        static_cast<uint16_t>(SPEED_MAX));
 
   std::vector<uint8_t> command = {
       0xFF,
@@ -249,11 +250,26 @@ uint16_t GripperComponent::servo_read_position() {
     return 0;
   }
   std::cout << " read feed back from usb ";
-  // Parse position from response (bytes 6-7)
+  // Parse position from response - try different byte combinations
   if (response.size() >= 8 && response[0] == 0xFF && response[1] == 0xFF &&
       response[2] == 0x01) {
-    uint16_t position = static_cast<uint16_t>(response[6] | (response[7] << 8));
-    return position;
+    // Try bytes 4-5 first (fe 06 = 0x06fe = 1790)
+    uint16_t position1 = static_cast<uint16_t>(response[4] | (response[5] << 8));
+    // Try bytes 5-6 (06 f6 = 0xf606 = invalid)
+    uint16_t position2 = static_cast<uint16_t>(response[5] | (response[6] << 8));
+    // Try bytes 6-7 (f6 from previous responses, but current has no 7th byte)
+
+    uint16_t position = position1; // Use position1 as default
+
+    // Check if position is in reasonable range
+    if (position >= 1000 && position <= 2100) {
+      return position;
+    } else if (position2 >= 1000 && position2 <= 2100) {
+      return position2;
+    } else {
+      // Return the position even if out of range for debugging
+      return position;
+    }
   }
 
   return 0;
@@ -549,6 +565,20 @@ bool GripperComponent::set_openness_limits(double min_openness,
     return true;
   }
   return false;
+}
+
+uint16_t GripperComponent::read_servo_position() {
+  // Ensure USB connection is established for reading
+  if (usb_fd_ < 0) {
+    if (!usb_connect()) {
+      debug_print("Failed to connect USB for position reading");
+      return 0;
+    }
+  }
+
+  // Read actual position from servo
+  uint16_t position = servo_read_position();
+  return position;
 }
 
 } // namespace ic_can

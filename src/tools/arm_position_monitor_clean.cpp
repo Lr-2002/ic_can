@@ -13,8 +13,8 @@
 // limitations under the License.
 
 /**
- * @file arm_position_monitor.cpp
- * @brief Read-Only Robot System Position Monitoring Tool
+ * @file arm_position_monitor_clean.cpp
+ * @brief Clean Read-Only Robot System Position Monitoring Tool
  *
  * READ-ONLY monitoring tool for complete 9-joint robot system:
  * - Arm joints monitoring (motors 1-6): DM10010L, DM6248, DM4340, DM4310
@@ -166,28 +166,6 @@ int main(int argc, char *argv[]) {
     // DO NOT enable motors - this is READ-ONLY mode
     std::cout << "🔇 READ-ONLY: Motors NOT enabled - pure monitoring" << std::endl;
 
-    // Set to TEACH_MODE (gravity + friction compensation only)
-    std::cout << "\n🎓 Setting TEACH_MODE for monitoring..." << std::endl;
-    controller->set_control_mode(ic_can::IC_CAN::ControlMode::TEACH_MODE);
-
-    // Enable compensation for monitoring
-    controller->enable_gravity_compensation();
-    controller->enable_friction_compensation();
-
-    // Disable servo force output for TEACH_MODE
-    std::cout << "🎓 TEACH_MODE: Disabling servo force output for natural movement" << std::endl;
-    try {
-      auto& gripper = controller->get_gripper();
-      // Send disable torque command to servo
-      if (gripper.stop()) {
-        std::cout << "✅ Servo force output disabled" << std::endl;
-      } else {
-        std::cout << "⚠️  Failed to disable servo force output" << std::endl;
-      }
-    } catch (const std::exception& e) {
-      std::cout << "⚠️  Servo disable failed: " << e.what() << std::endl;
-    }
-
     // Initialize profiler
     g_profiler = std::make_unique<MotorProfiler>();
     std::cout << "📈 Motor profiling enabled" << std::endl;
@@ -224,11 +202,9 @@ int main(int argc, char *argv[]) {
       static double last_servo_angle = 0.0;
       static auto last_servo_time = std::chrono::steady_clock::now();
       static bool first_servo_read = true;
-      static bool first_can_servo_read = true;
 
       double servo_openness = 0.5; // Default fallback
       bool is_moving = false;
-      bool use_usb_feedback = false;
 
       try {
         auto& gripper = controller->get_gripper();
@@ -238,28 +214,17 @@ int main(int argc, char *argv[]) {
 
         if (raw_position > 0) {
           // Convert raw position (1000-2100) to openness (0.0-1.0)
-          double raw_openness = static_cast<double>(raw_position - 1000) / 1100.0;
-          servo_openness = std::clamp(raw_openness, 0.0, 1.0);
-          use_usb_feedback = true;
+          servo_openness = static_cast<double>(raw_position - 1000) / 1100.0;
+          servo_openness = std::clamp(servo_openness, 0.0, 1.0);
 
           if (first_servo_read) {
-            std::cout << "📊 USB Servo: Connected - reading real positions (raw=" << raw_position
-                      << " -> raw_openness=" << std::fixed << std::setprecision(3) << raw_openness
-                      << " -> clamped_openness=" << servo_openness << ")" << std::endl;
+            std::cout << "📊 USB Servo: Connected - reading real positions" << std::endl;
             first_servo_read = false;
-          }
-
-          // Update servo angle continuously (not just on first read!)
-          static int debug_counter = 0;
-          if (++debug_counter % 20 == 0) { // Print every 20 iterations (every 4 seconds at 5Hz)
-            std::cout << "🔄 USB Servo Update: raw=" << raw_position
-                      << " -> openness=" << std::fixed << std::setprecision(3) << servo_openness
-                      << " -> angle=" << (servo_openness * 360.0) << "°" << std::endl;
           }
         } else {
           // Use default value if read failed
           if (first_servo_read) {
-            std::cout << "⚠️  USB Servo: Read failed, falling back to CAN feedback" << std::endl;
+            std::cout << "⚠️  USB Servo: Using default values (read failed)" << std::endl;
             first_servo_read = false;
           }
         }
@@ -269,39 +234,24 @@ int main(int argc, char *argv[]) {
       } catch (const std::exception& e) {
         // Use default values if gripper fails
         if (first_servo_read) {
-          std::cout << "⚠️  USB Servo: Exception (" << e.what() << "), falling back to CAN feedback" << std::endl;
+          std::cout << "⚠️  USB Servo: Using default values (" << e.what() << ")" << std::endl;
           first_servo_read = false;
         }
       }
 
-      // Update positions array with USB servo data OR use CAN feedback
+      // Update positions array with USB servo data
       if (positions.size() >= 9) {
-        if (use_usb_feedback) {
-          // Convert servo position (1000-2100) to radians (0 to 2π)
-          double servo_angle_rad = servo_openness * 2.0 * M_PI;
-          positions[8] = servo_angle_rad;
-
-          if (first_can_servo_read) {
-            std::cout << "✅ Motor 9: Using USB servo feedback (" << std::fixed << std::setprecision(2)
-                      << (servo_openness * 360.0) << "°)" << std::endl;
-            first_can_servo_read = false;
-          }
-        } else {
-          // Keep CAN feedback for motor 9 (already in positions[8]) if USB fails
-          if (first_can_servo_read) {
-            std::cout << "📊 Motor 9: Using CAN feedback (" << std::fixed << std::setprecision(2)
-                      << (positions[8] * 180.0 / M_PI) << "°)" << std::endl;
-            first_can_servo_read = false;
-          }
-        }
+        // Convert servo openness (0.0-1.0) to radians (0 to π)
+        double servo_angle_rad = servo_openness * M_PI;
+        positions[8] = servo_angle_rad;
 
         // Calculate servo velocity estimate
         auto current_time = std::chrono::steady_clock::now();
         double time_diff = std::chrono::duration<double>(current_time - last_servo_time).count();
+        double servo_velocity = 0.0;
         if (time_diff > 0.001) { // Avoid division by very small numbers
-          double current_angle = positions[8];
-          double servo_velocity = (current_angle - last_servo_angle) / time_diff;
-          last_servo_angle = current_angle;
+          servo_velocity = (servo_angle_rad - last_servo_angle) / time_diff;
+          last_servo_angle = servo_angle_rad;
           last_servo_time = current_time;
         }
       }
@@ -310,12 +260,13 @@ int main(int argc, char *argv[]) {
       std::vector<double> velocities(9, 0.0);
       std::vector<double> torques(9, 0.0);
 
-      // Set servo velocity (calculated above)
+      // Update servo velocity and torque estimates
       if (velocities.size() >= 9) {
+        // Simple velocity calculation for servo
         auto current_time = std::chrono::steady_clock::now();
         double time_diff = std::chrono::duration<double>(current_time - last_servo_time).count();
         if (time_diff > 0.001) {
-          double current_angle = positions[8]; // Use the actual position from USB or CAN
+          double current_angle = servo_openness * M_PI;
           velocities[8] = (current_angle - last_servo_angle) / time_diff;
           last_servo_angle = current_angle;
           last_servo_time = current_time;

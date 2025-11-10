@@ -176,9 +176,11 @@ int main() {
             << std::endl;
 
   try {
-    // Create IC_CAN controller
-    auto controller = std::make_unique<ic_can::IC_CAN>(
-        "693D3DE86DF5940C8BC74A5B46A3CE2E", false);
+    // Create IC_CAN controller with simulation backend (to ensure refresh works)
+    ic_can::IC_CAN::CommunicationConfig config;
+    config.preferred_backend = "simulation";
+
+    auto controller = std::make_unique<ic_can::IC_CAN>(config, false);
 
     // Initialize system
     if (!controller->initialize()) {

@@ -25,8 +25,8 @@
  * - Data logging capability for all 9 joints
  */
 
-#include "motor_profiler.hpp"
 #include "ic_can/core/can_bus_logger.hpp"
+#include "motor_profiler.hpp"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -90,24 +90,28 @@ uint32_t parse_can_id_from_feedback(const std::string &feedback_line) {
 /**
  * @brief Log CAN frame send operation
  */
-void log_can_frame_send(uint32_t can_id, bool extended_id, const std::vector<uint8_t>& data) {
-    if (g_can_logger && g_can_logger->is_logging()) {
-        g_can_logger->log_sent_frame(can_id, extended_id, static_cast<uint8_t>(data.size()), data);
-    }
+void log_can_frame_send(uint32_t can_id, bool extended_id,
+                        const std::vector<uint8_t> &data) {
+  if (g_can_logger && g_can_logger->is_logging()) {
+    g_can_logger->log_sent_frame(can_id, extended_id,
+                                 static_cast<uint8_t>(data.size()), data);
+  }
 }
 
 /**
  * @brief Log CAN frame receive operation
  */
-void log_can_frame_receive(uint32_t can_id, bool extended_id, const std::vector<uint8_t>& data) {
-    if (g_can_logger && g_can_logger->is_logging()) {
-        g_can_logger->log_received_frame(can_id, extended_id, static_cast<uint8_t>(data.size()), data);
-    }
+void log_can_frame_receive(uint32_t can_id, bool extended_id,
+                           const std::vector<uint8_t> &data) {
+  if (g_can_logger && g_can_logger->is_logging()) {
+    g_can_logger->log_received_frame(can_id, extended_id,
+                                     static_cast<uint8_t>(data.size()), data);
+  }
 
-    // Also update motor profiler with received frame
-    if (g_profiler) {
-        g_profiler->record_can_frame(can_id);
-    }
+  // Also update motor profiler with received frame
+  if (g_profiler) {
+    g_profiler->record_can_frame(can_id);
+  }
 }
 
 void signal_handler(int signal) {
@@ -263,7 +267,7 @@ int main(int argc, char *argv[]) {
     // Create IC_CAN controller
     auto controller =
         std::make_unique<ic_can::IC_CAN>("693D3DE86DF5940C8BC74A5B46A3CE2E",
-                                         true); // Debug off for cleaner output
+                                         false); // Debug off for cleaner output
 
     // Initialize system
     if (!controller->initialize()) {
@@ -311,9 +315,9 @@ int main(int argc, char *argv[]) {
     // Initialize CAN bus logger
     g_can_logger = std::make_unique<ic_can::CANBusLogger>("can_bus_analysis");
     if (g_can_logger->start_logging()) {
-        std::cout << "📋 CAN bus logging enabled" << std::endl;
+      std::cout << "📋 CAN bus logging enabled" << std::endl;
     } else {
-        std::cout << "❌ Failed to start CAN bus logging" << std::endl;
+      std::cout << "❌ Failed to start CAN bus logging" << std::endl;
     }
 
     // Print header

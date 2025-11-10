@@ -63,7 +63,7 @@ int main(int argc, char *argv[]) {
     std::vector<ic_can::CANFrame> recent_responses;
 
     auto receive_callback = [&](const ic_can::CANFrame &frame) {
-      if (frame.id == 0x07E5) { // Listen for servo response ID
+      if (frame.id == 0x19) { // Listen for servo response ID (actual ID)
         last_response = frame;
         response_pending = true;
         recent_responses.push_back(frame);
@@ -90,15 +90,16 @@ int main(int argc, char *argv[]) {
     std::cout << "🎯 Starting 10Hz alternating transmission to CAN ID 0x09"
               << std::endl;
     std::cout << "📤 Commands: 02 08 00 ↔ 02 05 00 (alternating)" << std::endl;
-    std::cout << "📥 Expected response ID: 0x07E5" << std::endl;
+    std::cout << "📥 Expected response ID: 0x19" << std::endl;
     std::cout << "⏱️  Rate: 10Hz (100ms interval)" << std::endl;
     std::cout << "Press Ctrl+C to stop" << std::endl;
     std::cout << std::endl;
 
     // Print header
-    std::cout << std::setw(12) << "Count" << std::setw(20) << "SEND"
-              << std::setw(30) << "RECEIVE" << std::endl;
-    std::cout << std::string(62, '-') << std::endl;
+    std::cout << std::setw(12) << "Count" << std::setw(12) << "Time"
+              << std::setw(30) << "SEND" << std::setw(30) << "RECEIVE"
+              << std::endl;
+    std::cout << std::string(84, '-') << std::endl;
 
     uint64_t send_count = 0;
     uint64_t response_count = 0;
@@ -108,7 +109,14 @@ int main(int argc, char *argv[]) {
       auto loop_start = std::chrono::high_resolution_clock::now();
 
       // === SEND COMMAND (ALTERNATING) ===
+      auto current_time = std::chrono::high_resolution_clock::now();
+      auto time_since_start =
+          std::chrono::duration_cast<std::chrono::microseconds>(current_time -
+                                                                start_time);
+
       std::cout << std::dec << std::setw(12) << (++send_count) << "  ";
+      std::cout << "[" << std::fixed << std::setprecision(3)
+                << time_since_start.count() / 1000.0 << "ms]  ";
 
       // Alternate between commands
       std::vector<uint8_t> *current_command;
@@ -199,7 +207,7 @@ int main(int argc, char *argv[]) {
       auto loop_duration =
           std::chrono::duration_cast<std::chrono::milliseconds>(loop_end -
                                                                 loop_start);
-      auto target_duration = std::chrono::milliseconds(100); // 10Hz = 100ms
+      auto target_duration = std::chrono::milliseconds(50); // 10Hz = 100ms
 
       if (loop_duration < target_duration) {
         std::this_thread::sleep_for(target_duration - loop_duration);

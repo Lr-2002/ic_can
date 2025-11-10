@@ -148,6 +148,9 @@ set(BASIC_TOOLS
     simple_motor_test
     servo_motor_test
     gripper_component_test
+    gripper_usb_test
+    servo_frequency_test
+    test_ic_can_gripper_integration
     test_control_modes
     test_sync_can
     test_unified_control

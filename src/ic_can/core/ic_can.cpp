@@ -3231,15 +3231,15 @@ private:
 
   void process_servo_feedback(can_value_type &frame, int motor_idx) {
     // DEBUG: Print received servo feedback
-    if (debug_enabled_) {
-      std::cout << "🔥 FEEDBACK: Received Servo Motor " << (motor_idx + 1)
-                << " feedback, DLC=" << (int)frame.head.dlc << " Data: ";
-      for (int i = 0; i < frame.head.dlc; i++) {
-        std::cout << std::hex << std::setw(2) << std::setfill('0')
-                  << (int)frame.data[i] << " ";
-      }
-      std::cout << std::dec << std::endl;
+    /*if (debug_enabled_) {*/
+    std::cout << "🔥 FEEDBACK: Received Servo Motor " << (motor_idx + 1)
+              << " feedback, DLC=" << (int)frame.head.dlc << " Data: ";
+    for (int i = 0; i < frame.head.dlc; i++) {
+      std::cout << std::hex << std::setw(2) << std::setfill('0')
+                << (int)frame.data[i] << " ";
     }
+    std::cout << std::dec << std::endl;
+    /*}*/
 
     if (frame.head.dlc < 6) {
       return;
@@ -3310,10 +3310,10 @@ private:
         0x02,                                        // POSITION mode
         static_cast<uint8_t>((pos_raw >> 8) & 0xFF), // Position high byte
         static_cast<uint8_t>(pos_raw & 0xFF),        // Position low byte
-        static_cast<uint8_t>((vel_raw >> 8) & 0xFF), // Velocity high byte
-        static_cast<uint8_t>(vel_raw & 0xFF),        // Velocity low byte
-        0x00,
-        0x00,
+        /*static_cast<uint8_t>((vel_raw >> 8) & 0xFF), // Velocity high byte*/
+        /*static_cast<uint8_t>(vel_raw & 0xFF),        // Velocity low byte*/
+
+        0x00, 0x00, 0x00, 0x00,
         0x00 // Padding bytes
     };
     /**/
@@ -3328,13 +3328,25 @@ private:
     /*};*/
     // Send CAN frame to servo motor (use 0x09 as send ID per Python
     // implementation)
-    std::cout << " the send_count is " << std::dec << servo_send_count_
-              << std::endl;
-    if (servo_send_count_ % 50 == 0) {
-      std::cout << "send to servo \n";
+    if (servo_send_count_ % 200 == 0) {
+      auto current_time = std::chrono::high_resolution_clock::now();
+      auto elapsed_time = std::chrono::duration_cast<std::chrono::microseconds>(
+          current_time - performance_start_time_);
+
+      std::cout << "send to servo [" << std::fixed << std::setprecision(3)
+                << elapsed_time.count() / 1000.0 << "ms]\n";
       send_can_frame(0x09, command_data, false); // Standard frame for servo
+      std::cout << " the send_count is " << std::dec << servo_send_count_
+                << std::endl;
+
     } else {
-      std::cout << "skip send of servo \n";
+      auto current_time = std::chrono::high_resolution_clock::now();
+      auto elapsed_time = std::chrono::duration_cast<std::chrono::microseconds>(
+          current_time - performance_start_time_);
+
+      /*std::cout << "skip send of servo [" << std::fixed <<
+       * std::setprecision(3)*/
+      /*          << elapsed_time.count() / 1000.0 << "ms]\n";*/
     }
 
     std::cout << "send to " << 0x09 << " data is ";

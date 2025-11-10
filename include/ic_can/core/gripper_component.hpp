@@ -210,6 +210,10 @@ private:
     double max_speed_ = DEFAULT_MAX_SPEED;
     double max_force_ = DEFAULT_MAX_FORCE;
 
+    // USB Communication
+    int usb_fd_;                                 // USB file descriptor
+    std::string usb_port_;                       // USB port path
+
     // ========== Private Methods ==========
 
     /**
@@ -250,6 +254,61 @@ private:
      * @param message Debug message
      */
     void debug_print(const std::string& message);
+
+    // ========== USB Servo Protocol Methods ==========
+
+    /**
+     * @brief Connect to USB servo
+     * @return True if successful
+     */
+    bool usb_connect();
+
+    /**
+     * @brief Disconnect from USB servo
+     * @return True if successful
+     */
+    bool usb_disconnect();
+
+    /**
+     * @brief Send command to USB servo
+     * @param command Command bytes (without checksum)
+     * @return True if successful
+     */
+    bool usb_send_command(const std::vector<uint8_t>& command);
+
+    /**
+     * @brief Read response from USB servo
+     * @param response Response buffer
+     * @param expected_size Expected response size
+     * @return True if successful
+     */
+    bool usb_read_response(std::vector<uint8_t>& response, size_t expected_size);
+
+    /**
+     * @brief Enable servo torque
+     * @return True if successful
+     */
+    bool servo_enable_torque();
+
+    /**
+     * @brief Disable servo torque
+     * @return True if successful
+     */
+    bool servo_disable_torque();
+
+    /**
+     * @brief Control servo position
+     * @param position Target position (1000-2100)
+     * @param velocity Velocity (0-100)
+     * @return True if successful
+     */
+    bool servo_position_control(uint16_t position, uint16_t velocity);
+
+    /**
+     * @brief Read servo position
+     * @return Current position (1000-2100)
+     */
+    uint16_t servo_read_position();
 };
 
 } // namespace ic_can

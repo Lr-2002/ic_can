@@ -384,7 +384,7 @@ int main(int argc, char *argv[]) {
       }
 
       // Log position data every iteration
-      log_arm_positions(positions, velocities, torques);
+      /*log_arm_positions(positions, velocities, torques);*/
 
       // Print complete arm data including servo (every 10 iterations to avoid
       // spam)

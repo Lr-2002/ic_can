@@ -287,7 +287,7 @@ bool GripperComponent::servo_position_control(uint16_t position,
       static_cast<uint8_t>((velocity >> 8) & 0xFF) // Velocity high byte
   };
 
-  return usb_send_command(command);
+  usb_send_command(command);
 }
 
 uint16_t GripperComponent::servo_read_position() {
@@ -298,7 +298,7 @@ uint16_t GripperComponent::servo_read_position() {
   }
 
   // Simple blocking read with timeout
-  std::this_thread::sleep_for(std::chrono::microseconds(100));
+  std::this_thread::sleep_for(std::chrono::microseconds(50));
 
   std::vector<uint8_t> response;
   if (!usb_read_response(response, 8)) {

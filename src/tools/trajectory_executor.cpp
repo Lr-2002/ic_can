@@ -37,6 +37,17 @@
 #include <thread>
 #include <vector>
 
+// Memory debugging (simple approach to avoid macro conflicts)
+#include <cassert>
+#include <cstring>
+
+// Simple debug function
+inline void traj_debug_print(const std::string& msg, int line) {
+    std::cout << "🐛 DEBUG: " << msg << " (line " << line << ")" << std::endl;
+}
+
+#define TRAJ_DEBUG_PRINT(msg) traj_debug_print(msg, __LINE__)
+
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
@@ -384,6 +395,18 @@ void signal_handler(int signal) {
   g_running = false;
 }
 
+// Custom exception handler to catch memory issues
+void my_terminate() {
+  std::cout << "🔥 CRITICAL: Program terminating - likely memory corruption detected!" << std::endl;
+  std::cout << "🔥 This suggests a double free or invalid memory access" << std::endl;
+  std::abort();
+}
+
+void setup_debug_handlers() {
+    std::set_terminate(my_terminate);
+    std::cout << "🐛 DEBUG: Debug handlers installed" << std::endl;
+}
+
 struct TrajectoryData {
   double frequency;
   std::vector<double> time_points;
@@ -618,20 +641,23 @@ void print_usage(const char *program_name) {
 }
 
 // Real-time interpolation function for smooth motion
-std::vector<double>
-interpolate_positions(const std::vector<double> &current_positions,
-                      const std::vector<double> &target_positions, double dt,
-                      double max_velocity) {
+void interpolate_positions(const std::vector<double> &current_positions,
+                          const std::vector<double> &target_positions,
+                          std::vector<double> &result_positions, double dt,
+                          double max_velocity) {
 
-  std::vector<double> interpolated_positions(current_positions.size());
+  // Ensure result vector has correct size
+  if (result_positions.size() != current_positions.size()) {
+    result_positions.resize(current_positions.size());
+  }
+
   double max_step = max_velocity * dt;
 
   for (size_t i = 0; i < current_positions.size(); ++i) {
     double error = target_positions[i] - current_positions[i];
     double step = std::clamp(error, -max_step, max_step);
-    interpolated_positions[i] = current_positions[i] + step;
+    result_positions[i] = current_positions[i] + step;
   }
-  return interpolated_positions;
 }
 
 // Apply trajectory preprocessing smoothing
@@ -676,6 +702,11 @@ int main(int argc, char *argv[]) {
   std::cout << "Load and execute trajectories from JSON files or replay motor "
                "states from log directories"
             << std::endl;
+
+  // Setup debug handlers for memory debugging
+  setup_debug_handlers();
+
+  TRAJ_DEBUG_PRINT("Main function started");
 
   // Parse command line arguments
   bool enable_logging = false;
@@ -747,10 +778,14 @@ int main(int argc, char *argv[]) {
 
   try {
     // Load trajectory data (from JSON file or log directory)
+    TRAJ_DEBUG_PRINT("About to create trajectory object");
     TrajectoryData trajectory;
+    TRAJ_DEBUG_PRINT("Trajectory object created, about to load data");
     if (!trajectory.load_from_file_or_directory(input_path)) {
+      TRAJ_DEBUG_PRINT("Failed to load trajectory data");
       return -1;
     }
+    TRAJ_DEBUG_PRINT("Trajectory data loaded successfully");
 
     trajectory.print_info();
 
@@ -763,21 +798,25 @@ int main(int argc, char *argv[]) {
     }
 
     // Create IC_CAN controller
+    TRAJ_DEBUG_PRINT("About to create IC_CAN controller");
     std::cout << "\n🔧 Initializing IC_CAN controller..." << std::endl;
     auto controller = std::make_unique<ic_can::IC_CAN>(
         "693D3DE86DF5940C8BC74A5B46A3CE2E", false);
+    TRAJ_DEBUG_PRINT("IC_CAN controller created");
 
     if (!controller->initialize()) {
       std::cout << "❌ FAILED: System initialization failed" << std::endl;
+      TRAJ_DEBUG_PRINT("System initialization failed - exiting");
       return -1;
     }
     std::cout << "✅ System initialized" << std::endl;
+    TRAJ_DEBUG_PRINT("System initialized successfully");
 
     // Enable motors
     if (!controller->enable_all()) {
       std::cout << "⚠️  WARNING: Some motors failed to enable" << std::endl;
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    std::this_thread::sleep_for(std::chrono::microseconds(500000)); // 0.5 seconds instead of 1 second
 
     // Set to EXECUTION_MODE for trajectory execution
     std::cout << "\n⚙️ Setting EXECUTION_MODE for trajectory execution..."
@@ -801,39 +840,105 @@ int main(int argc, char *argv[]) {
     controller->enable_frequency_monitoring();
 
     // Read initial positions
+    TRAJ_DEBUG_PRINT("About to refresh_all and get positions");
     controller->refresh_all();
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    std::this_thread::sleep_for(std::chrono::microseconds(50000)); // 50ms instead of 200ms
     auto initial_positions = controller->get_joint_positions();
+    TRAJ_DEBUG_PRINT("Got initial positions, size: " + std::to_string(initial_positions.size()));
 
     std::cout << "\n📍 Current motor positions: ";
-    for (int i = 0; i < 6; i++) {
-      std::cout << std::fixed << std::setprecision(3) << initial_positions[i]
-                << " ";
+    for (int i = 0; i < 9; i++) {
+      double current_pos = (i < static_cast<int>(initial_positions.size())) ? initial_positions[i] : 0.0;
+      std::cout << std::fixed << std::setprecision(3) << current_pos << " ";
     }
     std::cout << std::endl;
 
     std::cout << "📍 First trajectory position: ";
-    for (int i = 0; i < 6; i++) {
-      std::cout << std::fixed << std::setprecision(3)
-                << trajectory.positions[0][i] << " ";
+    size_t trajectory_dof = trajectory.positions[0].size();
+    for (int i = 0; i < 9; i++) {
+      double target_pos = (i < static_cast<int>(trajectory_dof)) ? trajectory.positions[0][i] : 0.0;
+      std::cout << std::fixed << std::setprecision(3) << target_pos << " ";
     }
     std::cout << std::endl;
 
-    // Check if we need to move to starting position
+    // Check if we need to move to starting position (check all 9 motors)
+    TRAJ_DEBUG_PRINT("Starting initial position check");
     bool need_initial_move = false;
-    for (int i = 0; i < 6; i++) {
-      if (std::abs(initial_positions[i] - trajectory.positions[0][i]) > 0.01) {
+    double max_distance = 0.0;
+    std::vector<double> position_errors(9, 0.0);
+    TRAJ_DEBUG_PRINT("Created position_errors vector, size: " + std::to_string(position_errors.size()));
+
+    // Ensure we have enough elements in initial_positions
+    if (initial_positions.size() < 9) {
+        initial_positions.resize(9, 0.0);
+        TRAJ_DEBUG_PRINT("Resized initial_positions to 9 elements");
+    }
+
+    TRAJ_DEBUG_PRINT("About to compare positions with trajectory[0] size: " + std::to_string(trajectory.positions[0].size()));
+
+    // CRITICAL FIX: Add bounds checking to prevent buffer overflow
+    TRAJ_DEBUG_PRINT("Trajectory DOF: " + std::to_string(trajectory_dof));
+
+    for (int i = 0; i < 9; i++) {
+      // SAFE ACCESS: Check bounds before accessing trajectory positions
+      double target_pos = (i < static_cast<int>(trajectory_dof)) ? trajectory.positions[0][i] : 0.0;
+      double current_pos = (i < static_cast<int>(initial_positions.size())) ? initial_positions[i] : 0.0;
+      double error = std::abs(current_pos - target_pos);
+      position_errors[i] = error;
+
+      if (error > 0.01) { // 0.01 rad threshold
         need_initial_move = true;
-        break;
+      }
+      if (error > max_distance) {
+        max_distance = error;
       }
     }
+    TRAJ_DEBUG_PRINT("Position comparison completed, need_initial_move: " + std::string(need_initial_move ? "true" : "false"));
 
     if (need_initial_move) {
       std::cout << "\n🎯 Moving to starting position..." << std::endl;
-      controller->set_target_positions_interpolated(trajectory.positions[0],
-                                                    0.5);
-      controller->start_control_loop(200.0); // 200Hz for initial move
-      std::this_thread::sleep_for(std::chrono::seconds(3));
+      std::cout << "   Max distance: " << std::fixed << std::setprecision(3)
+                << max_distance << " rad (" << (max_distance * 180.0 / M_PI) << "°)" << std::endl;
+
+      // Calculate dynamic initial move duration based on max distance and velocity
+      double initial_move_velocity = std::min(max_velocity, 0.5); // Cap at 0.5 rad/s for safety
+      double estimated_duration = max_distance / initial_move_velocity;
+      double initial_move_duration = std::max(estimated_duration, 1.0); // Minimum 1 second
+
+      std::cout << "   Using velocity: " << initial_move_velocity << " rad/s" << std::endl;
+      std::cout << "   Estimated duration: " << std::fixed << std::setprecision(2)
+                << initial_move_duration << " seconds" << std::endl;
+
+      // Use the same interpolation method as real-time execution
+      double initial_frequency = 200.0; // 200Hz for initial move
+      int initial_move_steps = static_cast<int>(initial_move_duration * initial_frequency);
+      double dt = 1.0 / initial_frequency;
+
+      TRAJ_DEBUG_PRINT("Creating interpolation vectors");
+      std::vector<double> current_positions = initial_positions;
+      std::vector<double> target_positions = trajectory.positions[0];
+      std::vector<double> interpolated_positions(9, 0.0);
+      TRAJ_DEBUG_PRINT("Created vectors - current size: " + std::to_string(current_positions.size()) +
+                 ", target size: " + std::to_string(target_positions.size()) +
+                 ", interpolated size: " + std::to_string(interpolated_positions.size()));
+
+      controller->start_control_loop(initial_frequency);
+
+      for (int step = 0; step < initial_move_steps && g_running; ++step) {
+        // Interpolate positions using the same function as real-time execution
+        interpolate_positions(current_positions, target_positions, interpolated_positions,
+                            dt, initial_move_velocity);
+
+        // Send interpolated positions
+        controller->set_joint_positions(interpolated_positions, {}, {});
+
+        // Update current positions for next iteration
+        current_positions = interpolated_positions;
+
+        // Sleep to maintain frequency
+        std::this_thread::sleep_for(std::chrono::microseconds(static_cast<int64_t>(dt * 1000000)));
+      }
+
       controller->stop_control_loop();
       std::cout << "✅ Moved to starting position" << std::endl;
     }
@@ -910,87 +1015,41 @@ int main(int argc, char *argv[]) {
     while (g_running && current_point < trajectory.total_points) {
       auto loop_start = std::chrono::high_resolution_clock::now();
 
-      // Enhanced position jump detection using both trajectory deltas and
-      // current->target deltas
+      // Simplified position jump detection (performance optimized)
       static std::vector<double> last_positions(9, 0.0);
       static bool first_iteration = true;
+      static auto last_position_read = std::chrono::steady_clock::now();
 
-      // Get current motor positions for delta-based jump detection
-      auto current_motor_positions = controller->get_joint_positions();
+      // Cache motor positions to reduce USB reads (only read every 10 iterations)
+      static std::vector<double> cached_motor_positions(9, 0.0);
+      static bool positions_cached = false;
+      const int position_cache_interval = 10;
 
-      double max_position_change = 0.0;
-      int motor_with_max_change = 0;
-      std::string jump_type = "";
-
-      for (int i = 0; i < 9; i++) {
-        // 1. Check trajectory-to-trajectory changes (consecutive points)
-        double trajectory_change = std::abs(
-            trajectory.positions[current_point][i] - last_positions[i]);
-
-        // 2. Check current-to-target changes (from actual motor position to
-        // target)
-        double current_to_target_change =
-            std::abs(trajectory.positions[current_point][i] -
-                     current_motor_positions[i]);
-
-        // Use the larger of the two changes for detection
-        double change = std::max(trajectory_change, current_to_target_change);
-
-        if (change > max_position_change) {
-          max_position_change = change;
-          motor_with_max_change = i;
-
-          // Determine which type of jump this is
-          if (current_to_target_change > trajectory_change &&
-              current_to_target_change > 0.1) {
-            jump_type = " (from current position)";
-          } else if (trajectory_change > 0.1) {
-            jump_type = " (trajectory delta)";
+      if (current_point % position_cache_interval == 0 || !positions_cached) {
+        auto temp_positions = controller->get_joint_positions();
+        // Safe copy with proper size checking
+        if (temp_positions.size() >= 9) {
+          std::copy(temp_positions.begin(), temp_positions.begin() + 9,
+                   cached_motor_positions.begin());
+        } else {
+          // Fallback if returned vector is too small
+          for (size_t i = 0; i < 9; ++i) {
+            cached_motor_positions[i] = (i < temp_positions.size()) ? temp_positions[i] : 0.0;
           }
         }
+        positions_cached = true;
+        last_position_read = std::chrono::steady_clock::now();
       }
 
-      // Enhanced warning system with different thresholds for different
-      // scenarios
-      bool large_trajectory_delta = false;
+      double max_position_change = 0.0;
 
+      // Quick trajectory change detection only (no USB calls)
       for (int i = 0; i < 9; i++) {
         double trajectory_change = std::abs(
             trajectory.positions[current_point][i] - last_positions[i]);
-        double current_to_target_change =
-            std::abs(trajectory.positions[current_point][i] -
-                     current_motor_positions[i]);
-
-        // More sensitive threshold for current->target jumps (potential safety
-        // issue)
-        /*if (current_to_target_change > 0.05) { // > 0.05 rad (~2.9 degrees)*/
-        /*  std::cout << "⚠️  LARGE JUMP FROM CURRENT POSITION: Motor "*/
-        /*            << (i + 1) << " current=" << std::fixed <<
-         * std::setprecision(3)*/
-        /*            << current_motor_positions[i] << " rad ("*/
-        /*            << (current_motor_positions[i] * 180.0 / M_PI) << "°) →
-         * target="*/
-        /*            << trajectory.positions[current_point][i] << " rad ("*/
-        /*            << (trajectory.positions[current_point][i] * 180.0 /
-         * M_PI)*/
-        /*            << "°) delta=" << current_to_target_change << " rad ("*/
-        /*            << (current_to_target_change * 180.0 / M_PI) << "°)" <<
-         * std::endl;*/
-        /*}*/
-        /**/
-        /*// Standard threshold for trajectory deltas*/
-        if (trajectory_change > 0.1) { // > 0.1 rad (~5.7 degrees)
-          large_trajectory_delta = true;
+        if (trajectory_change > max_position_change) {
+          max_position_change = trajectory_change;
         }
-      }
-
-      // Report trajectory delta jumps if present (but less critical)
-      if (large_trajectory_delta && max_position_change > 0.1) {
-        std::cout << "⚠️  Large trajectory delta: Motor "
-                  << (motor_with_max_change + 1) << " change=" << std::fixed
-                  << std::setprecision(4) << max_position_change << " rad ("
-                  << (max_position_change * 180.0 / M_PI) << "°)" << jump_type
-                  << std::endl;
       }
 
       // Initialize last_positions on first iteration
@@ -1007,9 +1066,10 @@ int main(int argc, char *argv[]) {
         // Calculate time step
         double dt = 1.0 / trajectory.frequency;
 
-        // Interpolate between current and target positions
-        actual_positions = interpolate_positions(
-            current_motor_positions, target_positions, dt, max_velocity);
+        // Interpolate between cached current and target positions (no USB call)
+        actual_positions = target_positions; // Start with target positions
+        interpolate_positions(
+            cached_motor_positions, target_positions, actual_positions, dt, max_velocity);
       } else {
         // Use raw target positions (original behavior)
         actual_positions = target_positions;
@@ -1084,67 +1144,26 @@ int main(int argc, char *argv[]) {
         last_positions = trajectory.positions[current_point - 1];
       }
 
-      // Detailed profiling every 1 second
+      // Lightweight profiling every 2 seconds (reduced from 1 second)
       auto current_time = std::chrono::high_resolution_clock::now();
       auto profiling_elapsed =
           std::chrono::duration<double>(current_time - last_profiling_time)
               .count();
 
-      if (profiling_elapsed >= 1.0) {
-        // Use trajectory execution start time for accurate frequency
-        // calculation
+      if (profiling_elapsed >= 2.0) {
+        // Simplified frequency calculation
         double execution_elapsed =
             std::chrono::duration<double>(current_time - start_time).count();
         double actual_freq = motor1_command_count / execution_elapsed;
         double instant_freq = commands_in_last_second / profiling_elapsed;
 
-        auto cmd_duration =
-            std::chrono::duration<double, std::milli>(cmd_end - cmd_start)
-                .count();
-
-        std::cout << "📊 ===== FREQUENCY PROFILING =====" << std::endl;
-        std::cout << "   Motor 1 Total Freq: " << std::fixed
-                  << std::setprecision(1) << actual_freq << " Hz" << std::endl;
-        std::cout << "   Motor 1 Instant Freq: " << std::fixed
-                  << std::setprecision(1) << instant_freq << " Hz" << std::endl;
-        std::cout << "   Target Frequency: " << trajectory.frequency << " Hz"
-                  << std::endl;
-        std::cout << "   Efficiency: " << std::fixed << std::setprecision(1)
-                  << (actual_freq / trajectory.frequency * 100.0) << "%"
-                  << std::endl;
-        std::cout << "   Command Time: " << std::fixed << std::setprecision(3)
-                  << cmd_duration << " ms" << std::endl;
-        std::cout << "   Loop Time: " << std::fixed << std::setprecision(3)
-                  << last_loop_time_ms << " ms" << std::endl;
-        std::cout << "   Sleep Time: " << std::fixed << std::setprecision(3)
-                  << last_sleep_time_ms << " ms" << std::endl;
-        std::cout << "   Target Period: " << std::fixed << std::setprecision(3)
-                  << (1000.0 / trajectory.frequency) << " ms" << std::endl;
-        std::cout << "   Max Position Change: " << std::fixed
-                  << std::setprecision(4) << max_position_change << " rad"
-                  << std::endl;
-        std::cout << "   Commands this second: " << commands_in_last_second
-                  << std::endl;
-        std::cout << "   Total commands: " << motor1_command_count << std::endl;
-        std::cout << "   Current point: " << current_point << "/"
-                  << trajectory.total_points << std::endl;
-
-        // Show current control mode and gains
-        auto current_mode = controller->get_control_mode();
-        std::cout << "   Control Mode: "
-                  << (current_mode ==
-                              ic_can::IC_CAN::ControlMode::EXECUTION_MODE
-                          ? "EXECUTION"
-                          : "TEACH")
-                  << std::endl;
-
-        // Alert if timing is problematic
-        if (last_loop_time_ms > 5.0) {
-          std::cout << "⚠️  WARNING: Loop time too high (>5ms)" << std::endl;
-        }
-        if (actual_freq < trajectory.frequency * 0.8) {
-          std::cout << "⚠️  WARNING: Frequency below 80% of target" << std::endl;
-        }
+        // Minimal console output for performance
+        std::cout << "📊 Freq: " << std::fixed << std::setprecision(1)
+                  << actual_freq << "/" << trajectory.frequency << " Hz | "
+                  << "Eff: " << std::setprecision(0)
+                  << (actual_freq / trajectory.frequency * 100.0) << "% | "
+                  << "Loop: " << std::setprecision(2) << last_loop_time_ms << "ms | "
+                  << "Pt: " << current_point << "/" << trajectory.total_points << std::endl;
 
         // Reset counters
         commands_in_last_second = 0;
@@ -1167,27 +1186,40 @@ int main(int argc, char *argv[]) {
         last_progress_time = current_time_int;
       }
 
-      // Calculate sleep time to maintain trajectory frequency
+      // Calculate sleep time to maintain trajectory frequency (microsecond precision)
       auto loop_end = std::chrono::high_resolution_clock::now();
       auto loop_duration = loop_end - loop_start;
-      auto target_period =
-          std::chrono::duration<double>(1.0 / trajectory.frequency);
-      auto sleep_time = target_period - loop_duration;
+      double target_period_us = 1000000.0 / trajectory.frequency;
+      double loop_duration_us = std::chrono::duration<double, std::micro>(loop_duration).count();
+      double sleep_time_us = target_period_us - loop_duration_us;
 
-      // Sleep timing profiling
+      // Microsecond-precision sleep with minimal overhead
       auto sleep_start = std::chrono::high_resolution_clock::now();
-      if (sleep_time.count() > 0) {
-        std::this_thread::sleep_for(sleep_time);
+      if (sleep_time_us > 100.0) { // Only sleep if > 100μs
+        // Use busy-wait for small intervals (< 1ms) for better precision
+        if (sleep_time_us < 1000.0) {
+          auto target_time = sleep_start + std::chrono::microseconds(static_cast<int64_t>(sleep_time_us));
+          while (std::chrono::high_resolution_clock::now() < target_time) {
+            // CPU pause for better power efficiency
+            __builtin_ia32_pause();
+          }
+        } else {
+          // Use standard sleep for larger intervals
+          std::this_thread::sleep_for(std::chrono::microseconds(static_cast<int64_t>(sleep_time_us - 100.0)));
+          // Fine-tune with busy-wait for remaining time
+          auto target_time = sleep_start + std::chrono::microseconds(static_cast<int64_t>(sleep_time_us));
+          while (std::chrono::high_resolution_clock::now() < target_time) {
+            __builtin_ia32_pause();
+          }
+        }
       }
       auto sleep_end = std::chrono::high_resolution_clock::now();
-      auto actual_sleep =
-          std::chrono::duration<double, std::milli>(sleep_end - sleep_start)
-              .count();
+      auto actual_sleep_us =
+          std::chrono::duration<double, std::micro>(sleep_end - sleep_start).count();
 
-      // Store timing stats for reporting (update last sample)
-      last_loop_time_ms =
-          std::chrono::duration<double, std::milli>(loop_duration).count();
-      last_sleep_time_ms = actual_sleep;
+      // Store timing stats for reporting (convert to ms for display)
+      last_loop_time_ms = loop_duration_us / 1000.0;
+      last_sleep_time_ms = actual_sleep_us / 1000.0;
     }
 
     auto total_time =
@@ -1340,6 +1372,11 @@ int main(int argc, char *argv[]) {
 
   } catch (const std::exception &e) {
     std::cout << "❌ EXCEPTION: " << e.what() << std::endl;
+    TRAJ_DEBUG_PRINT("Caught std::exception: " + std::string(e.what()));
+    return -1;
+  } catch (...) {
+    std::cout << "❌ UNKNOWN EXCEPTION CAUGHT!" << std::endl;
+    TRAJ_DEBUG_PRINT("Caught unknown exception - likely memory corruption");
     return -1;
   }
 }

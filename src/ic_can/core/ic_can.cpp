@@ -1210,6 +1210,8 @@ public:
         send_dm_mit_command(i + 1, pos, vel, tau, kp, kd);
         /*}*/
       } else if (i == 8) {
+        auto servo_start = std::chrono::high_resolution_clock::now();
+
         // Servo motor 9 (gripper): use servo CAN FD protocol
         if (control_mode_ != ControlMode::TEACH_MODE) {
           if (debug_enabled_) {
@@ -1231,6 +1233,14 @@ public:
           gripper_component_->servo_read_position();
           /*send_servo_disable(i + 1);*/
         }
+
+        auto servo_end = std::chrono::high_resolution_clock::now();
+        auto servo_time = std::chrono::duration_cast<std::chrono::microseconds>(
+                              servo_end - servo_start)
+                              .count();
+        /*std::cout << " the time con sume on servo is " << servo_time*/
+        /*          << std::endl;*/
+
       } else if (i < 8) {
         // HT motors 7-8: use HT MIT protocol
         /*usleep(10000);*/

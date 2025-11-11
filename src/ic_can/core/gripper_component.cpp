@@ -28,6 +28,13 @@
 #include <termios.h>
 #include <unistd.h>
 
+// USB send command profiling variables
+static double g_usb_send_total_time_us = 0.0;
+static double g_usb_send_write_time_us = 0.0;
+static uint64_t g_usb_send_count = 0;
+static uint64_t g_usb_send_success_count = 0;
+static uint64_t g_usb_send_fail_count = 0;
+
 namespace ic_can {
 
 // USB Servo Protocol constants
@@ -111,9 +118,9 @@ bool GripperComponent::usb_connect() {
   struct termios options;
   tcgetattr(usb_fd_, &options);
 
-  // Set baud rate to 115200
-  cfsetispeed(&options, B115200);
-  cfsetospeed(&options, B115200);
+  // Set baud rate to 1000000
+  cfsetispeed(&options, B1000000);
+  cfsetospeed(&options, B1000000);
 
   // 8N1 configuration
   options.c_cflag &= ~PARENB; // No parity
@@ -154,8 +161,12 @@ bool GripperComponent::usb_disconnect() {
 }
 
 bool GripperComponent::usb_send_command(const std::vector<uint8_t> &command) {
+  auto function_start = std::chrono::high_resolution_clock::now();
+  g_usb_send_count++;
+
   if (usb_fd_ < 0) {
     debug_print("USB not connected");
+    g_usb_send_fail_count++;
     return false;
   }
 
@@ -170,11 +181,20 @@ bool GripperComponent::usb_send_command(const std::vector<uint8_t> &command) {
   std::vector<uint8_t> full_command = command;
   full_command.push_back(checksum);
 
-  // Send command
+  // Profile the write operation
+  auto write_start = std::chrono::high_resolution_clock::now();
   ssize_t bytes_written =
       write(usb_fd_, full_command.data(), full_command.size());
+  auto write_end = std::chrono::high_resolution_clock::now();
+
+  double write_time_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                             write_end - write_start)
+                             .count();
+  g_usb_send_write_time_us += write_time_us;
+
   if (bytes_written != static_cast<ssize_t>(full_command.size())) {
     debug_print("Failed to send USB command");
+    g_usb_send_fail_count++;
     return false;
   }
 
@@ -187,6 +207,25 @@ bool GripperComponent::usb_send_command(const std::vector<uint8_t> &command) {
   /*}*/
   /*debug_print(ss.str());*/
   /**/
+
+  auto function_end = std::chrono::high_resolution_clock::now();
+  double total_time_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                             function_end - function_start)
+                             .count();
+  g_usb_send_total_time_us += total_time_us;
+  g_usb_send_success_count++;
+
+  // Print profiling summary every 100 calls
+  if (g_usb_send_count % 100 == 0) {
+    std::cout << "[USB_PROFILE] Calls: " << g_usb_send_count
+              << " | Success: " << g_usb_send_success_count
+              << " | Failed: " << g_usb_send_fail_count << " | Avg total: "
+              << (g_usb_send_total_time_us / g_usb_send_count) << " μs"
+              << " | Avg write: "
+              << (g_usb_send_write_time_us / g_usb_send_count) << " μs"
+              << std::endl;
+  }
+
   return true;
 }
 
@@ -200,22 +239,12 @@ bool GripperComponent::usb_read_response(std::vector<uint8_t> &response,
   response.resize(expected_size);
 
   ssize_t bytes_read = read(usb_fd_, response.data(), expected_size);
-  /*std::cout << "bytes read: " << bytes_read << std::endl;*/
+
   if (bytes_read <= 0) {
-    /*debug_print("No USB response received");*/
     return false;
   }
 
   response.resize(bytes_read);
-
-  // Log response
-  std::stringstream ss;
-  /*ss << "USB RECV: ";*/
-  /*for (uint8_t byte : response) {*/
-  /*  ss << std::hex << std::setw(2) << std::setfill('0')*/
-  /*     << static_cast<int>(byte) << " ";*/
-  /*}*/
-  /*debug_print(ss.str());*/
 
   return true;
 }
@@ -268,37 +297,19 @@ uint16_t GripperComponent::servo_read_position() {
     return 0;
   }
 
-  // Fast polling for response instead of blocking 50ms delay
+  // Simple blocking read with timeout
+  std::this_thread::sleep_for(std::chrono::microseconds(100));
+
   std::vector<uint8_t> response;
-  const int max_attempts = 10;    // 10 attempts × 5ms = 50ms max timeout
-  const int poll_interval_ms = 5; // 5ms polling interval for 200Hz potential
-
-  for (int attempt = 0; attempt < max_attempts; ++attempt) {
-    if (usb_read_response(response, 8)) {
-      // Successfully got response
-      break;
-    }
-    // Short sleep before next attempt
-    std::this_thread::sleep_for(std::chrono::microseconds(poll_interval_ms));
+  if (!usb_read_response(response, 8)) {
+    return 0;
   }
 
-  // Check if we got a valid response from polling
-  if (response.empty()) {
-    return 0; // No response received within timeout
-  }
-  // Parse position from response - FEETACH protocol format: FF FF 01 XX XX
-  // POS_L POS_H ...
   if (response.size() >= 8 && response[0] == 0xFF && response[1] == 0xFF &&
       response[2] == 0x01) {
-    // Parse position from bytes 5-6 (little-endian format)
     uint16_t position = static_cast<uint16_t>(response[5] | (response[6] << 8));
-
-    // Validate position range (1000-2100 for typical servo range)
     if (position >= 1000 && position <= 2100) {
       return position;
-    } else {
-      // Return 0 for invalid position data
-      return 0;
     }
   }
 

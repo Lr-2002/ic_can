@@ -54,7 +54,7 @@ class ServoUSBProtocol:
         self.servo_set_speed = self.SPEED_DEFAULT
 
         # USB communication settings
-        self.baudrate = 115200
+        self.baudrate = 1000000
         self.timeout = 0.1
 
         print("🔧 Direct USB Servo Protocol Interface")
@@ -603,7 +603,7 @@ def main():
         "--positions", nargs="+", type=int, help="Custom positions for position test"
     )
     parser.add_argument(
-        "--baudrate", type=int, default=115200, help="USB baudrate (default: 115200)"
+        "--baudrate", type=int, default=1000000, help="USB baudrate (default: 115200)"
     )
     parser.add_argument(
         "--list-ports", action="store_true", help="List available USB ports and exit"
@@ -676,4 +676,3 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
-

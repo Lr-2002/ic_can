@@ -51,9 +51,43 @@ static std::unique_ptr<ic_can::CANBusLogger> g_can_logger;
 static std::ofstream g_position_log_file;
 static std::string g_position_log_filename;
 
+// Simple profiling variables
+static double total_time_us = 0.0;
+static double can_time_us = 0.0;
+static double usb_time_us = 0.0;
+static uint64_t profile_count = 0;
+
 void signal_handler(int signal) {
   std::cout << "\n⚠️  Received signal " << signal << ", stopping monitor..."
             << std::endl;
+
+  // Print profiling summary
+  if (profile_count > 0) {
+    std::cout << "\n📊 PROFILING SUMMARY (" << profile_count
+              << " iterations):" << std::endl;
+    std::cout << "======================================" << std::endl;
+    std::cout << "Average total time: " << std::fixed << std::setprecision(1)
+              << (total_time_us / profile_count) << " μs" << std::endl;
+    std::cout << "Average CAN time:   " << std::setprecision(1)
+              << (can_time_us / profile_count) << " μs" << std::endl;
+    std::cout << "Average USB time:   " << std::setprecision(1)
+              << (usb_time_us / profile_count) << " μs" << std::endl;
+
+    double avg_total_ms = (total_time_us / profile_count) / 1000.0;
+    if (avg_total_ms > 0) {
+      double actual_freq = 1000.0 / avg_total_ms;
+      std::cout << "Actual frequency:   " << std::setprecision(1) << actual_freq
+                << " Hz" << std::endl;
+    }
+
+    double can_percent = (can_time_us / total_time_us) * 100.0;
+    double usb_percent = (usb_time_us / total_time_us) * 100.0;
+    std::cout << "CAN operations:     " << std::setprecision(1) << can_percent
+              << "%" << std::endl;
+    std::cout << "USB operations:     " << std::setprecision(1) << usb_percent
+              << "%" << std::endl;
+  }
+
   if (g_profiler) {
     g_profiler->print_summary();
   }
@@ -288,12 +322,12 @@ int main(int argc, char *argv[]) {
 
     auto start_time = std::chrono::steady_clock::now();
 
-    // Monitoring loop - READ ONLY
-    auto small_cnt = 0;
+    // Monitoring loop - READ ONLY with profiling
+    auto iteration_start = std::chrono::steady_clock::now();
     while (g_running) {
+      auto loop_start = std::chrono::high_resolution_clock::now();
+
       // Check duration limit
-      std::cout << small_cnt << std::endl;
-      small_cnt++;
       if (duration_seconds > 0) {
         auto elapsed = std::chrono::duration<double>(
                            std::chrono::steady_clock::now() - start_time)
@@ -304,12 +338,19 @@ int main(int argc, char *argv[]) {
           break;
         }
       }
-      /*std::cout << std::chrono::stready_clock::now() << " - ";*/
+
+      profile_count++;
       g_profiler->increment_loop_count();
 
-      // Get CAN motor positions (motors 1-8)
+      // Profile CAN operations
+      auto can_start = std::chrono::high_resolution_clock::now();
       auto positions = controller->get_joint_positions();
       controller->set_joint_positions(positions, {}, {});
+      auto can_end = std::chrono::high_resolution_clock::now();
+
+      can_time_us += std::chrono::duration_cast<std::chrono::microseconds>(
+                         can_end - can_start)
+                         .count();
       // Read USB servo position (motor 9) - READ ONLY
       static double last_servo_angle = 0.0;
       static auto last_servo_time = std::chrono::steady_clock::now();
@@ -354,6 +395,29 @@ int main(int argc, char *argv[]) {
         print_arm_data(positions, velocities, torques);
         std::cout << std::flush;
       }
+
+      // Calculate total iteration time
+      auto loop_end = std::chrono::high_resolution_clock::now();
+      auto iteration_time =
+          std::chrono::duration_cast<std::chrono::microseconds>(loop_end -
+                                                                loop_start)
+              .count();
+      total_time_us += iteration_time;
+
+      // Print current timing every 50 iterations
+      /*if (profile_count % 50 == 0) {*/
+      /*  std::cout << "\n📊 Iteration " << profile_count << " - Current
+       * timing:" << std::endl;*/
+      /*  std::cout << "  Total: " << std::fixed << std::setprecision(1) <<
+       * iteration_time << " μs" << std::endl;*/
+      /*  std::cout << "  CAN:   " << std::setprecision(1) << (can_time_us /
+       * profile_count) << " μs avg" << std::endl;*/
+      /*  if (iteration_time > 0) {*/
+      /*    double current_freq = 1000000.0 / iteration_time;*/
+      /*    std::cout << "  Freq:  " << std::setprecision(1) << current_freq <<
+       * " Hz" << std::endl;*/
+      /*  }*/
+      /*}*/
 
       // Sleep to maintain frequency
       std::this_thread::sleep_for(

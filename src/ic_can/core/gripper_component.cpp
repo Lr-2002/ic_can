@@ -133,9 +133,10 @@ bool GripperComponent::usb_connect() {
   // Disable software flow control
   options.c_iflag &= ~(IXON | IXOFF | IXANY);
 
-  // Set timeout
+  // Set timeout for 100Hz operation (10ms intervals)
   options.c_cc[VMIN] = 0;
-  options.c_cc[VTIME] = 10; // 1 second timeout
+  options.c_cc[VTIME] =
+      1; // 100ms timeout - optimized for high-frequency polling
 
   tcsetattr(usb_fd_, TCSANOW, &options);
 
@@ -199,8 +200,9 @@ bool GripperComponent::usb_read_response(std::vector<uint8_t> &response,
   response.resize(expected_size);
 
   ssize_t bytes_read = read(usb_fd_, response.data(), expected_size);
+  /*std::cout << "bytes read: " << bytes_read << std::endl;*/
   if (bytes_read <= 0) {
-    debug_print("No USB response received");
+    /*debug_print("No USB response received");*/
     return false;
   }
 
@@ -266,13 +268,23 @@ uint16_t GripperComponent::servo_read_position() {
     return 0;
   }
 
-  // Wait for response
-  std::this_thread::sleep_for(std::chrono::milliseconds(50));
-
+  // Fast polling for response instead of blocking 50ms delay
   std::vector<uint8_t> response;
+  const int max_attempts = 10;    // 10 attempts × 5ms = 50ms max timeout
+  const int poll_interval_ms = 5; // 5ms polling interval for 200Hz potential
 
-  if (!usb_read_response(response, 8)) {
-    return 0;
+  for (int attempt = 0; attempt < max_attempts; ++attempt) {
+    if (usb_read_response(response, 8)) {
+      // Successfully got response
+      break;
+    }
+    // Short sleep before next attempt
+    std::this_thread::sleep_for(std::chrono::microseconds(poll_interval_ms));
+  }
+
+  // Check if we got a valid response from polling
+  if (response.empty()) {
+    return 0; // No response received within timeout
   }
   // Parse position from response - FEETACH protocol format: FF FF 01 XX XX
   // POS_L POS_H ...
@@ -596,7 +608,8 @@ bool GripperComponent::is_position_fresh(int max_age_ms) const {
   }
 
   auto now = std::chrono::steady_clock::now();
-  auto age = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_position_update_);
+  auto age = std::chrono::duration_cast<std::chrono::milliseconds>(
+      now - last_position_update_);
 
   return age.count() <= max_age_ms;
 }
@@ -610,13 +623,14 @@ void GripperComponent::usb_servo_thread_main() {
     return;
   }
 
-  debug_print("USB thread: Started with dual-frequency mode (Read: 100Hz, Write: 10Hz)");
+  debug_print("USB thread: Started with dual-frequency mode (Read: 100Hz, "
+              "Write: 10Hz)");
 
   // Dual-frequency control loop
   // High-frequency reads for monitoring (100Hz = 10ms period)
   // Low-frequency writes for control (10Hz = 100ms period)
-  constexpr double READ_FREQUENCY = 100.0;  // Fast reads for monitoring
-  constexpr double WRITE_FREQUENCY = 10.0;  // Limited writes for control
+  constexpr double READ_FREQUENCY = 100.0; // Fast reads for monitoring
+  constexpr double WRITE_FREQUENCY = 10.0; // Limited writes for control
 
   constexpr auto READ_INTERVAL =
       std::chrono::microseconds(static_cast<int>(1000000.0 / READ_FREQUENCY));
@@ -666,8 +680,10 @@ void GripperComponent::usb_servo_thread_main() {
       std::this_thread::sleep_until(next_operation);
     } else {
       // If we're behind, reset timing
-      if (should_read) next_read_time = now;
-      if (should_write) next_write_time = now;
+      if (should_read)
+        next_read_time = now;
+      if (should_write)
+        next_write_time = now;
 
       // Only log warnings when write operations fall behind
       if (should_write) {

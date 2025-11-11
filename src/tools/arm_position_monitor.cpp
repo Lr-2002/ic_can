@@ -289,8 +289,11 @@ int main(int argc, char *argv[]) {
     auto start_time = std::chrono::steady_clock::now();
 
     // Monitoring loop - READ ONLY
+    auto small_cnt = 0;
     while (g_running) {
       // Check duration limit
+      std::cout << small_cnt << std::endl;
+      small_cnt++;
       if (duration_seconds > 0) {
         auto elapsed = std::chrono::duration<double>(
                            std::chrono::steady_clock::now() - start_time)
@@ -301,8 +304,7 @@ int main(int argc, char *argv[]) {
           break;
         }
       }
-
-      // Increment loop counter
+      /*std::cout << std::chrono::stready_clock::now() << " - ";*/
       g_profiler->increment_loop_count();
 
       // Get CAN motor positions (motors 1-8)
@@ -317,107 +319,6 @@ int main(int argc, char *argv[]) {
       double servo_openness = 0.5; // Default fallback
       bool is_moving = false;
       bool use_usb_feedback = false;
-
-      try {
-        auto &gripper = controller->get_gripper();
-
-        // READ ONLY: Use new read_servo_position() method
-        uint16_t raw_position = gripper.read_servo_position();
-        bool position_fresh = gripper.is_position_fresh(100); // 100ms max age
-
-        if (raw_position > 0) {
-          // Convert raw position (1000-2100) to openness (0.0-1.0)
-          double raw_openness =
-              static_cast<double>(raw_position - 1000) / 1100.0;
-          servo_openness = std::clamp(raw_openness, 0.0, 1.0);
-          use_usb_feedback = true;
-
-          if (first_servo_read) {
-            std::cout
-                << "📊 USB Servo: Connected - reading real positions (raw="
-                << raw_position << " -> raw_openness=" << std::fixed
-                << std::setprecision(3) << raw_openness
-                << " -> clamped_openness=" << servo_openness << ")"
-                << std::endl;
-            first_servo_read = false;
-          }
-
-          // Update servo angle continuously with freshness checking
-          static int debug_counter = 0;
-          if (++debug_counter % 10 == 0) { // Print every 10 iterations (every 2 seconds at 5Hz)
-            std::cout << "🔄 USB Servo Update: raw=" << raw_position
-                      << " -> openness=" << std::fixed << std::setprecision(3)
-                      << servo_openness
-                      << " -> angle=" << (servo_openness * 360.0) << "°"
-                      << " [fresh=" << (position_fresh ? "✅" : "❌") << "]"
-                      << std::endl;
-          }
-
-          // Warn if position data is stale
-          if (!position_fresh) {
-            static int stale_counter = 0;
-            if (++stale_counter % 50 == 0) { // Warn every 50 stale reads
-              std::cout << "⚠️  USB Servo: Position data is stale!" << std::endl;
-            }
-          }
-        } else {
-          // Use default value if read failed
-          if (first_servo_read) {
-            std::cout
-                << "⚠️  USB Servo: Read failed, falling back to CAN feedback"
-                << std::endl;
-            first_servo_read = false;
-          }
-        }
-
-        is_moving = gripper.is_moving();
-
-      } catch (const std::exception &e) {
-        // Use default values if gripper fails
-        if (first_servo_read) {
-          std::cout << "⚠️  USB Servo: Exception (" << e.what()
-                    << "), falling back to CAN feedback" << std::endl;
-          first_servo_read = false;
-        }
-      }
-
-      // Update positions array with USB servo data OR use CAN feedback
-      if (positions.size() >= 9) {
-        if (use_usb_feedback) {
-          // Convert servo position (1000-2100) to radians (0 to 2π)
-          double servo_angle_rad = servo_openness * 2.0 * M_PI;
-          positions[8] = servo_angle_rad;
-
-          if (first_can_servo_read) {
-            std::cout << "✅ Motor 9: Using USB servo feedback (" << std::fixed
-                      << std::setprecision(2) << (servo_openness * 360.0)
-                      << "°)" << std::endl;
-            first_can_servo_read = false;
-          }
-        } else {
-          // Keep CAN feedback for motor 9 (already in positions[8]) if USB
-          // fails
-          if (first_can_servo_read) {
-            std::cout << "📊 Motor 9: Using CAN feedback (" << std::fixed
-                      << std::setprecision(2) << (positions[8] * 180.0 / M_PI)
-                      << "°)" << std::endl;
-            first_can_servo_read = false;
-          }
-        }
-
-        // Calculate servo velocity estimate
-        auto current_time = std::chrono::steady_clock::now();
-        double time_diff =
-            std::chrono::duration<double>(current_time - last_servo_time)
-                .count();
-        if (time_diff > 0.001) { // Avoid division by very small numbers
-          double current_angle = positions[8];
-          double servo_velocity =
-              (current_angle - last_servo_angle) / time_diff;
-          last_servo_angle = current_angle;
-          last_servo_time = current_time;
-        }
-      }
 
       // Create velocity and torque arrays with servo data
       std::vector<double> velocities(9, 0.0);
@@ -438,7 +339,7 @@ int main(int argc, char *argv[]) {
         }
 
         // Simple torque estimate for servo
-        torques[8] = is_moving ? 0.5 : 0.0;
+        torques[8] = 0.0;
       }
 
       // Log position data every iteration
@@ -475,7 +376,6 @@ int main(int argc, char *argv[]) {
               << std::endl;
 
     return 0;
-
   } catch (const std::exception &e) {
     std::cout << "❌ EXCEPTION: " << e.what() << std::endl;
     return -1;

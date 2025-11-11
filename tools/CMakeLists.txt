@@ -142,6 +142,7 @@ set(BASIC_TOOLS
     set_motor_zero
     arm_position_monitor
     arm_position_monitor_simple
+    arm_position_monitor_with_profiler
     wrist_motor_monitor
     wrist_motor_only_monitor
     home_to_zero

@@ -203,6 +203,8 @@ endforeach()
 
 set(ADVANCED_TOOLS
     trajectory_executor
+    simple_trajectory_executor
+    ultra_simple_trajectory_executor
     friction_sweep
     friction_compensated_controller
 )

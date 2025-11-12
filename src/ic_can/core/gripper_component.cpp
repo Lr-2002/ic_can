@@ -295,7 +295,7 @@ bool GripperComponent::set_position(double position) {
   }
 
   uint16_t position_16t = static_cast<uint16_t>(
-      position * ); // todo , this is the wrong positions
+      position/ 2 / M_PI * 4096); // todo , this is the wrong positions
 
   try {
     return servo_position_control(position_16t, uint16_t(100));
@@ -312,7 +312,7 @@ bool GripperComponent::servo_position_control(uint16_t position,
                                               uint16_t velocity) {
   // Validate position range
   std::cout << "origin position is " << position ;
-  position = std::clamp(position, POSITION_MIN, POSITION_MAX);
+  // position = std::clamp(position, POSITION_MIN, POSITION_MAX);
   velocity = std::clamp(velocity, static_cast<uint16_t>(SPEED_MIN),
                         static_cast<uint16_t>(SPEED_MAX));
                                 
@@ -813,7 +813,7 @@ std::future<bool> GripperComponent::enqueue_usb_command(
 
 uint16_t GripperComponent::get_latest_position() const {
   if (!position_valid_.load()) {
-    return 0;
+    return latest_position_.load();
   }
   return latest_position_.load();
 }

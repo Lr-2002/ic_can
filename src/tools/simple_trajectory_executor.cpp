@@ -204,7 +204,7 @@ public:
         }
 
         // Default frequency for CSV files (can be adjusted)
-        frequency = 100.0; // 100 Hz default for CSV
+        frequency = 400.0; // 100 Hz default for CSV
 
         return !positions.empty();
     }

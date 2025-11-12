@@ -632,8 +632,8 @@ public:
       /*motor_kp_gains_ = {480, 120, 120, 80, 150, 30, 8, 8, 0};*/
       /*motor_kd_gains_ = {4, 2, 2, 1.8, 2.2, 1, 1.2, 1.2, 0};*/
 
-      motor_kp_gains_ = {400, 200, 200, 100, 150, 15, 80, 80, 0};
-      motor_kd_gains_ = {4, 2.5, 2.5, 1.5, 1.5, 0.8, 1, 1, 0};
+      motor_kp_gains_ = {400, 200, 200, 100, 150, 15, 5, 5 , 0};
+      motor_kd_gains_ = {4, 2.5, 2.5, 1.5, 1.5, 0.8, 0.1, 0.1, 0};
     }
 
     if (debug_enabled_) {
@@ -1077,14 +1077,19 @@ public:
       positions[i] = positions_[i].load();
     }
 
+      std::cout << " testing " << std:: endl;
     // Get USB servo position (motor 9) from gripper component
-    if (gripper_component_) {
+    if (gripper_component_) { 
+      // TODO this should use unified representation for servo ,should not use hard code to set 1000 as the init pose
       uint16_t servo_pos = gripper_component_->read_servo_position();
-      if (servo_pos >= 1000 && servo_pos <= 2100) {
-        // Convert servo position (1000-2100) to radians (0 to 2π)
-        double raw_openness = static_cast<double>(servo_pos - 1000) / 1100.0;
-        positions[8] = raw_openness * 2.0 * M_PI;
-      }
+      positions[8] = double(servo_pos / 4096.0) * 2.0 * M_PI;
+
+      std::cout << " the read position is " <<  servo_pos  << "  " << positions[8] << std:: endl;
+      // if (servo_pos >= 1000 && servo_pos <= 2100) {
+      //   // Convert servo position (1000-2100) to radians (0 to 2π)
+      //   double raw_openness = static_cast<double>(servo_pos - 1000) / 1100.0;
+      //   positions[8] = raw_openness * 2.0 * M_PI;
+      // }
     }
 
     return positions;
@@ -1234,7 +1239,11 @@ public:
                              .count()
                       << std::endl;
           }
-          gripper_component_->set_position(pos);
+          servo_send_count_ ++ ; 
+          if ( servo_send_count_ % 100 == 0) {
+
+            gripper_component_->set_position(pos);
+          }
           /*send_servo_command(i + 1, pos, vel, tau);*/
         } else {
           /*std::cout*/

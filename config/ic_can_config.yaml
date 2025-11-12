@@ -23,7 +23,7 @@ system:
 # ===================================
 debug:
   debug_level: "INFO"                                # DEBUG, INFO, WARN, ERROR
-  can_debug: false                                   # Enable CAN frame debugging
+  can_debug: true                                   # Enable CAN frame debugging
   motor_debug: false                                  # Enable motor-specific debugging
   system_debug: true                                  # Enable system-level debugging
   communication_debug: false                         # Enable communication debugging
@@ -35,7 +35,7 @@ debug:
 logging:
   # CAN bus logging
   can_logger:
-    enabled: false
+    enabled: true
     directory: "./logs"
     format: "csv"                                     # csv, json, human_readable
     frequency: 100.0                                  # Logging frequency in Hz

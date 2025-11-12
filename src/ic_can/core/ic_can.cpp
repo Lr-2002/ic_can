@@ -588,8 +588,17 @@ public:
     }
   }
 
+  // Helper function to check if backend is available
+  bool is_backend_available() const {
+    if (using_factory_backend_) {
+      return (communication_adapter_ != nullptr);
+    } else {
+      return (device_ != nullptr);
+    }
+  }
+
   void shutdown() {
-    if (connected_ && device_) {
+    if (connected_ && is_backend_available()) {
       stop_high_frequency_control();
       stop_control_loop();
       stop_unified_control(); // Stop unified control thread
@@ -912,10 +921,18 @@ public:
     for (int motor_id = 1; motor_id <= 9; motor_id++) {
       if (motor_id == 9) {
         // Servo motor 9: use servo-specific enable command
-        send_servo_enable(motor_id);
+        // send_servo_enable(motor_id);
+        gripper_component_->read_servo_position();
         std::cout << "   ✅ Servo Motor " << motor_id << " enabled"
                   << std::endl;
-      } else {
+      } else if(motor_id >=7 ) 
+      {
+        send_ht_read_state();
+
+
+      }
+      
+      else {
         // DM motors 1-8: use DM enable command
         send_can_frame(motor_id, enable_cmd,
                        false); // Standard frame for DM motors
@@ -1016,7 +1033,7 @@ public:
   }
 
   bool refresh_all() {
-    if (!connected_ || !device_) {
+    if (!connected_ || !is_backend_available()) {
       std::cout << "❌ Cannot refresh - not connected" << std::endl;
       return false;
     }
@@ -1026,25 +1043,19 @@ public:
 
     try {
       // Refresh Damiao motors 1-6 with individual status requests
-      /*for (int motor_id = 1; motor_id <= 6; motor_id++) {*/
-      /*  std::vector<uint8_t> status_cmd = {uint8_t(motor_id), 0x00, 0xCC,
-       * 0x00};*/
-      /*  send_can_frame(motor_id, status_cmd,*/
-      /*                 false); // Standard frame for Damiao*/
-      /*  if (debug_enabled_) {*/
-      /*    std::cout << "📤 Sent status request to DM motor " << motor_id*/
-      /*              << std::endl;*/
-      /*  }*/
-      /*  *usleep(500); // Small delay between requests*/
-      /*}*/
+      for (int motor_id = 1; motor_id <= 6; motor_id++) {
+        std::vector<uint8_t> status_cmd = {uint8_t(motor_id), 0x00, 0xCC, 0x00};
+        send_can_frame(motor_id, status_cmd, false); // Standard frame for Damiao
+        if (debug_enabled_) {
+          std::cout << "📤 Sent status request to DM motor " << motor_id << std::endl;
+        }
+        usleep(500); // Small delay between requests
+      }
 
       // Refresh HT motors 7-8 with their specific protocol
       send_ht_read_state();
 
-      // Refresh servo motor 9
-      std::vector<uint8_t> servo_status_cmd = {0x09, 0x00, 0xCC, 0x00};
-      send_can_frame(9, servo_status_cmd, false); // Standard frame for servo
-
+      gripper_component_->servo_read_position();
       if (debug_enabled_) {
         std::cout << "📤 Sent status request to servo motor 9" << std::endl;
       }
@@ -1317,7 +1328,7 @@ public:
       return true;
     }
 
-    if (!connected_ || !device_) {
+    if (!connected_ || !is_backend_available()) {
       std::cout << "❌ Cannot start control loop - not connected" << std::endl;
       return false;
     }
@@ -1491,12 +1502,13 @@ public:
   // Configurable control loop implementation with offline trajectory
   // generation
   bool start_control_loop(double frequency) {
+    std:: cout  << "  running ? "<<  control_running_ << " connected? " <<  connected_ << std:: endl;
     if (control_running_) {
       std::cout << "⚠️ Control loop already running" << std::endl;
       return true;
     }
 
-    if (!connected_ || !device_) {
+    if (!connected_ || !is_backend_available()) {
       std::cout << "❌ Cannot start control loop - not connected" << std::endl;
       return false;
     }
@@ -1672,7 +1684,7 @@ public:
       return true;
     }
 
-    if (!connected_ || !device_) {
+    if (!connected_ || !is_backend_available()) {
       std::cout << "❌ Cannot start unified control - not connected"
                 << std::endl;
       return false;
@@ -2107,7 +2119,7 @@ private:
 
   // Safety check method
   bool check_system_safety() {
-    if (!connected_ || !device_) {
+    if (!connected_ || !is_backend_available()) {
       std::cout << "❌ Safety check failed: Not connected" << std::endl;
       return false;
     }
@@ -2147,7 +2159,7 @@ private:
       return true;
     }
 
-    if (!connected_ || !device_) {
+    if (!connected_ || !is_backend_available()) {
       std::cout << "❌ Cannot start wrist monitoring - not connected"
                 << std::endl;
       return false;
@@ -2247,7 +2259,7 @@ private:
   }
 
   bool refresh_wrist_motors_only() {
-    if (!connected_ || !device_) {
+    if (!connected_ || !is_backend_available()) {
       return false;
     }
 
@@ -4658,9 +4670,27 @@ void IC_CAN::Impl::performance_monitor_thread_function() {
 
 // IC_CAN class implementation
 IC_CAN::IC_CAN(const std::string &device_sn, bool debug) {
-  // Create a ZLG-preferring CommunicationConfig by default
+  // Create a CommunicationConfig with backend override support
   CommunicationConfig config;
-  config.preferred_backend = "zlg"; // Default to ZLG CAN FD
+
+  // Check for environment variable override
+  const char* backend_override = std::getenv("IC_CAN_BACKEND");
+  if (backend_override != nullptr) {
+    std::string backend(backend_override);
+    std::transform(backend.begin(), backend.end(), backend.begin(), ::tolower);
+
+    if (backend == "zlg" || backend == "dm_tools" || backend == "simulation" || backend == "auto") {
+      config.preferred_backend = backend;
+      std::cout << "🔧 Using backend override: " << backend << std::endl;
+    } else {
+      std::cout << "⚠️  Invalid backend override: " << backend
+                << " (valid: zlg, dm_tools, simulation, auto)" << std::endl;
+      config.preferred_backend = "zlg"; // Default to ZLG CAN FD
+    }
+  } else {
+    config.preferred_backend = "zlg"; // Default to ZLG CAN FD
+  }
+
   config.fallback_backends = {"dm_tools", "simulation", "auto"};
   config.device_serial = device_sn;      // Use provided serial for ZLG as well
   config.preferred_channel = 0;          // Auto-detect channel

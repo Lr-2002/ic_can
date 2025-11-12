@@ -4,15 +4,10 @@
             "name": "Linux",
             "includePath": [
                 "${workspaceFolder}/include",
-                "${workspaceFolder}/include/ic_can",
-                "${workspaceFolder}/include/ic_can/core",
-                "${workspaceFolder}/include/ic_can/motors",
                 "${workspaceFolder}/lib/dm-tools/C++/ubuntu/include",
                 "${workspaceFolder}/lib/regressor/lib/regressorWithMotorDynamics",
                 "${workspaceFolder}/lib/regressor/lib/frictionRegressor",
                 "${workspaceFolder}/lib/zlg_canfd",
-                "${workspaceFolder}/build/include",
-                "${workspaceFolder}/build/nlohmann_json",
                 "/opt/openrobots/include",
                 "/opt/openrobots/lib/pkgconfig/../../include",
                 "/usr/include/eigen3"
@@ -28,15 +23,7 @@
             "cppStandard": "c++17",
             "intelliSenseMode": "linux-gcc-x64",
             "compileCommands": "${workspaceFolder}/build/compile_commands.json",
-            "configurationProvider": "ms-vscode.cmake-tools",
-            "browse": {
-                "path": [
-                    "${workspaceFolder}/include",
-                    "${workspaceFolder}/src",
-                    "${workspaceFolder}/lib"
-                ],
-                "limitSymbolsToIncludedHeaders": true
-            }
+            "configurationProvider": "ms-vscode.cmake-tools"
         }
     ],
     "version": 4

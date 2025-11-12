@@ -32,6 +32,7 @@
 #include <ic_can/core/ic_can.hpp>
 #include <iomanip>
 #include <iostream>
+#include <mutex>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -388,11 +389,68 @@ private:
 };
 
 static volatile bool g_running = true;
+static std::mutex g_trajectory_mutex; // Mutex for thread-safe operations
 
 void signal_handler(int signal) {
   std::cout << "\n⚠️  Received signal " << signal << ", stopping trajectory..."
             << std::endl;
   g_running = false;
+}
+
+// Enhanced connection validation with retry mechanism
+bool validate_controller_connection(ic_can::IC_CAN* controller, int max_retries = 3) {
+  if (!controller) {
+    std::cout << "❌ ERROR: Controller pointer is null" << std::endl;
+    return false;
+  }
+
+  for (int attempt = 1; attempt <= max_retries; ++attempt) {
+    std::cout << "🔍 Validating controller connection (attempt " << attempt
+              << "/" << max_retries << ")..." << std::endl;
+
+    try {
+      // Test basic connectivity by refreshing motor states
+      controller->refresh_all();
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+      // Check if we can read positions
+      auto test_positions = controller->get_joint_positions();
+
+      if (test_positions.size() >= 9) {
+        std::cout << "✅ Controller connection validated successfully" << std::endl;
+        return true;
+      } else {
+        std::cout << "⚠️  WARNING: Got insufficient position data ("
+                  << test_positions.size() << " values, expected 9)" << std::endl;
+      }
+
+    } catch (const std::exception& e) {
+      std::cout << "❌ Connection test failed: " << e.what() << std::endl;
+    }
+
+    if (attempt < max_retries) {
+      std::cout << "🔄 Retrying in 1 second..." << std::endl;
+      std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+  }
+
+  std::cout << "❌ ERROR: Failed to validate controller connection after "
+            << max_retries << " attempts" << std::endl;
+  return false;
+}
+
+// Safe vector access helper with bounds checking
+double safe_vector_access(const std::vector<double>& vec, size_t index, double default_value = 0.0) {
+  std::lock_guard<std::mutex> lock(g_trajectory_mutex);
+  return (index < vec.size()) ? vec[index] : default_value;
+}
+
+// Safe vector resize with validation
+void safe_vector_resize(std::vector<double>& vec, size_t target_size, double fill_value = 0.0) {
+  std::lock_guard<std::mutex> lock(g_trajectory_mutex);
+  if (vec.size() != target_size) {
+    vec.resize(target_size, fill_value);
+  }
 }
 
 // Custom exception handler to catch memory issues
@@ -909,38 +967,114 @@ int main(int argc, char *argv[]) {
       std::cout << "   Estimated duration: " << std::fixed << std::setprecision(2)
                 << initial_move_duration << " seconds" << std::endl;
 
+      // Validate controller connection before starting control loop
+      if (!validate_controller_connection(controller.get())) {
+        std::cout << "❌ CRITICAL: Cannot proceed with initial movement - controller not connected" << std::endl;
+        controller->disable_all();
+        return -1;
+      }
+
       // Use the same interpolation method as real-time execution
       double initial_frequency = 200.0; // 200Hz for initial move
       int initial_move_steps = static_cast<int>(initial_move_duration * initial_frequency);
       double dt = 1.0 / initial_frequency;
 
       TRAJ_DEBUG_PRINT("Creating interpolation vectors");
-      std::vector<double> current_positions = initial_positions;
-      std::vector<double> target_positions = trajectory.positions[0];
-      std::vector<double> interpolated_positions(9, 0.0);
-      TRAJ_DEBUG_PRINT("Created vectors - current size: " + std::to_string(current_positions.size()) +
-                 ", target size: " + std::to_string(target_positions.size()) +
-                 ", interpolated size: " + std::to_string(interpolated_positions.size()));
 
-      controller->start_control_loop(initial_frequency);
+      try {
+        // Safe vector creation with proper initialization
+        std::vector<double> current_positions;
+        std::vector<double> target_positions;
+        std::vector<double> interpolated_positions(9, 0.0);
 
-      for (int step = 0; step < initial_move_steps && g_running; ++step) {
-        // Interpolate positions using the same function as real-time execution
-        interpolate_positions(current_positions, target_positions, interpolated_positions,
-                            dt, initial_move_velocity);
+        // Initialize current_positions with safe copying
+        current_positions.reserve(9);
+        for (int i = 0; i < 9; ++i) {
+          current_positions.push_back(safe_vector_access(initial_positions, i, 0.0));
+        }
 
-        // Send interpolated positions
-        controller->set_joint_positions(interpolated_positions, {}, {});
+        // Initialize target_positions with safe copying from trajectory
+        if (!trajectory.positions.empty() && trajectory.positions[0].size() >= 9) {
+          target_positions.reserve(9);
+          for (int i = 0; i < 9; ++i) {
+            target_positions.push_back(trajectory.positions[0][i]);
+          }
+        } else {
+          std::cout << "❌ ERROR: Invalid trajectory data for initial movement" << std::endl;
+          controller->disable_all();
+          return -1;
+        }
 
-        // Update current positions for next iteration
-        current_positions = interpolated_positions;
+        // Ensure all vectors have the correct size
+        safe_vector_resize(current_positions, 9, 0.0);
+        safe_vector_resize(target_positions, 9, 0.0);
+        safe_vector_resize(interpolated_positions, 9, 0.0);
 
-        // Sleep to maintain frequency
-        std::this_thread::sleep_for(std::chrono::microseconds(static_cast<int64_t>(dt * 1000000)));
+        TRAJ_DEBUG_PRINT("Created vectors - current size: " + std::to_string(current_positions.size()) +
+                   ", target size: " + std::to_string(target_positions.size()) +
+                   ", interpolated size: " + std::to_string(interpolated_positions.size()));
+
+        // Start control loop with error handling
+        std::cout << "🔧 Starting control loop for initial movement..." << std::endl;
+        if (!controller->start_control_loop(initial_frequency)) {
+          std::cout << "❌ CRITICAL: Failed to start control loop for initial movement" << std::endl;
+          controller->disable_all();
+          return -1;
+        }
+
+        std::cout << "✅ Control loop started successfully" << std::endl;
+
+        for (int step = 0; step < initial_move_steps && g_running; ++step) {
+          // Interpolate positions using the same function as real-time execution
+          interpolate_positions(current_positions, target_positions, interpolated_positions,
+                              dt, initial_move_velocity);
+
+          // Send interpolated positions with error handling
+          try {
+            controller->set_joint_positions(interpolated_positions, {}, {});
+          } catch (const std::exception& e) {
+            std::cout << "❌ ERROR: Failed to send joint positions: " << e.what() << std::endl;
+            controller->stop_control_loop();
+            controller->disable_all();
+            return -1;
+          }
+
+          // Update current positions for next iteration (safe copy)
+          for (int i = 0; i < 9; ++i) {
+            current_positions[i] = interpolated_positions[i];
+          }
+
+          // Sleep to maintain frequency
+          std::this_thread::sleep_for(std::chrono::microseconds(static_cast<int64_t>(dt * 1000000)));
+        }
+
+        // Stop control loop safely
+        try {
+          controller->stop_control_loop();
+          std::cout << "✅ Moved to starting position" << std::endl;
+        } catch (const std::exception& e) {
+          std::cout << "⚠️  WARNING: Error stopping control loop: " << e.what() << std::endl;
+        }
+
+      } catch (const std::exception& e) {
+        std::cout << "❌ CRITICAL ERROR during initial movement: " << e.what() << std::endl;
+        try {
+          controller->stop_control_loop();
+        } catch (...) {
+          // Ignore cleanup errors
+        }
+        controller->disable_all();
+        return -1;
+      } catch (...) {
+        std::cout << "❌ UNKNOWN CRITICAL ERROR during initial movement" << std::endl;
+        try {
+          controller->stop_control_loop();
+        } catch (...) {
+          // Ignore cleanup errors
+        }
+        controller->disable_all();
+        return -1;
       }
-
-      controller->stop_control_loop();
-      std::cout << "✅ Moved to starting position" << std::endl;
     }
 
     // Ask for confirmation
@@ -961,6 +1095,15 @@ int main(int argc, char *argv[]) {
 
     std::cout << "\n🚀 Executing trajectory..." << std::endl;
     std::cout << "Press Ctrl+C to stop early" << std::endl;
+
+    // Final connection validation before starting main trajectory execution
+    std::cout << "🔍 Final connection validation before trajectory execution..." << std::endl;
+    if (!validate_controller_connection(controller.get(), 2)) {
+      std::cout << "❌ CRITICAL: Controller connection failed before trajectory execution" << std::endl;
+      controller->disable_all();
+      return -1;
+    }
+    std::cout << "✅ Final validation passed - starting trajectory execution" << std::endl;
 
     // Execute trajectory
     auto start_time = std::chrono::high_resolution_clock::now();
@@ -1015,133 +1158,196 @@ int main(int argc, char *argv[]) {
     while (g_running && current_point < trajectory.total_points) {
       auto loop_start = std::chrono::high_resolution_clock::now();
 
-      // Simplified position jump detection (performance optimized)
-      static std::vector<double> last_positions(9, 0.0);
-      static bool first_iteration = true;
-      static auto last_position_read = std::chrono::steady_clock::now();
+      try {
+        // Thread-safe position jump detection (performance optimized)
+        static std::vector<double> last_positions(9, 0.0);
+        static bool first_iteration = true;
+        static auto last_position_read = std::chrono::steady_clock::now();
 
-      // Cache motor positions to reduce USB reads (only read every 10 iterations)
-      static std::vector<double> cached_motor_positions(9, 0.0);
-      static bool positions_cached = false;
-      const int position_cache_interval = 10;
+        // Thread-safe cache motor positions to reduce USB reads (only read every 10 iterations)
+        static std::vector<double> cached_motor_positions(9, 0.0);
+        static bool positions_cached = false;
+        const int position_cache_interval = 10;
 
-      if (current_point % position_cache_interval == 0 || !positions_cached) {
-        auto temp_positions = controller->get_joint_positions();
-        // Safe copy with proper size checking
-        if (temp_positions.size() >= 9) {
-          std::copy(temp_positions.begin(), temp_positions.begin() + 9,
-                   cached_motor_positions.begin());
+        // Use mutex to protect static variables
+        {
+          std::lock_guard<std::mutex> lock(g_trajectory_mutex);
+
+          if (current_point % position_cache_interval == 0 || !positions_cached) {
+            auto temp_positions = controller->get_joint_positions();
+            // Safe copy with proper size checking
+            if (temp_positions.size() >= 9) {
+              std::copy(temp_positions.begin(), temp_positions.begin() + 9,
+                       cached_motor_positions.begin());
+            } else {
+              // Fallback if returned vector is too small
+              for (size_t i = 0; i < 9; ++i) {
+                cached_motor_positions[i] = (i < temp_positions.size()) ? temp_positions[i] : 0.0;
+              }
+            }
+            positions_cached = true;
+            last_position_read = std::chrono::steady_clock::now();
+          }
+
+          double max_position_change = 0.0;
+
+          // Quick trajectory change detection only (no USB calls)
+          for (int i = 0; i < 9; i++) {
+            double trajectory_change = std::abs(
+                safe_vector_access(trajectory.positions[current_point], i, 0.0) -
+                safe_vector_access(last_positions, i, 0.0));
+            if (trajectory_change > max_position_change) {
+              max_position_change = trajectory_change;
+            }
+          }
+
+          // Initialize last_positions on first iteration
+          if (first_iteration) {
+            if (current_point < trajectory.positions.size() && trajectory.positions[current_point].size() >= 9) {
+              std::copy(trajectory.positions[current_point].begin(),
+                       trajectory.positions[current_point].begin() + 9,
+                       last_positions.begin());
+            }
+            first_iteration = false;
+          }
+        } // Mutex lock released here
+
+        // Apply position with real-time interpolation if enabled
+        std::vector<double> target_positions_safe;
+        if (current_point < trajectory.positions.size() && trajectory.positions[current_point].size() >= 9) {
+          target_positions_safe = trajectory.positions[current_point];
         } else {
-          // Fallback if returned vector is too small
-          for (size_t i = 0; i < 9; ++i) {
-            cached_motor_positions[i] = (i < temp_positions.size()) ? temp_positions[i] : 0.0;
+          // Safe fallback
+          target_positions_safe.resize(9, 0.0);
+          if (current_point < trajectory.positions.size()) {
+            for (size_t i = 0; i < std::min(trajectory.positions[current_point].size(), size_t(9)); ++i) {
+              target_positions_safe[i] = trajectory.positions[current_point][i];
+            }
           }
         }
-        positions_cached = true;
-        last_position_read = std::chrono::steady_clock::now();
-      }
 
-      double max_position_change = 0.0;
+        std::vector<double> actual_positions;
 
-      // Quick trajectory change detection only (no USB calls)
-      for (int i = 0; i < 9; i++) {
-        double trajectory_change = std::abs(
-            trajectory.positions[current_point][i] - last_positions[i]);
-        if (trajectory_change > max_position_change) {
-          max_position_change = trajectory_change;
+        if (enable_interpolation) {
+          // Calculate time step
+          double dt = 1.0 / trajectory.frequency;
+
+          // Interpolate between cached current and target positions (no USB call)
+          actual_positions = target_positions_safe; // Start with target positions
+
+          // Use thread-safe access to cached positions
+          std::vector<double> cached_copy(9, 0.0);
+          {
+            std::lock_guard<std::mutex> lock(g_trajectory_mutex);
+            std::copy(cached_motor_positions.begin(), cached_motor_positions.end(),
+                     cached_copy.begin());
+          }
+
+          interpolate_positions(cached_copy, target_positions_safe, actual_positions, dt, max_velocity);
+        } else {
+          // Use raw target positions (original behavior)
+          actual_positions = target_positions_safe;
         }
-      }
 
-      // Initialize last_positions on first iteration
-      if (first_iteration) {
-        last_positions = trajectory.positions[current_point];
-        first_iteration = false;
-      }
+        // Measure set_joint_positions timing (declare outside blocks for scope)
+        auto cmd_start = std::chrono::high_resolution_clock::now();
 
-      // Apply position with real-time interpolation if enabled
-      const auto &target_positions = trajectory.positions[current_point];
-      std::vector<double> actual_positions;
+        // Handle servo 100x control if enabled
+        if (enable_servo_100x) {
+          // Initialize servo positions on first iteration
+          if (!servo_initialized) {
+            servo_target_position = actual_positions;
+            servo_current_position = actual_positions;
+            servo_initialized = true;
+          }
 
-      if (enable_interpolation) {
-        // Calculate time step
-        double dt = 1.0 / trajectory.frequency;
-
-        // Interpolate between cached current and target positions (no USB call)
-        actual_positions = target_positions; // Start with target positions
-        interpolate_positions(
-            cached_motor_positions, target_positions, actual_positions, dt, max_velocity);
-      } else {
-        // Use raw target positions (original behavior)
-        actual_positions = target_positions;
-      }
-
-      // Measure set_joint_positions timing (declare outside blocks for scope)
-      auto cmd_start = std::chrono::high_resolution_clock::now();
-
-      // Handle servo 100x control if enabled
-      if (enable_servo_100x) {
-        // Initialize servo positions on first iteration
-        if (!servo_initialized) {
+          // Update target position for servo interpolation
           servo_target_position = actual_positions;
-          servo_current_position = actual_positions;
-          servo_initialized = true;
+
+          // Interpolate servo position (servo is motor 9, index 8)
+          double servo_interpolation_factor = 1.0 / servo_ratio;
+          double servo_step =
+              (servo_target_position[8] - servo_current_position[8]) *
+              servo_interpolation_factor;
+          servo_current_position[8] += servo_step;
+
+          // Create position vector: normal positions for motors 1-8, interpolated
+          // for motor 9
+          std::vector<double> servo_control_positions = actual_positions;
+          servo_control_positions[8] =
+              servo_current_position[8]; // Use interpolated servo position
+
+          // Send interpolated positions to motors with error handling
+          try {
+            controller->set_joint_positions(servo_control_positions, {}, {});
+          } catch (const std::exception& e) {
+            std::cout << "❌ ERROR: Failed to send servo positions: " << e.what() << std::endl;
+            // Don't abort entire trajectory for servo errors, just log them
+          }
+
+          // Increment servo counter
+          servo_control_counter++;
+
+          // Send actual servo command every 100 iterations
+          if (servo_control_counter >= servo_ratio) {
+            // Send direct servo command to ensure final position is reached
+            try {
+              controller->set_joint_positions(servo_target_position, {}, {});
+            } catch (const std::exception& e) {
+              std::cout << "❌ ERROR: Failed to send final servo command: " << e.what() << std::endl;
+            }
+
+            // Reset counter and update current position
+            servo_control_counter = 0;
+            servo_current_position[8] = servo_target_position[8];
+            last_servo_command_time = std::chrono::high_resolution_clock::now();
+          }
+
+          // Count motor 1 commands (each set_joint_positions sends to all motors
+          // including motor 1)
+          motor1_command_count++;
+          commands_in_last_second++;
+
+        } else {
+          // Standard control (original behavior)
+          try {
+            controller->set_joint_positions(actual_positions, {}, {});
+          } catch (const std::exception& e) {
+            std::cout << "❌ ERROR: Failed to send joint positions: " << e.what() << std::endl;
+            // Don't abort entire trajectory for individual command errors
+          }
+
+          // Count motor 1 commands (each set_joint_positions sends to all motors
+          // including motor 1)
+          motor1_command_count++;
+          commands_in_last_second++;
         }
 
-        // Update target position for servo interpolation
-        servo_target_position = actual_positions;
+        auto cmd_end = std::chrono::high_resolution_clock::now();
 
-        // Interpolate servo position (servo is motor 9, index 8)
-        double servo_interpolation_factor = 1.0 / servo_ratio;
-        double servo_step =
-            (servo_target_position[8] - servo_current_position[8]) *
-            servo_interpolation_factor;
-        servo_current_position[8] += servo_step;
+        current_point++;
 
-        // Create position vector: normal positions for motors 1-8, interpolated
-        // for motor 9
-        std::vector<double> servo_control_positions = actual_positions;
-        servo_control_positions[8] =
-            servo_current_position[8]; // Use interpolated servo position
+        // Update last_positions for next iteration's delta calculations (thread-safe)
+        {
+          std::lock_guard<std::mutex> lock(g_trajectory_mutex);
+          if (current_point < trajectory.total_points && current_point > 0) {
+            size_t prev_point = current_point - 1;
+            if (prev_point < trajectory.positions.size() && trajectory.positions[prev_point].size() >= 9) {
+              std::copy(trajectory.positions[prev_point].begin(),
+                       trajectory.positions[prev_point].begin() + 9,
+                       last_positions.begin());
+            }
+          }
+        } // Mutex lock released
 
-        // Send interpolated positions to motors
-        controller->set_joint_positions(servo_control_positions, {}, {});
-
-        // Increment servo counter
-        servo_control_counter++;
-
-        // Send actual servo command every 100 iterations
-        if (servo_control_counter >= servo_ratio) {
-          // Send direct servo command to ensure final position is reached
-          controller->set_joint_positions(servo_target_position, {}, {});
-
-          // Reset counter and update current position
-          servo_control_counter = 0;
-          servo_current_position[8] = servo_target_position[8];
-          last_servo_command_time = std::chrono::high_resolution_clock::now();
-        }
-
-        // Count motor 1 commands (each set_joint_positions sends to all motors
-        // including motor 1)
-        motor1_command_count++;
-        commands_in_last_second++;
-
-      } else {
-        // Standard control (original behavior)
-        controller->set_joint_positions(actual_positions, {}, {});
-
-        // Count motor 1 commands (each set_joint_positions sends to all motors
-        // including motor 1)
-        motor1_command_count++;
-        commands_in_last_second++;
-      }
-
-      auto cmd_end = std::chrono::high_resolution_clock::now();
-
-      current_point++;
-
-      // Update last_positions for next iteration's delta calculations
-      if (current_point < trajectory.total_points) {
-        last_positions = trajectory.positions[current_point - 1];
+      } catch (const std::exception& e) {
+        std::cout << "❌ ERROR in trajectory execution loop: " << e.what() << std::endl;
+        std::cout << "   Attempting to continue execution..." << std::endl;
+        current_point++; // Skip this point and continue
+      } catch (...) {
+        std::cout << "❌ UNKNOWN ERROR in trajectory execution loop" << std::endl;
+        std::cout << "   Attempting to continue execution..." << std::endl;
+        current_point++; // Skip this point and continue
       }
 
       // Lightweight profiling every 2 seconds (reduced from 1 second)

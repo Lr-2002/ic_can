@@ -15,6 +15,7 @@
 #include "ic_can/core/gripper_component.hpp"
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <iomanip>
 #include <iostream>
@@ -104,8 +105,11 @@ bool GripperComponent::process_can_frame(const CANFrame &frame) {
 
 // USB Communication Helper Methods
 bool GripperComponent::usb_connect() {
+  std::lock_guard<std::mutex> lock(usb_mutex_);
+
   if (usb_fd_ >= 0) {
     ::close(usb_fd_);
+    usb_fd_ = -1;
   }
 
   usb_fd_ = ::open(usb_port_.c_str(), O_RDWR | O_NOCTTY | O_NDELAY);
@@ -152,6 +156,8 @@ bool GripperComponent::usb_connect() {
 }
 
 bool GripperComponent::usb_disconnect() {
+  std::lock_guard<std::mutex> lock(usb_mutex_);
+
   if (usb_fd_ >= 0) {
     ::close(usb_fd_);
     usb_fd_ = -1;
@@ -164,39 +170,45 @@ bool GripperComponent::usb_send_command(const std::vector<uint8_t> &command) {
   auto function_start = std::chrono::high_resolution_clock::now();
   g_usb_send_count++;
 
-  if (usb_fd_ < 0) {
-    debug_print("USB not connected");
-    g_usb_send_fail_count++;
-    return false;
-  }
+  // Thread-safe USB connection check
+  {
+    std::lock_guard<std::mutex> lock(usb_mutex_);
+    if (usb_fd_ < 0) {
+      debug_print("USB not connected");
+      g_usb_send_fail_count++;
+      return false;
+    }
 
-  // Calculate checksum using correct formula: (SUM(data) & 0xFF) ^ 0xFF
-  uint32_t sum = 0;
-  for (size_t i = 2; i < command.size(); ++i) {
-    sum += command[i];
-  }
-  uint8_t checksum = (sum & 0xFF) ^ 0xFF;
+    // Calculate checksum using correct formula: (SUM(data) & 0xFF) ^ 0xFF
+    uint32_t sum = 0;
+    for (size_t i = 2; i < command.size(); ++i) {
+      sum += command[i];
+    }
+    uint8_t checksum = (sum & 0xFF) ^ 0xFF;
 
-  // Create full command with checksum
-  std::vector<uint8_t> full_command = command;
-  full_command.push_back(checksum);
+    // Create full command with checksum (avoid unsafe vector operations)
+    std::vector<uint8_t> full_command;
+    full_command.reserve(command.size() + 1);
+    full_command.insert(full_command.end(), command.begin(), command.end());
+    full_command.push_back(checksum);
 
-  // Profile the write operation
-  auto write_start = std::chrono::high_resolution_clock::now();
-  ssize_t bytes_written =
-      write(usb_fd_, full_command.data(), full_command.size());
-  auto write_end = std::chrono::high_resolution_clock::now();
+    // Profile the write operation
+    auto write_start = std::chrono::high_resolution_clock::now();
+    ssize_t bytes_written =
+        write(usb_fd_, full_command.data(), full_command.size());
+    auto write_end = std::chrono::high_resolution_clock::now();
 
-  double write_time_us = std::chrono::duration_cast<std::chrono::microseconds>(
-                             write_end - write_start)
-                             .count();
-  g_usb_send_write_time_us += write_time_us;
+    double write_time_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                               write_end - write_start)
+                               .count();
+    g_usb_send_write_time_us += write_time_us;
 
-  if (bytes_written != static_cast<ssize_t>(full_command.size())) {
-    debug_print("Failed to send USB command");
-    g_usb_send_fail_count++;
-    return false;
-  }
+    if (bytes_written != static_cast<ssize_t>(full_command.size())) {
+      debug_print("Failed to send USB command");
+      g_usb_send_fail_count++;
+      return false;
+    }
+  } // Mutex lock released here
 
   // Log command
   /*std::stringstream ss;*/
@@ -231,6 +243,8 @@ bool GripperComponent::usb_send_command(const std::vector<uint8_t> &command) {
 
 bool GripperComponent::usb_read_response(std::vector<uint8_t> &response,
                                          size_t expected_size) {
+  std::lock_guard<std::mutex> lock(usb_mutex_);
+
   if (usb_fd_ < 0) {
     return false;
   }
@@ -259,19 +273,50 @@ bool GripperComponent::servo_disable_torque() {
   std::vector<uint8_t> command = {0xFF, 0xFF, 0x01, 0x04, 0x03, 0x28, 0x00};
   return usb_send_command(command);
 }
+bool GripperComponent::is_usb_connected() const {
+  std::lock_guard<std::mutex> lock(usb_mutex_);
+  return usb_fd_ >= 0;
+}
+
 bool GripperComponent::set_position(double position) {
+  // Validate input
+  if (std::isnan(position) || std::isinf(position)) {
+    debug_print("Invalid position value: NaN or Inf");
+    return false;
+  }
+
+  // Check USB connection before proceeding
+  if (!is_usb_connected()) {
+    debug_print("USB not connected, attempting to connect...");
+    if (!usb_connect()) {
+      debug_print("Failed to connect USB for position control");
+      return false;
+    }
+  }
+
   uint16_t position_16t = static_cast<uint16_t>(
-      position * 1000); // todo , this is the wrong positions
-  return servo_position_control(position_16t, uint16_t(100));
+      position * ); // todo , this is the wrong positions
+
+  try {
+    return servo_position_control(position_16t, uint16_t(100));
+  } catch (const std::exception& e) {
+    debug_print("Exception in servo_position_control: " + std::string(e.what()));
+    return false;
+  } catch (...) {
+    debug_print("Unknown exception in servo_position_control");
+    return false;
+  }
 }
 
 bool GripperComponent::servo_position_control(uint16_t position,
                                               uint16_t velocity) {
   // Validate position range
+  std::cout << "origin position is " << position ;
   position = std::clamp(position, POSITION_MIN, POSITION_MAX);
   velocity = std::clamp(velocity, static_cast<uint16_t>(SPEED_MIN),
                         static_cast<uint16_t>(SPEED_MAX));
-
+                                
+  std::cout << "set position for servo " << position << "   " << (position & 0xFF) <<  " " << ((position>>8) & 0xFF) << std::endl;
   std::vector<uint8_t> command = {
       0xFF,
       0xFF,
@@ -287,7 +332,7 @@ bool GripperComponent::servo_position_control(uint16_t position,
       static_cast<uint8_t>((velocity >> 8) & 0xFF) // Velocity high byte
   };
 
-  usb_send_command(command);
+  return usb_send_command(command);
 }
 
 uint16_t GripperComponent::servo_read_position() {
@@ -309,6 +354,7 @@ uint16_t GripperComponent::servo_read_position() {
       response[2] == 0x01) {
     uint16_t position = static_cast<uint16_t>(response[5] | (response[6] << 8));
     if (position >= 1000 && position <= 2100) {
+      std::cout << " the read position is " << position << std::endl;
       return position;
     }
   }

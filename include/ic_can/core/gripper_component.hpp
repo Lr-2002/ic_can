@@ -69,6 +69,12 @@ public:
    */
   uint16_t servo_read_position();
 
+  /**
+   * @brief Check if USB is connected
+   * @return True if USB is connected and ready
+   */
+  bool is_usb_connected() const;
+
   // ========== 夹爪控制接口 ==========
 
   /**
@@ -243,6 +249,7 @@ private:
   // USB Communication
   int usb_fd_;           // USB file descriptor
   std::string usb_port_; // USB port path
+  mutable std::mutex usb_mutex_; // Mutex for USB operations (mutable for const methods)
 
   // ========== USB Servo Threading ==========
 

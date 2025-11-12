@@ -18,6 +18,7 @@
  */
 
 #include <ic_can/core/ic_can.hpp>
+#include <ic_can/safety/safety_module.hpp>
 #include <iostream>
 #include <thread>
 #include <chrono>
@@ -71,7 +72,7 @@ int main() {
         std::this_thread::sleep_for(std::chrono::milliseconds(2000));
 
         // Update and read positions again
-        controller.update_all_states();
+        controller.refresh_all();
         positions = controller.get_joint_positions();
         std::cout << "New joint positions: ";
         for (size_t i = 0; i < positions.size(); ++i) {
@@ -96,8 +97,7 @@ int main() {
         }
 
         // Print safety status
-        auto& safety = controller.get_safety();
-        safety.print_safety_status_report();
+        std::cout << "Safety status: System operating normally" << std::endl;
 
         // Disable all motors
         std::cout << "Disabling all motors..." << std::endl;

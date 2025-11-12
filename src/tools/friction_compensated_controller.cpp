@@ -131,7 +131,6 @@ int main() {
             double tau_coulomb = friction_params[i].Fc * std::copysign(1.0, state.dq[i]);
 
             // Apply smooth transition near zero velocity
-            double dq_smooth = smooth_sign(state.dq[i], friction_params[i].velocity_threshold);
             double tanh_term = std::tanh(state.dq[i] / friction_params[i].velocity_threshold);
 
             // Coulomb + Viscous + Stribeck model

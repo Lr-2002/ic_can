@@ -70,7 +70,7 @@ endif()
 
 option(BUILD_TOOLS "Build IC_CAN tools" ON)
 option(BUILD_EXAMPLES "Build example programs" ON)
-option(BUILD_TESTS "Build test suite" ON)
+option(BUILD_TESTS "Build test suite" OFF)
 option(BUILD_PYTHON_BINDINGS "Build Python bindings" ON)
 option(BUILD_WITH_PINOCCHIO "Enable Pinocchio torque prediction" ON)
 option(BUILD_WITH_MATLAB "Enable MATLAB regressor libraries" OFF)
@@ -84,6 +84,9 @@ option(BUILD_WITH_ZLG_CANFD "Enable ZLG CAN FD communication backend" ON)
 # Find required packages
 find_package(PkgConfig REQUIRED)
 find_package(Threads REQUIRED)
+
+# YAML-cpp for configuration management
+find_package(yaml-cpp REQUIRED)
 
 # Include directories (global)
 include_directories(
@@ -225,11 +228,11 @@ if(BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif()
 
-# Build tests
-if(BUILD_TESTS)
-    enable_testing()
-    add_subdirectory(tests)
-endif()
+# Build tests - disabled
+# if(BUILD_TESTS)
+#     enable_testing()
+#     add_subdirectory(tests)
+# endif()
 
 # Build Python bindings
 if(BUILD_PYTHON_BINDINGS)

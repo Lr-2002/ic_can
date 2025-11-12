@@ -205,7 +205,6 @@ set(ADVANCED_TOOLS
     trajectory_executor
     friction_sweep
     friction_compensated_controller
-    regressor_wrapper
 )
 
 foreach(tool ${ADVANCED_TOOLS})
